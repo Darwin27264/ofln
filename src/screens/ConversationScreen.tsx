@@ -45,7 +45,6 @@ interface Props {
     conversation: Message[],
     userInput: string
   ) => Promise<void>;
-  // For toggling assistant display (bubble vs direct)
   assistantDisplayMode: "bubble" | "direct";
   onOpenSettings: () => void;
 }
@@ -120,7 +119,8 @@ export default function ConversationScreen({
     const scrollViewHeight = event.nativeEvent.layoutMeasurement.height;
     scrollPositionRef.current = currentPosition;
     contentHeightRef.current = contentHeight;
-    const distanceFromBottom = contentHeight - scrollViewHeight - currentPosition;
+    const distanceFromBottom =
+      contentHeight - scrollViewHeight - currentPosition;
     setAutoScrollEnabled(distanceFromBottom < 100);
   };
 
@@ -135,7 +135,7 @@ export default function ConversationScreen({
 
   const sendButtonDisabled = !userInput.trim();
 
-  // New slide-out panel logic.
+  // Slide-out panel logic.
   const panelWidth = 250;
   const panelAnim = useRef(new Animated.Value(-panelWidth)).current;
   const [isPanelOpen, setIsPanelOpen] = useState(false);
@@ -167,11 +167,9 @@ export default function ConversationScreen({
           <Ionicons name="reorder-two-outline" size={23} color="#000" />
         </TouchableOpacity>
 
-        {/* Top-right container for model and settings pills */}
+        {/* Top-right container for settings pill ONLY (model button removed) */}
         <View style={styles.topRightButtons}>
-          <TouchableOpacity style={styles.topRightPill} onPress={onBackToModelSelection}>
-            <Ionicons name="code-working-outline" size={23} color="#000" />
-          </TouchableOpacity>
+          {/* Removed the model-selection button */}
           <TouchableOpacity style={styles.topRightPill} onPress={onOpenSettings}>
             <Ionicons name="settings-outline" size={23} color="#000" />
           </TouchableOpacity>
@@ -179,7 +177,10 @@ export default function ConversationScreen({
 
         {/* Slide-out panel from the left */}
         <Animated.View
-          style={[styles.slideOutPanel, { transform: [{ translateX: panelAnim }] }]}
+          style={[
+            styles.slideOutPanel,
+            { transform: [{ translateX: panelAnim }] },
+          ]}
         >
           <Text style={{ fontSize: 18, fontFamily: "Poppins", padding: 16 }}>
             Slide-out panel content.
@@ -230,11 +231,15 @@ export default function ConversationScreen({
                       )}
                       {msg.showThought && msg.thought && (
                         <View style={styles.thoughtContainer}>
-                          <Text style={styles.thoughtTitle}>Model's Reasoning:</Text>
+                          <Text style={styles.thoughtTitle}>
+                            Model's Reasoning:
+                          </Text>
                           <Text style={styles.thoughtText}>{msg.thought}</Text>
                         </View>
                       )}
-                      <Markdown style={{ body: { fontSize: 18, fontFamily: "Poppins" } }}>
+                      <Markdown
+                        style={{ body: { fontSize: 18, fontFamily: "Poppins" } }}
+                      >
                         {msg.content}
                       </Markdown>
                     </Text>
@@ -250,8 +255,12 @@ export default function ConversationScreen({
           </ScrollView>
 
           {noMessages && (
-            <Animated.View style={[styles.greetingContainer, { opacity: greetingOpacity }]}>
-              <Text style={styles.greetingText}>How can I help you today?</Text>
+            <Animated.View
+              style={[styles.greetingContainer, { opacity: greetingOpacity }]}
+            >
+              <Text style={styles.greetingText}>
+                How can I help you today?
+              </Text>
             </Animated.View>
           )}
         </View>
@@ -272,7 +281,9 @@ export default function ConversationScreen({
                 <Text style={styles.sendIconText}>□</Text>
               </TouchableOpacity>
             ) : (
-              <Animated.View style={{ transform: [{ scale: scaleAnim }], marginLeft: "auto" }}>
+              <Animated.View
+                style={{ transform: [{ scale: scaleAnim }], marginLeft: "auto" }}
+              >
                 <TouchableOpacity
                   style={styles.sendIconButton}
                   onPress={handleSendMessage}

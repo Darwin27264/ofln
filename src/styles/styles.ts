@@ -1,5 +1,7 @@
 /* styles.ts */
-import { StyleSheet } from "react-native";
+import { StyleSheet, Dimensions } from "react-native";
+
+const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
 export const styles = StyleSheet.create({
   container: {
@@ -295,7 +297,7 @@ export const styles = StyleSheet.create({
 
   /* SettingsScreen styles */
   settingsTitle: {
-    fontSize: 24,
+    fontSize: 36,
     fontWeight: "600",
     marginBottom: 20,
     fontFamily: "Poppins",
@@ -312,15 +314,99 @@ export const styles = StyleSheet.create({
     fontFamily: "Poppins",
     color: "#000",
   },
-  settingsBackButton: {
-    backgroundColor: "#000000",
-    padding: 12,
-    borderRadius: 8,
-    alignItems: "center",
+
+
+  /* Additional styles for ModelSelection UI enhancements */
+
+  /* Grid container for the big squares */
+  modelFormatGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-start",
+    marginTop: 20,
   },
-  settingsBackButtonText: {
+
+  /* Big square box for each model format */
+  modelFormatBox: {
+    width: screenWidth * 0.45,
+    height: screenWidth * 0.45,
+    backgroundColor: "#EAEAEA",
+    borderRadius: 30,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    margin: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modelFormatBoxText: {
+    fontSize: 16,
+    fontFamily: "Poppins",
+    color: "#000",
+    textAlign: "center",
+    paddingHorizontal: 10,
+  },
+
+  downloadedModelButton: {
+    backgroundColor: "#E8FCEA",
+  },
+
+  /* Pill-like back button at bottom-left */
+  backPill: {
+    position: "absolute",
+    bottom: 30,
+    left: 20,
+    backgroundColor: "#000",
+    borderRadius: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  backPillIcon: {
+    fontSize: 24,
+    color: "#FFF",
+    marginRight: 8,
+    fontFamily: "Poppins",
+  },
+  backPillText: {
+    color: "#FFF",
     fontSize: 18,
     fontFamily: "Poppins",
-    color: "#FFFFFF",
+  },
+
+  /* Overlay behind the slide-up panel */
+  overlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    zIndex: 999,
+  },
+
+  /* Bottom sheet container */
+  bottomSheetContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: screenHeight * 0.7, // 60% of screen
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  bottomSheetInner: {
+    flex: 1,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 16,
+  },
+  bottomSheetTitle: {
+    fontSize: 18,
+    fontFamily: "Poppins",
+    color: "#000",
+    marginBottom: 12,
+    textAlign: "center",
   },
 });

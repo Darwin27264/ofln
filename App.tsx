@@ -197,6 +197,8 @@ export default function App(): React.JSX.Element {
           assistantDisplayMode={assistantDisplayMode}
           setAssistantDisplayMode={setAssistantDisplayMode}
           onBackToConversation={() => setCurrentPage("conversation")}
+          // This prop calls setCurrentPage("modelSelection") to navigate
+          onGoToModelSelection={() => setCurrentPage("modelSelection")}
         />
       )}
 
