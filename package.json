@@ -10,8 +10,16 @@
     "test": "jest"
   },
   "dependencies": {
+    "axios": "^1.8.4",
+    "llama.rn": "^0.5.0",
     "react": "19.0.0",
-    "react-native": "0.78.1"
+    "react-native": "0.78.1",
+    "react-native-fs": "^2.20.0",
+    "react-native-gesture-handler": "^2.25.0",
+    "react-native-keyboard-aware-scroll-view": "^0.9.5",
+    "react-native-markdown-display": "^7.0.2",
+    "react-native-vector-icons": "^10.2.0",
+    "react-syntax-highlighter": "^15.6.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

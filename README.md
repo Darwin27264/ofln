@@ -13,6 +13,7 @@ To start the Metro dev server, run the following command from the root of your R
 ```sh
 # Using npm
 npm start
+npx react-native start --reset-cache
 
 # OR using Yarn
 yarn start
