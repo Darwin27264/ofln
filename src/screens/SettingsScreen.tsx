@@ -3,12 +3,14 @@ import React, { useRef, useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, Alert, Animated } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { styles } from "../styles/styles";
+import RNFS from "react-native-fs";
 
 interface Props {
   assistantDisplayMode: "bubble" | "direct";
   setAssistantDisplayMode: React.Dispatch<React.SetStateAction<"bubble" | "direct">>;
   onBackToConversation: () => void;
   onGoToModelSelection: () => void;
+  onOpenStats: () => void; // NEW prop to open the stats (stages) page
 }
 
 export default function SettingsScreen({
@@ -16,6 +18,7 @@ export default function SettingsScreen({
   setAssistantDisplayMode,
   onBackToConversation,
   onGoToModelSelection,
+  onOpenStats,
 }: Props) {
   // For Chat Mode, "on" means bubble mode.
   const bubblesMode = assistantDisplayMode === "bubble";
@@ -71,6 +74,50 @@ export default function SettingsScreen({
     inputRange: [0, 1],
     outputRange: ["#000000", "#FFFFFF"],
   });
+
+  // State for aggregated usage stats (loaded from RNFS)
+  const [usageStats, setUsageStats] = useState(null);
+
+  useEffect(() => {
+    const loadUsageData = async () => {
+      try {
+        const filePath = `${RNFS.DocumentDirectoryPath}/usage_log.json`;
+        const exists = await RNFS.exists(filePath);
+        if (exists) {
+          const contents = await RNFS.readFile(filePath, "utf8");
+          const lines = contents.split("\n").filter((line) => line.trim().length > 0);
+          const records = lines
+            .map((line) => {
+              try {
+                return JSON.parse(line);
+              } catch (error) {
+                return null;
+              }
+            })
+            .filter((record) => record !== null);
+          if (records.length > 0) {
+            const totalInferences = records.length;
+            const avgInferenceTime =
+              records.reduce((sum: number, record: any) => sum + record.inferenceTime, 0) /
+              totalInferences;
+            const avgTokensPerSecond =
+              records.reduce((sum: number, record: any) => sum + record.tokensPerSecond, 0) /
+              totalInferences;
+            const latestPerformance = records[records.length - 1].performanceLevel;
+            setUsageStats({
+              totalInferences,
+              avgInferenceTime,
+              avgTokensPerSecond,
+              latestPerformance,
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Error reading usage data:", error);
+      }
+    };
+    loadUsageData();
+  }, []);
 
   return (
     <View style={[styles.container, { padding: 20, flex: 1 }]}>
@@ -218,7 +265,36 @@ export default function SettingsScreen({
         </View>
       </View>
 
-      {/* Back button: Black pill at bottom left */}
+      {/* Usage & Performance Metrics Block (now clickable) */}
+      <TouchableOpacity onPress={onOpenStats}>
+        <View
+          style={{
+            backgroundColor: "#EAEAEA",
+            borderRadius: 20,
+            padding: 15,
+            marginVertical: 20,
+          }}
+        >
+          <Text style={{ fontSize: 18, fontWeight: "600", color: "#334155", marginBottom: 8 }}>
+            Usage & Performance Stats
+          </Text>
+          {usageStats ? (
+            <View>
+              <Text>Total Inferences: {usageStats.totalInferences}</Text>
+              <Text>
+                Avg. Inference Time: {usageStats.avgInferenceTime.toFixed(2)} ms
+              </Text>
+              <Text>
+                Avg. Tokens/Sec: {usageStats.avgTokensPerSecond.toFixed(2)}
+              </Text>
+              <Text>Latest Performance: {usageStats.latestPerformance}</Text>
+            </View>
+          ) : (
+            <Text>No usage data available.</Text>
+          )}
+        </View>
+      </TouchableOpacity>
+
       <View style={{ position: "absolute", bottom: 20, left: 15 }}>
         <TouchableOpacity
           onPress={onBackToConversation}

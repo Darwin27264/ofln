@@ -5,6 +5,11 @@ export const downloadModel = async (
   modelUrl: string,
   onProgress: (progress: number) => void
 ): Promise<string> => {
+  // Ensure the model name has the correct extension.
+  if (!modelName.toLowerCase().endsWith('.gguf')) {
+    modelName = modelName + '.gguf';
+  }
+
   const destPath = `${RNFS.DocumentDirectoryPath}/${modelName}`;
   try {
     const fileExists = await RNFS.exists(destPath);
@@ -42,68 +47,7 @@ export const downloadModel = async (
     if (error instanceof Error) {
       throw new Error(`Failed to download model: ${error.message}`);
     } else {
-      throw new Error('Failed to download model: Unknown error');
+      throw new Error("Failed to download model: Unknown error");
     }
   }
 };
-
-
-// export const fetchAvailableFormats = async (repo: string): Promise<string[]> => {
-//     try {
-//       const response = await fetch(
-//         `https://huggingface.co/api/repos/${repo}/tree/main`
-//       );
-  
-//       if (!response.ok) {
-//         throw new Error(`Failed to fetch formats: ${response.statusText}`);
-//       }
-  
-//       const data = await response.json();
-  
-//       // Filter files for .gguf extensions
-//       return data
-//         .filter((file: any) => file.path.endsWith(".gguf"))
-//         .map((file: any) => file.path);
-//     } catch (error) {
-//       if (error instanceof Error) {
-//         throw new Error(`Error fetching available formats: ${error.message}`);
-//       } else {
-//         throw new Error("Unknown error occurred while fetching formats.");
-//       }
-//     }
-//   };
-
-// import RNFetchBlob from 'rn-fetch-blob';
-
-// export const downloadModel = async (
-//   modelName: string,
-//   modelUrl: string,
-//   onProgress: (progress: number) => void
-// ): Promise<string> => {
-//   const destPath = `${RNFetchBlob.fs.dirs.DocumentDir}/${modelName}.gguf`;
-  
-//   try {
-//     const downloadResult = await RNFetchBlob.config({
-//       path: destPath,
-//       fileCache: true,
-//     })
-//       .fetch('GET', modelUrl, {})
-//       .progress((received: number, total: number) => {
-//         const progress = (received / total) * 100;
-//         onProgress(Math.floor(progress));
-//       });
-
-//     // Check if the download was successful
-//     if (downloadResult.respInfo.status === 200) {
-//       return destPath;
-//     } else {
-//       throw new Error(`Download failed with status code: ${downloadResult.respInfo.status}`);
-//     }
-//   } catch (error) {
-//     if (error instanceof Error) {
-//       throw new Error(`Failed to download model: ${error.message}`);
-//     } else {
-//       throw new Error('Failed to download model: Unknown error');
-//     }
-//   }
-// };

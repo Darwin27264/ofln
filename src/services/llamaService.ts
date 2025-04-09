@@ -1,6 +1,8 @@
+// llamaservice.ts
 import { Alert } from "react-native";
 import RNFS from "react-native-fs";
 import { initLlama } from "llama.rn";
+import { recordUsage, getPerformanceLevel } from "./usageTracker"; // Note relative import!
 
 // Types
 type Message = {
@@ -99,7 +101,8 @@ export const handleSendMessageCompletion = async (
   setAutoScrollEnabled: (val: boolean) => void,
   tokensPerSecond: number[],
   setTokensPerSecond: React.Dispatch<React.SetStateAction<number[]>>,
-  scrollViewRef: React.RefObject<any>
+  scrollViewRef: React.RefObject<any>,
+  selectedModel: string
 ) => {
   if (!context) {
     Alert.alert("Model Not Loaded", "Please load the model first.");
@@ -119,6 +122,9 @@ export const handleSendMessageCompletion = async (
   setIsLoading(true);
   setIsGenerating(true);
   setAutoScrollEnabled(true);
+
+  // Start tracking inference time
+  const startTime = Date.now();
 
   try {
     const stopWords = [
@@ -211,12 +217,33 @@ export const handleSendMessageCompletion = async (
       }
     );
 
-    setTokensPerSecond((prev) => [
-      ...prev,
-      parseFloat(result.timings.predicted_per_second.toFixed(2)),
-    ]);
+    // Calculate metrics after completion
+    const endTime = Date.now();
+    const inferenceTime = endTime - startTime; // in milliseconds
+    const finalVisibleContent = currentAssistantMessage
+      .replace(/<think>.*?<\/think>/gs, "")
+      .trim();
+    const tokenCount = finalVisibleContent
+      .split(" ")
+      .filter((t) => t.length > 0).length;
+    const tps = result.timings.predicted_per_second;
+    const performanceLevel = getPerformanceLevel(tps);
+
+    // Save tokens per second metric for UI display
+    setTokensPerSecond((prev) => [...prev, parseFloat(tps.toFixed(2))]);
+
+    // Record usage metrics – note the new "model" property being added
+    recordUsage({
+      timestamp: Date.now(),
+      inferenceTime,
+      tokenCount,
+      tokensPerSecond: tps,
+      performanceLevel,
+      model: selectedModel,
+    });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
     Alert.alert("Error During Inference", errorMessage);
   } finally {
     setIsLoading(false);

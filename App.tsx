@@ -12,6 +12,7 @@ import axios from "axios";
 import ModelSelectionScreen from "./src/screens/ModelSelectionScreen";
 import ConversationScreen from "./src/screens/ConversationScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
+import StagesScreen from "./src/screens/StagesScreen";
 
 // Services
 import {
@@ -46,7 +47,7 @@ export default function App(): React.JSX.Element {
   const [selectedGGUF, setSelectedGGUF] = useState<string | null>(null);
   const [availableGGUFs, setAvailableGGUFs] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState<
-    "modelSelection" | "conversation" | "settings"
+    "modelSelection" | "conversation" | "settings" | "stages"
   >("conversation");
   const [tokensPerSecond, setTokensPerSecond] = useState<number[]>([]);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -184,7 +185,8 @@ export default function App(): React.JSX.Element {
               setAutoScrollEnabled,
               tokensPerSecond,
               setTokensPerSecond,
-              scrollViewRef
+              scrollViewRef,
+              selectedGGUF || "unknown"  // Pass the selected model for usage tracking
             )
           }
           assistantDisplayMode={assistantDisplayMode}
@@ -197,8 +199,16 @@ export default function App(): React.JSX.Element {
           assistantDisplayMode={assistantDisplayMode}
           setAssistantDisplayMode={setAssistantDisplayMode}
           onBackToConversation={() => setCurrentPage("conversation")}
-          // This prop calls setCurrentPage("modelSelection") to navigate
+          // Clicking the stats block navigates to the Stages page.
+          onOpenStats={() => setCurrentPage("stages")}
           onGoToModelSelection={() => setCurrentPage("modelSelection")}
+        />
+      )}
+
+      {currentPage === "stages" && (
+        <StagesScreen
+          downloadedModels={downloadedModels}
+          onBack={() => setCurrentPage("settings")}
         />
       )}
 
