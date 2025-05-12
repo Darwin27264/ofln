@@ -75,8 +75,16 @@ export default function SettingsScreen({
     outputRange: ["#000000", "#FFFFFF"],
   });
 
+  // Define the type for usage stats
+  interface UsageStats {
+    totalInferences: number;
+    avgInferenceTime: number;
+    avgTokensPerSecond: number;
+    latestPerformance: string;
+  }
+  
   // State for aggregated usage stats (loaded from RNFS)
-  const [usageStats, setUsageStats] = useState(null);
+  const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
 
   useEffect(() => {
     const loadUsageData = async () => {
@@ -121,16 +129,43 @@ export default function SettingsScreen({
 
   return (
     <View style={[styles.container, { padding: 20, flex: 1 }]}>
-      <Text style={styles.settingsTitle}>Settings</Text>
-      
-      {/* Horizontal row split exactly 50/50 */}
-      <View style={{ flexDirection: "row", marginVertical: 50, height: 250 }}>
+      <Text style={[styles.settingsTitle, { marginBottom: 40 }]}>Settings</Text>
+
+      {/* Performance Block moved above the other options */}
+      <TouchableOpacity onPress={onOpenStats}>
+        <View style={performanceStyles.performanceBlock}>
+          <Text style={performanceStyles.performanceBlockTitle}>Performance</Text>
+          {usageStats ? (
+            <View>
+              <Text style={performanceStyles.performanceBlockDetail}>
+                Total Inferences: {usageStats.totalInferences}
+              </Text>
+              <Text style={performanceStyles.performanceBlockDetail}>
+                Avg. Inference Time: {usageStats.avgInferenceTime.toFixed(2)} ms
+              </Text>
+              <Text style={performanceStyles.performanceBlockDetail}>
+                Avg. Tokens/Sec: {usageStats.avgTokensPerSecond.toFixed(2)}
+              </Text>
+              <Text style={performanceStyles.performanceBlockDetail}>
+                Latest Performance: {usageStats.latestPerformance}
+              </Text>
+            </View>
+          ) : (
+            <Text style={performanceStyles.performanceBlockDetail}>
+              No usage data available.
+            </Text>
+          )}
+        </View>
+      </TouchableOpacity>
+
+      {/* Horizontal row block with Model Selection and Chat/Dark mode, with unified spacing */}
+      <View style={{ flexDirection: "row", marginVertical: 5, height: 250 }}>
         {/* Left: Model Selection Block */}
         <TouchableOpacity
           style={{
             flex: 1,
             backgroundColor: "#EAEAEA",
-            borderRadius: 24,
+            borderRadius: 30,
             justifyContent: "flex-end",
             alignItems: "flex-start",
             padding: 20,
@@ -143,7 +178,7 @@ export default function SettingsScreen({
             name="grid-outline"
             size={32}
             color="#000000"
-            style={{ position: "absolute", top: 135, left: 15 }}
+            style={{ position: "absolute", top: 115, left: 15 }}
           />
           {/* Bigger circular icon at bottom right */}
           <Ionicons
@@ -175,7 +210,7 @@ export default function SettingsScreen({
               style={{
                 flex: 1,
                 backgroundColor: chatModeBackground,
-                borderRadius: 24,
+                borderRadius: 30,
                 justifyContent: "flex-end",
                 padding: 15,
               }}
@@ -221,7 +256,7 @@ export default function SettingsScreen({
               style={{
                 flex: 1,
                 backgroundColor: darkModeBackground,
-                borderRadius: 24,
+                borderRadius: 30,
                 justifyContent: "flex-end",
                 padding: 15,
               }}
@@ -265,36 +300,6 @@ export default function SettingsScreen({
         </View>
       </View>
 
-      {/* Usage & Performance Metrics Block (now clickable) */}
-      <TouchableOpacity onPress={onOpenStats}>
-        <View
-          style={{
-            backgroundColor: "#EAEAEA",
-            borderRadius: 20,
-            padding: 15,
-            marginVertical: 20,
-          }}
-        >
-          <Text style={{ fontSize: 18, fontWeight: "600", color: "#334155", marginBottom: 8 }}>
-            Usage & Performance Stats
-          </Text>
-          {usageStats ? (
-            <View>
-              <Text>Total Inferences: {usageStats.totalInferences}</Text>
-              <Text>
-                Avg. Inference Time: {usageStats.avgInferenceTime.toFixed(2)} ms
-              </Text>
-              <Text>
-                Avg. Tokens/Sec: {usageStats.avgTokensPerSecond.toFixed(2)}
-              </Text>
-              <Text>Latest Performance: {usageStats.latestPerformance}</Text>
-            </View>
-          ) : (
-            <Text>No usage data available.</Text>
-          )}
-        </View>
-      </TouchableOpacity>
-
       <View style={{ position: "absolute", bottom: 20, left: 15 }}>
         <TouchableOpacity
           onPress={onBackToConversation}
@@ -304,7 +309,7 @@ export default function SettingsScreen({
             backgroundColor: "#000000",
             paddingHorizontal: 16,
             paddingVertical: 8,
-            borderRadius: 24,
+            borderRadius: 30,
           }}
         >
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
@@ -324,3 +329,26 @@ export default function SettingsScreen({
     </View>
   );
 }
+
+const performanceStyles = {
+  performanceBlock: {
+    backgroundColor: "#EAEAEA",
+    borderRadius: 30,
+    padding: 15,
+    marginVertical: 5, // vertical spacing for the performance block itself
+  },
+  performanceBlockTitle: {
+    fontSize: 20,
+    fontWeight: "normal",
+    textAlign: "left",
+    color: "#000000",
+    lineHeight: 24,
+    marginBottom: 8,
+  },
+  performanceBlockDetail: {
+    fontSize: 16,
+    textAlign: "left",
+    color: "#000000",
+    marginBottom: 4,
+  },
+};

@@ -2,7 +2,7 @@
 import { Alert } from "react-native";
 import RNFS from "react-native-fs";
 import { initLlama } from "llama.rn";
-import { recordUsage, getPerformanceLevel } from "./usageTracker"; // Note relative import!
+import { recordUsage, getPerformanceLevel } from "./usageTracker";
 
 // Types
 type Message = {

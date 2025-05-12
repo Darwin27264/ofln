@@ -1,424 +1,605 @@
 // StagesScreen.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef, FC } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   ScrollView,
   Dimensions,
   ActivityIndicator,
   Alert,
-} from "react-native";
-import RNFS from "react-native-fs";
-import Ionicons from "react-native-vector-icons/Ionicons";
-import { LineChart } from "react-native-chart-kit";
-import { styles } from "../styles/styles";
+  Modal,
+  Animated,
+  StyleSheet,
+} from 'react-native';
+import RNFS from 'react-native-fs';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { LineChart } from 'react-native-chart-kit';
+import { styles as shared } from '../styles/styles';
 
-// Define a type for a usage record (matching our UsageMetrics interface)
+/* ──────────────────────────────────── constants ──────────────────────────────────── */
+const RADIUS = 30;
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const GRAPH_WIDTH = (SCREEN_WIDTH - 50) / 2;
+const GRAPH_HEIGHT = 120;
+const GRAPH_SHIFT = 18; // pushes chart down so filled area meets card edge
+const STAT_CARD_HEIGHT = GRAPH_HEIGHT + 30;
+
+const COLORS = {
+  primary: '#2563EB',
+  textDark: '#000',
+  textLight: '#fff',
+  greyLight: '#EAEAEA',
+  greyCard: '#F0F0F0',
+};
+
+/* ────────────────────────────────────── types ────────────────────────────────────── */
 interface UsageRecord {
   timestamp: number;
   inferenceTime: number;
   tokenCount: number;
   tokensPerSecond: number;
-  performanceLevel: "High" | "Medium" | "Low";
+  performanceLevel: 'High' | 'Medium' | 'Low';
   model: string;
 }
 
-// Props include a list of downloaded models and a callback to go back.
 interface Props {
   downloadedModels: string[];
   onBack: () => void;
 }
 
-export default function StagesScreen({ downloadedModels, onBack }: Props) {
-  const [loading, setLoading] = useState(true);
+/* ──────────────────────────────────── component ──────────────────────────────────── */
+const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
+  /* ───── state ───── */
   const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>(
-    downloadedModels[0] || "unknown"
-  );
-
-  // Aggregated stats for the selected model
-  const [aggregatedStats, setAggregatedStats] = useState<{
-    totalInferences: number;
-    avgInferenceTime: number;
-    avgTokensPerSecond: number;
-    latestPerformance: "High" | "Medium" | "Low";
+  const [selectedModel, setSelectedModel] = useState<string>(''); // start empty
+  const [stats, setStats] = useState<{
+    total: number;
+    avgTime: number;
+    avgTps: number;
+    perf: 'High' | 'Medium' | 'Low';
   } | null>(null);
 
-  // Chart data arrays for Tokens per Second (TPS) and Inference Time
-  const [chartTPSData, setChartTPSData] = useState<number[]>([]);
-  const [chartTimeData, setChartTimeData] = useState<number[]>([]);
+  const [tpsData, setTpsData] = useState<number[]>([]);
+  const [timeData, setTimeData] = useState<number[]>([]);
 
-  // Load usage data on mount
+  const [modalVisible, setModalVisible] = useState(false);
+  const [graphType, setGraphType] = useState<'tps' | 'inf' | null>(null);
+
+  /* ───── animations ───── */
+  const animTPS = useRef(new Animated.Value(0)).current;
+  const animINF = useRef(new Animated.Value(0)).current;
+  const animBig = useRef(new Animated.Value(0.8)).current; // pop scale
+
+  /* ───── flags ───── */
+  const userTouchedRef = useRef(false);
+
+  /* ───── helpers ───── */
+  const perfColor = (p?: 'High' | 'Medium' | 'Low') =>
+    p === 'High'
+      ? '#34C759'
+      : p === 'Medium'
+      ? '#FF9F0A'
+      : p === 'Low'
+      ? '#FF453A'
+      : COLORS.greyLight;
+
+  const chartConfig = {
+    backgroundColor: 'transparent',
+    backgroundGradientFrom: 'transparent',
+    backgroundGradientTo: 'transparent',
+    backgroundGradientFromOpacity: 0,
+    backgroundGradientToOpacity: 0,
+    color: (o = 1) => `rgba(37,99,235,${o})`,
+    labelColor: () => 'transparent',
+    strokeWidth: 2,
+    decimalPlaces: 0,
+    propsForDots: { r: '0' },
+    fillShadowGradient: 'rgba(37,99,235,1)',
+    fillShadowGradientOpacity: 0.25,
+  };
+
+  /* detailed chart config (labels + grid) */
+  const chartConfigDetailed = {
+    ...chartConfig,
+    labelColor: (o = 1) => `rgba(0,0,0,${o})`,
+  };
+
+  /* ─────────────────────────────── data loading ─────────────────────────────── */
   useEffect(() => {
-    const loadUsageData = async () => {
+    (async () => {
       try {
-        const filePath = `${RNFS.DocumentDirectoryPath}/usage_log.json`;
-        const exists = await RNFS.exists(filePath);
-        if (exists) {
-          const contents = await RNFS.readFile(filePath, "utf8");
-          const lines = contents.split("\n").filter((line) => line.trim().length > 0);
-          const records: UsageRecord[] = lines
-            .map((line) => {
+        const path = `${RNFS.DocumentDirectoryPath}/usage_log.json`;
+        if (await RNFS.exists(path)) {
+          const records = (await RNFS.readFile(path, 'utf8'))
+            .split('\n')
+            .filter(Boolean)
+            .map((l) => {
               try {
-                return JSON.parse(line);
-              } catch (error) {
+                return JSON.parse(l) as UsageRecord;
+              } catch {
                 return null;
               }
             })
-            .filter((record) => record !== null);
+            .filter(Boolean) as UsageRecord[];
           setUsageRecords(records);
         }
-      } catch (error) {
-        console.error("Error loading usage data:", error);
-      } finally {
-        setLoading(false);
+      } catch (e) {
+        console.error(e);
       }
-    };
-    loadUsageData();
+    })();
   }, []);
 
-  // Update aggregated stats and chart data when usageRecords or selectedModel changes.
+  /* ───────────────────────────── model list ───────────────────────────── */
+  const sortedModels = useMemo(() => {
+    return downloadedModels
+      .map((m, idx) => ({ m, idx }))
+      .sort((a, b) => {
+        const cntA = usageRecords.filter((r) => r.model === a.m).length;
+        const cntB = usageRecords.filter((r) => r.model === b.m).length;
+        if (cntB !== cntA) return cntB - cntA;
+        return a.idx - b.idx;
+      })
+      .map((o) => o.m);
+  }, [downloadedModels, usageRecords]);
+
   useEffect(() => {
-    const filtered = usageRecords.filter((record) => record.model === selectedModel);
-    if (filtered.length === 0) {
-      setAggregatedStats(null);
-      setChartTPSData([]);
-      setChartTimeData([]);
+    if (!userTouchedRef.current && sortedModels.length) {
+      setSelectedModel(sortedModels[0]);
+    }
+  }, [sortedModels]);
+
+  /* ───────────────────────────── stats / charts ───────────────────────────── */
+  useEffect(() => {
+    if (!selectedModel) return;
+    const filtered = usageRecords.filter((r) => r.model === selectedModel);
+    if (!filtered.length) {
+      setStats(null);
+      setTpsData([]);
+      setTimeData([]);
       return;
     }
-    const totalInferences = filtered.length;
-    const avgInferenceTime =
-      filtered.reduce((sum, r) => sum + r.inferenceTime, 0) / totalInferences;
-    const avgTokensPerSecond =
-      filtered.reduce((sum, r) => sum + r.tokensPerSecond, 0) / totalInferences;
-    const latestPerformance = filtered[filtered.length - 1].performanceLevel;
-    setAggregatedStats({
-      totalInferences,
-      avgInferenceTime,
-      avgTokensPerSecond,
-      latestPerformance,
-    });
+    const total = filtered.length;
+    const avgTime = filtered.reduce((s, r) => s + r.inferenceTime, 0) / total;
+    const avgTps = filtered.reduce((s, r) => s + r.tokensPerSecond, 0) / total;
+    const perf = filtered.at(-1)!.performanceLevel;
 
-    // Store chart data. You can index these if needed (e.g., by session order)
-    setChartTPSData(filtered.map((r) => r.tokensPerSecond));
-    setChartTimeData(filtered.map((r) => r.inferenceTime));
+    setStats({ total, avgTime, avgTps, perf });
+    setTpsData(filtered.map((r) => r.tokensPerSecond));
+    setTimeData(filtered.map((r) => r.inferenceTime));
   }, [usageRecords, selectedModel]);
 
-  // Determine if there are usage logs for the selected model
-  const noUsageLogs = aggregatedStats === null;
+  /* ───────────────────────────── animations ───────────────────────────── */
+  const runSmallCharts = () => {
+    animTPS.setValue(0);
+    animINF.setValue(0);
+    Animated.parallel([
+      Animated.timing(animTPS, {
+        toValue: GRAPH_WIDTH,
+        duration: 900,
+        useNativeDriver: false,
+      }),
+      Animated.timing(animINF, {
+        toValue: GRAPH_WIDTH,
+        duration: 900,
+        useNativeDriver: false,
+      }),
+    ]).start();
+  };
+  useEffect(runSmallCharts, [tpsData, timeData]);
 
-  // Compute dynamic suggestions based on the aggregated stats.
-  const getSuggestions = (): string[] => {
-    const suggestions: string[] = [];
-    if (aggregatedStats) {
-      if (aggregatedStats.avgInferenceTime > 100) {
-        suggestions.push(
-          "Your average inference time is high. Consider optimizing performance or trying a different model."
-        );
-      }
-      if (aggregatedStats.avgTokensPerSecond < 20) {
-        suggestions.push(
-          "Tokens per second rate is low; switching models might yield better performance."
-        );
-      }
-      if (aggregatedStats.totalInferences < 5) {
-        suggestions.push(
-          "Generate more inferences to gather sufficient data for deeper insights."
-        );
-      }
-      if (suggestions.length === 0) {
-        suggestions.push(
-          "Great performance! Keep using your model to accumulate more insights."
-        );
-      }
-    } else {
-      suggestions.push(
-        "No usage logs available. Start using the model to generate insightful data."
-      );
+  useEffect(() => {
+    if (modalVisible) {
+      animBig.setValue(0.8);
+      Animated.spring(animBig, {
+        toValue: 1,
+        friction: 6,
+        useNativeDriver: true,
+      }).start();
     }
-    return suggestions;
-  };
+  }, [modalVisible, animBig]);
 
-  // Screen width for chart layout
-  const screenWidth = Dimensions.get("window").width;
+  /* ───────────────────────────── render helpers ───────────────────────────── */
+  const Chart = ({ data, anim }: { data: number[]; anim: Animated.Value }) => (
+    <Animated.View
+      style={{
+        width: anim,
+        height: GRAPH_HEIGHT + GRAPH_SHIFT,
+        position: 'absolute',
+        bottom: -GRAPH_SHIFT,
+        left: 0,
+        overflow: 'hidden',
+      }}
+    >
+      <LineChart
+        data={{ labels: data.map(() => ''), datasets: [{ data }] }}
+        width={GRAPH_WIDTH}
+        height={GRAPH_HEIGHT + GRAPH_SHIFT}
+        chartConfig={chartConfig}
+        bezier
+        withDots={false}
+        withInnerLines={false}
+        withVerticalLabels={false}
+        withHorizontalLabels={false}
+        withVerticalLines={false}
+        withHorizontalLines={false}
+        style={stylesChart.chart}
+      />
+    </Animated.View>
+  );
 
-  // Updated chart configuration with a gray background matching the container,
-  // a modern minimal blue line, and no dots.
-  const chartConfig = {
-    backgroundColor: "#F0F0F0",
-    backgroundGradientFrom: "#F0F0F0",
-    backgroundGradientTo: "#F0F0F0",
-    color: (opacity = 1) => `rgba(37, 99, 235, ${opacity})`, // Blue line color
-    labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-    strokeWidth: 2,
-    barPercentage: 0.5,
-    decimalPlaces: 2,
-    propsForDots: {
-      r: "0", // Remove dots
-    },
-  };
-
+  /* ───────────────────────────── JSX ───────────────────────────── */
   return (
-    <View style={{ flex: 1 }}>
+    <View style={StyleSheet.absoluteFill}>
       <ScrollView
-        style={[styles.container, { padding: 20 }]}
-        contentContainerStyle={{ paddingBottom: 120 }} // Extra padding so content isn't hidden
+        style={[shared.container, stylesLocal.scroll]}
+        contentContainerStyle={stylesLocal.scrollContent}
       >
-        <Text style={[styles.settingsTitle, { marginBottom: 20 }]}>
-          Performance & Usage Stats
+        <Text style={[shared.settingsTitle, stylesLocal.title]}>
+          Performance
         </Text>
 
-        {/* Model Selector with horizontal scrolling */}
-        <ScrollView
-          horizontal={true}
-          showsHorizontalScrollIndicator={false}
-          style={{ marginBottom: 20 }}
-        >
-          {downloadedModels.map((model) => (
-            <TouchableOpacity
-              key={model}
-              onPress={() => setSelectedModel(model)}
-              style={{
-                padding: 10,
-                backgroundColor: selectedModel === model ? "#2563EB" : "#ccc",
-                borderRadius: 8,
-                marginRight: 10,
-              }}
-            >
-              <Text style={{ color: "#FFF", fontSize: 12 }}>{model}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        {selectedModel && stats && (
+          <>
+            {/* stat cards */}
+            <View style={stylesLocal.row}>
+              <View style={[stylesLocal.statCard, { marginRight: 10 }]}>
+                <View style={stylesLocal.statInner}>
+                  <Text style={stylesLocal.statValue}>{stats.total}</Text>
+                  <Text style={stylesLocal.statCaption}>total inferences</Text>
+                </View>
+              </View>
 
-        {/* Aggregated Stats Display */}
-        <View
-          style={{
-            backgroundColor: "#EAEAEA",
-            borderRadius: 10,
-            padding: 15,
-            marginBottom: 20,
-          }}
-        >
-          {aggregatedStats ? (
-            <>
-              <Text>Total Inferences: {aggregatedStats.totalInferences}</Text>
-              <Text>
-                Avg. Inference Time:{" "}
-                {aggregatedStats.avgInferenceTime.toFixed(2)} ms
-              </Text>
-              <Text>
-                Avg. Tokens/Sec:{" "}
-                {aggregatedStats.avgTokensPerSecond.toFixed(2)}
-              </Text>
-              <Text>
-                Latest Performance: {aggregatedStats.latestPerformance}
-              </Text>
-            </>
-          ) : (
-            <Text>No usage data for the selected model.</Text>
-          )}
-        </View>
-
-        {/* Tokens Per Second Chart in a gray rounded block */}
-        <View
-          style={{
-            backgroundColor: "#F0F0F0",
-            borderRadius: 10,
-            padding: 15,
-            marginBottom: 20,
-            position: "relative",
-          }}
-        >
-          <Text style={{ fontSize: 16, marginBottom: 10 }}>
-            Tokens Per Second Over Sessions
-          </Text>
-          {chartTPSData.length > 0 ? (
-            <LineChart
-              data={{
-                labels: chartTPSData.map((_, i) => String(i + 1)),
-                datasets: [
-                  {
-                    data: chartTPSData,
-                  },
-                ],
-              }}
-              width={screenWidth - 60} // Adjusted for padding
-              height={220}
-              chartConfig={chartConfig}
-              style={{ borderRadius: 10 }}
-              bezier
-              withDots={false}
-              withInnerLines={false}
-              withVerticalLines={false}
-            />
-          ) : (
-            <ActivityIndicator size="small" color="#2563EB" />
-          )}
-          {noUsageLogs && (
-            <View
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: "rgba(128,128,128,0.5)",
-                justifyContent: "center",
-                alignItems: "center",
-                borderRadius: 10,
-              }}
-            >
-              <Text style={{ color: "#FFF", fontSize: 16 }}>No usage logs</Text>
+              <View
+                style={[
+                  stylesLocal.statCard,
+                  { backgroundColor: perfColor(stats.perf) },
+                ]}
+              >
+                <View style={stylesLocal.statInner}>
+                  <Text
+                    style={[
+                      stylesLocal.perfValue,
+                      {
+                        color:
+                          stats.perf === 'High'
+                            ? COLORS.textLight
+                            : COLORS.textDark,
+                      },
+                    ]}
+                  >
+                    {stats.perf}
+                  </Text>
+                  <Text
+                    style={[
+                      stylesLocal.statCaption,
+                      {
+                        color:
+                          stats.perf === 'High'
+                            ? COLORS.textLight
+                            : COLORS.textDark,
+                      },
+                    ]}
+                  >
+                    Performance level
+                  </Text>
+                </View>
+              </View>
             </View>
-          )}
-        </View>
 
-        {/* Inference Time Chart in a gray rounded block */}
-        <View
-          style={{
-            backgroundColor: "#F0F0F0",
-            borderRadius: 10,
-            padding: 15,
-            marginBottom: 20,
-            position: "relative",
-          }}
-        >
-          <Text style={{ fontSize: 16, marginBottom: 10 }}>
-            Inference Time Over Sessions (ms)
-          </Text>
-          {chartTimeData.length > 0 ? (
-            <LineChart
-              data={{
-                labels: chartTimeData.map((_, i) => String(i + 1)),
-                datasets: [
-                  {
-                    data: chartTimeData,
-                  },
-                ],
-              }}
-              width={screenWidth - 60}
-              height={220}
-              chartConfig={chartConfig}
-              style={{ borderRadius: 10 }}
-              bezier
-              withDots={false}
-              withInnerLines={false}
-              withVerticalLines={false}
-            />
-          ) : (
-            <ActivityIndicator size="small" color="#2563EB" />
-          )}
-          {noUsageLogs && (
-            <View
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: "rgba(128,128,128,0.5)",
-                justifyContent: "center",
-                alignItems: "center",
-                borderRadius: 10,
-              }}
-            >
-              <Text style={{ color: "#FFF", fontSize: 16 }}>No usage logs</Text>
+            {/* graphs */}
+            <View style={stylesLocal.row}>
+              <TouchableOpacity
+                onPress={() => {
+                  setGraphType('tps');
+                  setModalVisible(true);
+                }}
+                style={{ marginRight: 10 }}
+              >
+                <View style={stylesLocal.graphCard}>
+                  <Text style={stylesLocal.graphValue}>
+                    {stats.avgTps.toFixed(0)}
+                  </Text>
+                  <Text style={stylesLocal.graphCaption}>
+                    avg tokens/sec
+                  </Text>
+                  {tpsData.length ? (
+                    <Chart data={tpsData.slice(-20)} anim={animTPS} />
+                  ) : (
+                    <ActivityIndicator color={COLORS.primary} />
+                  )}
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  setGraphType('inf');
+                  setModalVisible(true);
+                }}
+              >
+                <View style={stylesLocal.graphCard}>
+                  <Text style={stylesLocal.graphValue}>
+                    {stats.avgTime.toFixed(0)}
+                  </Text>
+                  <Text style={stylesLocal.graphCaption}>
+                    avg ms/inference
+                  </Text>
+                  {timeData.length ? (
+                    <Chart data={timeData.slice(-20)} anim={animINF} />
+                  ) : (
+                    <ActivityIndicator color={COLORS.primary} />
+                  )}
+                </View>
+              </TouchableOpacity>
             </View>
-          )}
-        </View>
+          </>
+        )}
 
-        {/* Dynamic Suggestions */}
-        <View
-          style={{
-            backgroundColor: "#EAEAEA",
-            borderRadius: 20,
-            padding: 15,
-          }}
-        >
-          <Text style={{ fontSize: 16, marginBottom: 10 }}>Suggestions</Text>
-          {getSuggestions().map((suggestion, index) => (
-            <Text key={index} style={{ marginBottom: 5 }}>
-              {suggestion}
-            </Text>
-          ))}
+        {/* suggestions */}
+        <View style={stylesLocal.suggestionCard}>
+          <View style={stylesLocal.suggestionHeader}>
+            <Text style={stylesLocal.suggestionTitle}>Suggestions</Text>
+            <Ionicons name="bulb-outline" size={22} color={COLORS.textDark} />
+          </View>
+          {(() => {
+            const msgs: string[] = [];
+            if (!stats) {
+              msgs.push(
+                'No usage logs available. Start using the model to gather insights.'
+              );
+            } else {
+              if (stats.avgTime > 100)
+                msgs.push('Average inference time is high—consider optimising.');
+              if (stats.avgTps < 20)
+                msgs.push('Tokens‑per‑second is low—try another model.');
+              if (stats.total < 5)
+                msgs.push('Generate more inferences for deeper insight.');
+              if (!msgs.length) msgs.push('Great performance—keep going!');
+            }
+            return msgs.map((msg, i) => (
+              <Text key={i} style={stylesLocal.suggestionText}>
+                {msg}
+              </Text>
+            ));
+          })()}
         </View>
       </ScrollView>
 
-      {/* Back Button (styled like in SettingsScreen) */}
-      <View style={{ position: "absolute", bottom: 20, left: 15 }}>
-        <TouchableOpacity
-          onPress={onBack}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            backgroundColor: "#000000",
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 24,
-          }}
+      {/* model selector */}
+      <View style={stylesLocal.modelBar}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={stylesLocal.modelList}
         >
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-          <Text
-            style={{
-              color: "#FFFFFF",
-              fontSize: 20,
-              fontFamily: "Poppins",
-              marginLeft: 8,
-              marginBottom: 2,
-            }}
-          >
-            Back
-          </Text>
-        </TouchableOpacity>
+          {sortedModels.map((m) => (
+            <TouchableOpacity
+              key={m}
+              onPress={() => {
+                userTouchedRef.current = true;
+                setSelectedModel(m);
+                runSmallCharts();
+              }}
+              style={[
+                stylesLocal.modelChip,
+                {
+                  backgroundColor:
+                    selectedModel === m ? COLORS.primary : '#ccc',
+                },
+              ]}
+            >
+              <Text style={stylesLocal.modelText}>{m}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </View>
 
-      {/* Clear Button (no icon, with confirmation, balanced pill) */}
-      <View style={{ position: "absolute", bottom: 20, right: 15 }}>
+      {/* modal */}
+      <Modal visible={modalVisible} transparent animationType="fade">
         <TouchableOpacity
-          onPress={() => {
-            Alert.alert(
-              "Clear Usage Data",
-              "Are you sure you want to clear usage logs?",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Clear",
-                  style: "destructive",
-                  onPress: async () => {
-                    try {
-                      const filePath = `${RNFS.DocumentDirectoryPath}/usage_log.json`;
-                      await RNFS.unlink(filePath);
-                      setUsageRecords([]);
-                    } catch (error) {
-                      console.error("Error clearing usage data:", error);
-                    }
-                  },
-                },
-              ]
-            );
-          }}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            backgroundColor: "#000000",
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 24,
-          }}
+          style={stylesLocal.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setModalVisible(false)}
         >
-          <Text
-            style={{
-              color: "#FFFFFF",
-              fontSize: 20,
-              fontFamily: "Poppins",
-              textAlign: "center",
-            }}
-          >
-            Clear
-          </Text>
+          <TouchableWithoutFeedback>
+            <Animated.View
+              style={[
+                stylesLocal.modalCard,
+                { transform: [{ scale: animBig }], alignItems: 'flex-start' },
+              ]}
+            >
+              <Text style={stylesLocal.modalTitle}>
+                {graphType === 'tps'
+                  ? 'Tokens Per Second'
+                  : 'Inference Time (ms)'}
+              </Text>
+              {(() => {
+                const dataArr = graphType === 'tps' ? tpsData : timeData;
+                return (
+                  <View
+                    style={{
+                      width: SCREEN_WIDTH - 80,
+                      alignSelf: 'flex-start',
+                      // No extra left padding here; we'll use a negative margin on the chart instead.
+                    }}
+                  >
+                    <LineChart
+                      data={{
+                        labels: dataArr.map((_, i) => `${i + 1}`),
+                        datasets: [{ data: dataArr }],
+                      }}
+                      width={SCREEN_WIDTH - 80}
+                      height={300 + GRAPH_SHIFT}
+                      chartConfig={chartConfigDetailed}
+                      yLabelsOffset={10}
+                      bezier
+                      withDots
+                      withInnerLines
+                      withHorizontalLabels
+                      withVerticalLabels
+                      withHorizontalLines
+                      withVerticalLines={false}
+                      style={{
+                        backgroundColor: 'transparent',
+                        marginLeft: -20, // Shift chart further left to reduce extra empty space
+                        marginBottom: -GRAPH_SHIFT,
+                      }}
+                    />
+                  </View>
+                );
+              })()}
+            </Animated.View>
+          </TouchableWithoutFeedback>
         </TouchableOpacity>
-      </View>
+      </Modal>
+
+      {/* back / clear buttons */}
+      <BackClearButtons onBack={onBack} clearLogs={() => setUsageRecords([])} />
     </View>
   );
-}
+};
+
+/* ───────────────────────────── back / clear buttons ───────────────────────────── */
+const BackClearButtons: FC<{ onBack: () => void; clearLogs: () => void }> = ({
+  onBack,
+  clearLogs,
+}) => (
+  <>
+    <View style={[stylesLocal.fixedBtn, { left: 15 }]}>
+      <TouchableOpacity style={stylesLocal.btn} onPress={onBack}>
+        <Ionicons name="arrow-back" size={24} color={COLORS.textLight} />
+        <Text style={stylesLocal.btnText}>Back</Text>
+      </TouchableOpacity>
+    </View>
+
+    <View style={[stylesLocal.fixedBtn, { right: 15 }]}>
+      <TouchableOpacity
+        style={stylesLocal.btn}
+        onPress={() =>
+          Alert.alert('Clear Usage Data', 'Are you sure?', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Clear',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  await RNFS.unlink(`${RNFS.DocumentDirectoryPath}/usage_log.json`);
+                  clearLogs();
+                } catch (e) {
+                  console.error(e);
+                }
+              },
+            },
+          ])
+        }
+      >
+        <Text style={stylesLocal.btnText}>Clear</Text>
+      </TouchableOpacity>
+    </View>
+  </>
+);
+
+/* ───────────────────────────── styles ───────────────────────────── */
+const stylesLocal = StyleSheet.create({
+  scroll: { padding: 20 },
+  scrollContent: { paddingBottom: 220 },
+  title: { marginBottom: 40 }, // Increased margin for added spacing
+  row: { flexDirection: 'row', marginBottom: 10 },
+
+  /* stat blocks */
+  statCard: {
+    width: GRAPH_WIDTH,
+    height: STAT_CARD_HEIGHT,
+    backgroundColor: COLORS.greyLight,
+    borderRadius: RADIUS,
+    position: 'relative',
+  },
+  statInner: { position: 'absolute', bottom: 15, left: 15 },
+  statValue: { fontSize: 42, fontWeight: '700' },
+  perfValue: { fontSize: 34, fontWeight: '700' },
+  statCaption: { fontSize: 12, color: '#555' },
+
+  /* graph cards */
+  graphCard: {
+    backgroundColor: COLORS.greyCard,
+    borderRadius: RADIUS,
+    paddingTop: 10,
+    width: GRAPH_WIDTH,
+    height: GRAPH_HEIGHT + 60,
+    overflow: 'hidden',
+  },
+  graphValue: { fontSize: 36, fontWeight: '600', paddingLeft: 10 },
+  graphCaption: { fontSize: 12, color: '#555', marginBottom: 5, paddingLeft: 10 },
+
+  /* suggestions */
+  suggestionCard: {
+    backgroundColor: COLORS.greyLight,
+    borderRadius: RADIUS,
+    padding: 20,
+    marginBottom: 20,
+  },
+  suggestionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  suggestionTitle: { fontSize: 18, marginRight: 6 },
+  suggestionText: { fontSize: 14, marginBottom: 4 },
+
+  /* model selector */
+  modelBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 80,
+    paddingHorizontal: 20,
+  },
+  modelList: { alignItems: 'center' },
+  modelChip: {
+    paddingVertical: 12,
+    paddingHorizontal: 22,
+    borderRadius: 20,
+    marginRight: 10,
+    minWidth: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modelText: { color: COLORS.textLight, fontSize: 16 },
+
+  /* modal */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCard: {
+    backgroundColor: COLORS.greyCard,
+    borderRadius: RADIUS,
+    padding: 20,
+    width: SCREEN_WIDTH - 40,
+    overflow: 'hidden',
+  },
+  modalTitle: { fontSize: 18, marginBottom: 10 },
+
+  /* buttons */
+  fixedBtn: { position: 'absolute', bottom: 20 },
+  btn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.textDark,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 24,
+  },
+  btnText: {
+    color: COLORS.textLight,
+    fontSize: 20,
+    fontFamily: 'Poppins',
+    marginLeft: 8,
+    marginBottom: 2,
+  },
+});
+
+const stylesChart = StyleSheet.create({
+  chart: { backgroundColor: 'transparent', paddingLeft: 0, paddingRight: 0 },
+});
+
+export default StagesScreen;
