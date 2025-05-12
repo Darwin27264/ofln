@@ -335,19 +335,19 @@ const performanceStyles = {
     backgroundColor: "#EAEAEA",
     borderRadius: 30,
     padding: 15,
-    marginVertical: 5, // vertical spacing for the performance block itself
+    marginVertical: 5,
   },
   performanceBlockTitle: {
     fontSize: 20,
-    fontWeight: "normal",
-    textAlign: "left",
+    fontWeight: "400",
+    textAlign: "left" as const,
     color: "#000000",
     lineHeight: 24,
     marginBottom: 8,
   },
   performanceBlockDetail: {
     fontSize: 16,
-    textAlign: "left",
+    textAlign: "left" as const,
     color: "#000000",
     marginBottom: 4,
   },

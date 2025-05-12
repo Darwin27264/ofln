@@ -73,7 +73,7 @@ export default function App(): React.JSX.Element {
     { label: "SmolLM2-1.7B-Instruct" },
   ];
 
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<ScrollView>(null!) as React.RefObject<ScrollView>;
   const scrollPositionRef = useRef(0);
   const contentHeightRef = useRef(0);
 
