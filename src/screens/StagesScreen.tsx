@@ -23,8 +23,9 @@ const RADIUS = 30;
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const GRAPH_WIDTH = (SCREEN_WIDTH - 50) / 2;
 const GRAPH_HEIGHT = 120;
-const GRAPH_SHIFT = 18; // pushes chart down so filled area meets card edge
+const GRAPH_SHIFT = 18;
 const STAT_CARD_HEIGHT = GRAPH_HEIGHT + 30;
+const USAGE_LOG_PATH = `${RNFS.DocumentDirectoryPath}/usage_log.json`;
 
 const COLORS = {
   primary: '#2563EB',
@@ -44,104 +45,145 @@ interface UsageRecord {
   model: string;
 }
 
+interface ModelStats {
+  total: number;
+  avgTime: number;
+  avgTps: number;
+  perf: 'High' | 'Medium' | 'Low';
+  tpsData: number[];
+  timeData: number[];
+}
+
 interface Props {
   downloadedModels: string[];
   onBack: () => void;
 }
 
-/* ──────────────────────────────────── component ──────────────────────────────────── */
-const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
-  /* ───── state ───── */
+/* ──────────────────────────────── hooks and utils ──────────────────────────────── */
+const useUsageData = () => {
   const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>(''); // start empty
-  const [stats, setStats] = useState<{
-    total: number;
-    avgTime: number;
-    avgTps: number;
-    perf: 'High' | 'Medium' | 'Low';
-  } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [tpsData, setTpsData] = useState<number[]>([]);
-  const [timeData, setTimeData] = useState<number[]>([]);
-
-  const [modalVisible, setModalVisible] = useState(false);
-  const [graphType, setGraphType] = useState<'tps' | 'inf' | null>(null);
-
-  /* ───── animations ───── */
-  const animTPS = useRef(new Animated.Value(0)).current;
-  const animINF = useRef(new Animated.Value(0)).current;
-  const animBig = useRef(new Animated.Value(0.8)).current; // pop scale
-
-  /* ───── flags ───── */
-  const userTouchedRef = useRef(false);
-
-  /* ───── helpers ───── */
-  const perfColor = (p?: 'High' | 'Medium' | 'Low') =>
-    p === 'High'
-      ? '#34C759'
-      : p === 'Medium'
-      ? '#FF9F0A'
-      : p === 'Low'
-      ? '#FF453A'
-      : COLORS.greyLight;
-
-  const chartConfig = {
-    backgroundColor: 'transparent',
-    backgroundGradientFrom: 'transparent',
-    backgroundGradientTo: 'transparent',
-    backgroundGradientFromOpacity: 0,
-    backgroundGradientToOpacity: 0,
-    color: (o = 1) => `rgba(37,99,235,${o})`,
-    labelColor: () => 'transparent',
-    strokeWidth: 2,
-    decimalPlaces: 0,
-    propsForDots: { r: '0' },
-    fillShadowGradient: 'rgba(37,99,235,1)',
-    fillShadowGradientOpacity: 0.25,
-  };
-
-  /* detailed chart config (labels + grid) */
-  const chartConfigDetailed = {
-    ...chartConfig,
-    labelColor: (o = 1) => `rgba(0,0,0,${o})`,
-  };
-
-  /* ─────────────────────────────── data loading ─────────────────────────────── */
-  useEffect(() => {
-    (async () => {
-      try {
-        const path = `${RNFS.DocumentDirectoryPath}/usage_log.json`;
-        if (await RNFS.exists(path)) {
-          const records = (await RNFS.readFile(path, 'utf8'))
-            .split('\n')
-            .filter(Boolean)
-            .map((l) => {
-              try {
-                return JSON.parse(l) as UsageRecord;
-              } catch {
-                return null;
+  const loadUsageData = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      if (await RNFS.exists(USAGE_LOG_PATH)) {
+        const content = await RNFS.readFile(USAGE_LOG_PATH, 'utf8');
+        const records: UsageRecord[] = content
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => {
+            try {
+              const record = JSON.parse(line);
+              if (!validateUsageRecord(record)) {
+                throw new Error('Invalid record format');
               }
-            })
-            .filter(Boolean) as UsageRecord[];
-          setUsageRecords(records);
-        }
-      } catch (e) {
-        console.error(e);
+              return record;
+            } catch {
+              return null;
+            }
+          })
+          .filter((record): record is UsageRecord => record !== null);
+        
+        setUsageRecords(records);
+      } else {
+        setUsageRecords([]);
       }
-    })();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load usage data');
+      setUsageRecords([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const clearUsageData = async () => {
+    try {
+      await RNFS.unlink(USAGE_LOG_PATH);
+      setUsageRecords([]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to clear usage data');
+    }
+  };
+
+  useEffect(() => {
+    loadUsageData();
   }, []);
 
-  /* ───────────────────────────── model list ───────────────────────────── */
+  return { usageRecords, isLoading, error, clearUsageData };
+};
+
+const useModelStats = (usageRecords: UsageRecord[], selectedModel: string | null) => {
+  return useMemo((): ModelStats | null => {
+    if (!selectedModel) return null;
+
+    const filtered = usageRecords.filter(r => r.model === selectedModel);
+    if (!filtered.length) return null;
+
+    const total = filtered.length;
+    const avgTime = filtered.reduce((sum, r) => sum + r.inferenceTime, 0) / total;
+    const avgTps = filtered.reduce((sum, r) => sum + r.tokensPerSecond, 0) / total;
+    const perf = filtered.at(-1)!.performanceLevel;
+    const tpsData = filtered.map(r => r.tokensPerSecond);
+    const timeData = filtered.map(r => r.inferenceTime);
+
+    return { total, avgTime, avgTps, perf, tpsData, timeData };
+  }, [usageRecords, selectedModel]);
+};
+
+const useChartAnimations = (data: number[] | undefined) => {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  const runAnimation = () => {
+    anim.setValue(0);
+    Animated.timing(anim, {
+      toValue: GRAPH_WIDTH,
+      duration: 900,
+      useNativeDriver: false,
+    }).start();
+  };
+
+  useEffect(() => {
+    if (data?.length) runAnimation();
+  }, [data]);
+
+  return anim;
+};
+
+/* ───────────────────────────── validation ───────────────────────────── */
+const validateUsageRecord = (record: any): record is UsageRecord => {
+  return (
+    typeof record === 'object' &&
+    typeof record.timestamp === 'number' &&
+    typeof record.inferenceTime === 'number' &&
+    typeof record.tokenCount === 'number' &&
+    typeof record.tokensPerSecond === 'number' &&
+    ['High', 'Medium', 'Low'].includes(record.performanceLevel) &&
+    typeof record.model === 'string'
+  );
+};
+
+/* ──────────────────────────────────── component ──────────────────────────────────── */
+const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
+  const { usageRecords, isLoading, error, clearUsageData } = useUsageData();
+  const [selectedModel, setSelectedModel] = useState<string>('');
+  const [modalVisible, setModalVisible] = useState(false);
+  const [graphType, setGraphType] = useState<'tps' | 'inf' | null>(null);
+  const userTouchedRef = useRef(false);
+
+  // Models sorting and selection
   const sortedModels = useMemo(() => {
     return downloadedModels
       .map((m, idx) => ({ m, idx }))
       .sort((a, b) => {
-        const cntA = usageRecords.filter((r) => r.model === a.m).length;
-        const cntB = usageRecords.filter((r) => r.model === b.m).length;
-        if (cntB !== cntA) return cntB - cntA;
-        return a.idx - b.idx;
+        const countA = usageRecords.filter(r => r.model === a.m).length;
+        const countB = usageRecords.filter(r => r.model === b.m).length;
+        return countB !== countA ? countB - countA : a.idx - b.idx;
       })
-      .map((o) => o.m);
+      .map(o => o.m);
   }, [downloadedModels, usageRecords]);
 
   useEffect(() => {
@@ -150,58 +192,47 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
     }
   }, [sortedModels]);
 
-  /* ───────────────────────────── stats / charts ───────────────────────────── */
-  useEffect(() => {
-    if (!selectedModel) return;
-    const filtered = usageRecords.filter((r) => r.model === selectedModel);
-    if (!filtered.length) {
-      setStats(null);
-      setTpsData([]);
-      setTimeData([]);
-      return;
-    }
-    const total = filtered.length;
-    const avgTime = filtered.reduce((s, r) => s + r.inferenceTime, 0) / total;
-    const avgTps = filtered.reduce((s, r) => s + r.tokensPerSecond, 0) / total;
-    const perf = filtered.at(-1)!.performanceLevel;
+  // Stats calculation
+  const stats = useModelStats(usageRecords, selectedModel);
 
-    setStats({ total, avgTime, avgTps, perf });
-    setTpsData(filtered.map((r) => r.tokensPerSecond));
-    setTimeData(filtered.map((r) => r.inferenceTime));
-  }, [usageRecords, selectedModel]);
-
-  /* ───────────────────────────── animations ───────────────────────────── */
-  const runSmallCharts = () => {
-    animTPS.setValue(0);
-    animINF.setValue(0);
-    Animated.parallel([
-      Animated.timing(animTPS, {
-        toValue: GRAPH_WIDTH,
-        duration: 900,
-        useNativeDriver: false,
-      }),
-      Animated.timing(animINF, {
-        toValue: GRAPH_WIDTH,
-        duration: 900,
-        useNativeDriver: false,
-      }),
-    ]).start();
-  };
-  useEffect(runSmallCharts, [tpsData, timeData]);
+  // Animations
+  const tpsAnim = useChartAnimations(stats?.tpsData);
+  const infAnim = useChartAnimations(stats?.timeData);
+  const modalAnim = useRef(new Animated.Value(0.8)).current;
 
   useEffect(() => {
     if (modalVisible) {
-      animBig.setValue(0.8);
-      Animated.spring(animBig, {
+      modalAnim.setValue(0.8);
+      Animated.spring(modalAnim, {
         toValue: 1,
         friction: 6,
         useNativeDriver: true,
       }).start();
     }
-  }, [modalVisible, animBig]);
+  }, [modalVisible]);
 
-  /* ───────────────────────────── render helpers ───────────────────────────── */
-  const Chart = ({ data, anim }: { data: number[]; anim: Animated.Value }) => (
+  // Error handling
+  if (error) {
+    return (
+      <View style={[shared.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ marginBottom: 20 }}>Error: {error}</Text>
+        <TouchableOpacity onPress={onBack} style={stylesLocal.btn}>
+          <Text style={stylesLocal.btnText}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <View style={[shared.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
+  }
+
+  // Chart components
+  const Chart: FC<{ data: number[]; anim: Animated.Value }> = ({ data, anim }) => (
     <Animated.View
       style={{
         width: anim,
@@ -229,20 +260,29 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
     </Animated.View>
   );
 
-  /* ───────────────────────────── JSX ───────────────────────────── */
+  const getSuggestions = () => {
+    if (!stats) return ['No usage logs available. Start using the model to gather insights.'];
+    
+    const suggestions: string[] = [];
+    if (stats.avgTime > 100) suggestions.push('Average inference time is high—consider optimising.');
+    if (stats.avgTps < 20) suggestions.push('Tokens‑per‑second is low—try another model.');
+    if (stats.total < 5) suggestions.push('Generate more inferences for deeper insight.');
+    if (!suggestions.length) suggestions.push('Great performance—keep going!');
+    
+    return suggestions;
+  };
+
   return (
     <View style={StyleSheet.absoluteFill}>
       <ScrollView
         style={[shared.container, stylesLocal.scroll]}
         contentContainerStyle={stylesLocal.scrollContent}
       >
-        <Text style={[shared.settingsTitle, stylesLocal.title]}>
-          Performance
-        </Text>
+        <Text style={[shared.settingsTitle, stylesLocal.title]}>Performance</Text>
 
         {selectedModel && stats && (
           <>
-            {/* stat cards */}
+            {/* Stats cards */}
             <View style={stylesLocal.row}>
               <View style={[stylesLocal.statCard, { marginRight: 10 }]}>
                 <View style={stylesLocal.statInner}>
@@ -251,61 +291,29 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
                 </View>
               </View>
 
-              <View
-                style={[
-                  stylesLocal.statCard,
-                  { backgroundColor: perfColor(stats.perf) },
-                ]}
-              >
+              <View style={[stylesLocal.statCard, { backgroundColor: perfColor(stats.perf) }]}>
                 <View style={stylesLocal.statInner}>
-                  <Text
-                    style={[
-                      stylesLocal.perfValue,
-                      {
-                        color:
-                          stats.perf === 'High'
-                            ? COLORS.textLight
-                            : COLORS.textDark,
-                      },
-                    ]}
-                  >
+                  <Text style={[stylesLocal.perfValue, { color: stats.perf === 'High' ? COLORS.textLight : COLORS.textDark }]}>
                     {stats.perf}
                   </Text>
-                  <Text
-                    style={[
-                      stylesLocal.statCaption,
-                      {
-                        color:
-                          stats.perf === 'High'
-                            ? COLORS.textLight
-                            : COLORS.textDark,
-                      },
-                    ]}
-                  >
+                  <Text style={[stylesLocal.statCaption, { color: stats.perf === 'High' ? COLORS.textLight : COLORS.textDark }]}>
                     Performance level
                   </Text>
                 </View>
               </View>
             </View>
 
-            {/* graphs */}
+            {/* Graph cards */}
             <View style={stylesLocal.row}>
               <TouchableOpacity
-                onPress={() => {
-                  setGraphType('tps');
-                  setModalVisible(true);
-                }}
+                onPress={() => { setGraphType('tps'); setModalVisible(true); }}
                 style={{ marginRight: 10 }}
               >
                 <View style={stylesLocal.graphCard}>
-                  <Text style={stylesLocal.graphValue}>
-                    {stats.avgTps.toFixed(0)}
-                  </Text>
-                  <Text style={stylesLocal.graphCaption}>
-                    avg tokens/sec
-                  </Text>
-                  {tpsData.length ? (
-                    <Chart data={tpsData.slice(-20)} anim={animTPS} />
+                  <Text style={stylesLocal.graphValue}>{stats.avgTps.toFixed(0)}</Text>
+                  <Text style={stylesLocal.graphCaption}>avg tokens/sec</Text>
+                  {stats.tpsData.length ? (
+                    <Chart data={stats.tpsData.slice(-20)} anim={tpsAnim} />
                   ) : (
                     <ActivityIndicator color={COLORS.primary} />
                   )}
@@ -313,20 +321,13 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={() => {
-                  setGraphType('inf');
-                  setModalVisible(true);
-                }}
+                onPress={() => { setGraphType('inf'); setModalVisible(true); }}
               >
                 <View style={stylesLocal.graphCard}>
-                  <Text style={stylesLocal.graphValue}>
-                    {stats.avgTime.toFixed(0)}
-                  </Text>
-                  <Text style={stylesLocal.graphCaption}>
-                    avg ms/inference
-                  </Text>
-                  {timeData.length ? (
-                    <Chart data={timeData.slice(-20)} anim={animINF} />
+                  <Text style={stylesLocal.graphValue}>{stats.avgTime.toFixed(0)}</Text>
+                  <Text style={stylesLocal.graphCaption}>avg ms/inference</Text>
+                  {stats.timeData.length ? (
+                    <Chart data={stats.timeData.slice(-20)} anim={infAnim} />
                   ) : (
                     <ActivityIndicator color={COLORS.primary} />
                   )}
@@ -336,58 +337,35 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           </>
         )}
 
-        {/* suggestions */}
+        {/* Suggestions */}
         <View style={stylesLocal.suggestionCard}>
           <View style={stylesLocal.suggestionHeader}>
             <Text style={stylesLocal.suggestionTitle}>Suggestions</Text>
             <Ionicons name="bulb-outline" size={22} color={COLORS.textDark} />
           </View>
-          {(() => {
-            const msgs: string[] = [];
-            if (!stats) {
-              msgs.push(
-                'No usage logs available. Start using the model to gather insights.'
-              );
-            } else {
-              if (stats.avgTime > 100)
-                msgs.push('Average inference time is high—consider optimising.');
-              if (stats.avgTps < 20)
-                msgs.push('Tokens‑per‑second is low—try another model.');
-              if (stats.total < 5)
-                msgs.push('Generate more inferences for deeper insight.');
-              if (!msgs.length) msgs.push('Great performance—keep going!');
-            }
-            return msgs.map((msg, i) => (
-              <Text key={i} style={stylesLocal.suggestionText}>
-                {msg}
-              </Text>
-            ));
-          })()}
+          {getSuggestions().map((msg, i) => (
+            <Text key={i} style={stylesLocal.suggestionText}>{msg}</Text>
+          ))}
         </View>
       </ScrollView>
 
-      {/* model selector */}
+      {/* Model selector */}
       <View style={stylesLocal.modelBar}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={stylesLocal.modelList}
         >
-          {sortedModels.map((m) => (
+          {sortedModels.map(m => (
             <TouchableOpacity
               key={m}
               onPress={() => {
                 userTouchedRef.current = true;
                 setSelectedModel(m);
-                runSmallCharts();
               }}
-              style={[
-                stylesLocal.modelChip,
-                {
-                  backgroundColor:
-                    selectedModel === m ? COLORS.primary : '#ccc',
-                },
-              ]}
+              style={[stylesLocal.modelChip, {
+                backgroundColor: selectedModel === m ? COLORS.primary : '#ccc'
+              }]}
             >
               <Text style={stylesLocal.modelText}>{m}</Text>
             </TouchableOpacity>
@@ -395,7 +373,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
         </ScrollView>
       </View>
 
-      {/* modal */}
+      {/* Detail modal */}
       <Modal visible={modalVisible} transparent animationType="fade">
         <TouchableOpacity
           style={stylesLocal.modalOverlay}
@@ -403,111 +381,115 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           onPress={() => setModalVisible(false)}
         >
           <TouchableWithoutFeedback>
-            <Animated.View
-              style={[
-                stylesLocal.modalCard,
-                { transform: [{ scale: animBig }], alignItems: 'flex-start' },
-              ]}
-            >
+            <Animated.View style={[
+              stylesLocal.modalCard,
+              { transform: [{ scale: modalAnim }], alignItems: 'flex-start' }
+            ]}>
               <Text style={stylesLocal.modalTitle}>
-                {graphType === 'tps'
-                  ? 'Tokens Per Second'
-                  : 'Inference Time (ms)'}
+                {graphType === 'tps' ? 'Tokens Per Second' : 'Inference Time (ms)'}
               </Text>
-              {(() => {
-                const dataArr = graphType === 'tps' ? tpsData : timeData;
-                return (
-                  <View
-                    style={{
-                      width: SCREEN_WIDTH - 80,
-                      alignSelf: 'flex-start',
-                      // No extra left padding here; we'll use a negative margin on the chart instead.
+              {stats && (
+                <View style={{ width: SCREEN_WIDTH - 80, alignSelf: 'flex-start' }}>
+                  <LineChart
+                    data={{
+                      labels: (graphType === 'tps' ? stats.tpsData : stats.timeData)
+                        .map((_, i) => `${i + 1}`),
+                      datasets: [{
+                        data: graphType === 'tps' ? stats.tpsData : stats.timeData
+                      }],
                     }}
-                  >
-                    <LineChart
-                      data={{
-                        labels: dataArr.map((_, i) => `${i + 1}`),
-                        datasets: [{ data: dataArr }],
-                      }}
-                      width={SCREEN_WIDTH - 80}
-                      height={300 + GRAPH_SHIFT}
-                      chartConfig={chartConfigDetailed}
-                      yLabelsOffset={10}
-                      bezier
-                      withDots
-                      withInnerLines
-                      withHorizontalLabels
-                      withVerticalLabels
-                      withHorizontalLines
-                      withVerticalLines={false}
-                      style={{
-                        backgroundColor: 'transparent',
-                        marginLeft: -20, // Shift chart further left to reduce extra empty space
-                        marginBottom: -GRAPH_SHIFT,
-                      }}
-                    />
-                  </View>
-                );
-              })()}
+                    width={SCREEN_WIDTH - 80}
+                    height={300 + GRAPH_SHIFT}
+                    chartConfig={chartConfigDetailed}
+                    yLabelsOffset={10}
+                    bezier
+                    withDots
+                    withInnerLines
+                    withHorizontalLabels
+                    withVerticalLabels
+                    withHorizontalLines
+                    withVerticalLines={false}
+                    style={{
+                      backgroundColor: 'transparent',
+                      marginLeft: -20,
+                      marginBottom: -GRAPH_SHIFT,
+                    }}
+                  />
+                </View>
+              )}
             </Animated.View>
           </TouchableWithoutFeedback>
         </TouchableOpacity>
       </Modal>
 
-      {/* back / clear buttons */}
-      <BackClearButtons onBack={onBack} clearLogs={() => setUsageRecords([])} />
+      {/* Navigation buttons */}
+      <View style={[stylesLocal.fixedBtn, { left: 15 }]}>
+        <TouchableOpacity style={stylesLocal.btn} onPress={onBack}>
+          <Ionicons name="arrow-back" size={24} color={COLORS.textLight} />
+          <Text style={stylesLocal.btnText}>Back</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={[stylesLocal.fixedBtn, { right: 15 }]}>
+        <TouchableOpacity
+          style={stylesLocal.btn}
+          onPress={() => Alert.alert(
+            'Clear Usage Data',
+            'Are you sure?',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Clear',
+                style: 'destructive',
+                onPress: clearUsageData
+              },
+            ]
+          )}
+        >
+          <Text style={stylesLocal.btnText}>Clear</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
 
-/* ───────────────────────────── back / clear buttons ───────────────────────────── */
-const BackClearButtons: FC<{ onBack: () => void; clearLogs: () => void }> = ({
-  onBack,
-  clearLogs,
-}) => (
-  <>
-    <View style={[stylesLocal.fixedBtn, { left: 15 }]}>
-      <TouchableOpacity style={stylesLocal.btn} onPress={onBack}>
-        <Ionicons name="arrow-back" size={24} color={COLORS.textLight} />
-        <Text style={stylesLocal.btnText}>Back</Text>
-      </TouchableOpacity>
-    </View>
+/* ───────────────────────────── chart configs ───────────────────────────── */
+const chartConfig = {
+  backgroundColor: 'transparent',
+  backgroundGradientFrom: 'transparent',
+  backgroundGradientTo: 'transparent',
+  backgroundGradientFromOpacity: 0,
+  backgroundGradientToOpacity: 0,
+  color: (o = 1) => `rgba(37,99,235,${o})`,
+  labelColor: () => 'transparent',
+  strokeWidth: 2,
+  decimalPlaces: 0,
+  propsForDots: { r: '0' },
+  fillShadowGradient: 'rgba(37,99,235,1)',
+  fillShadowGradientOpacity: 0.25,
+};
 
-    <View style={[stylesLocal.fixedBtn, { right: 15 }]}>
-      <TouchableOpacity
-        style={stylesLocal.btn}
-        onPress={() =>
-          Alert.alert('Clear Usage Data', 'Are you sure?', [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Clear',
-              style: 'destructive',
-              onPress: async () => {
-                try {
-                  await RNFS.unlink(`${RNFS.DocumentDirectoryPath}/usage_log.json`);
-                  clearLogs();
-                } catch (e) {
-                  console.error(e);
-                }
-              },
-            },
-          ])
-        }
-      >
-        <Text style={stylesLocal.btnText}>Clear</Text>
-      </TouchableOpacity>
-    </View>
-  </>
-);
+const chartConfigDetailed = {
+  ...chartConfig,
+  labelColor: (o = 1) => `rgba(0,0,0,${o})`,
+};
+
+const perfColor = (p?: 'High' | 'Medium' | 'Low') =>
+  p === 'High'
+    ? '#34C759'
+    : p === 'Medium'
+    ? '#FF9F0A'
+    : p === 'Low'
+    ? '#FF453A'
+    : COLORS.greyLight;
 
 /* ───────────────────────────── styles ───────────────────────────── */
 const stylesLocal = StyleSheet.create({
   scroll: { padding: 20 },
   scrollContent: { paddingBottom: 220 },
-  title: { marginBottom: 40 }, // Increased margin for added spacing
+  title: { marginBottom: 40 },
   row: { flexDirection: 'row', marginBottom: 10 },
 
-  /* stat blocks */
   statCard: {
     width: GRAPH_WIDTH,
     height: STAT_CARD_HEIGHT,
@@ -520,7 +502,6 @@ const stylesLocal = StyleSheet.create({
   perfValue: { fontSize: 34, fontWeight: '700' },
   statCaption: { fontSize: 12, color: '#555' },
 
-  /* graph cards */
   graphCard: {
     backgroundColor: COLORS.greyCard,
     borderRadius: RADIUS,
@@ -532,7 +513,6 @@ const stylesLocal = StyleSheet.create({
   graphValue: { fontSize: 36, fontWeight: '600', paddingLeft: 10 },
   graphCaption: { fontSize: 12, color: '#555', marginBottom: 5, paddingLeft: 10 },
 
-  /* suggestions */
   suggestionCard: {
     backgroundColor: COLORS.greyLight,
     borderRadius: RADIUS,
@@ -543,7 +523,6 @@ const stylesLocal = StyleSheet.create({
   suggestionTitle: { fontSize: 18, marginRight: 6 },
   suggestionText: { fontSize: 14, marginBottom: 4 },
 
-  /* model selector */
   modelBar: {
     position: 'absolute',
     left: 0,
@@ -563,7 +542,6 @@ const stylesLocal = StyleSheet.create({
   },
   modelText: { color: COLORS.textLight, fontSize: 16 },
 
-  /* modal */
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.8)',
@@ -579,7 +557,6 @@ const stylesLocal = StyleSheet.create({
   },
   modalTitle: { fontSize: 18, marginBottom: 10 },
 
-  /* buttons */
   fixedBtn: { position: 'absolute', bottom: 20 },
   btn: {
     flexDirection: 'row',

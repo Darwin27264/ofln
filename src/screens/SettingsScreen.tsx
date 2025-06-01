@@ -130,225 +130,88 @@ export default function SettingsScreen({
   return (
     <View style={[styles.container, { padding: 20, flex: 1 }]}>
       <Text style={[styles.settingsTitle, { marginBottom: 40 }]}>Settings</Text>
-
-      {/* Performance Block moved above the other options */}
-      <TouchableOpacity onPress={onOpenStats}>
-        <View style={performanceStyles.performanceBlock}>
-          <Text style={performanceStyles.performanceBlockTitle}>Performance</Text>
-          {usageStats ? (
-            <View>
-              <Text style={performanceStyles.performanceBlockDetail}>
-                Total Inferences: {usageStats.totalInferences}
-              </Text>
-              <Text style={performanceStyles.performanceBlockDetail}>
-                Avg. Inference Time: {usageStats.avgInferenceTime.toFixed(2)} ms
-              </Text>
-              <Text style={performanceStyles.performanceBlockDetail}>
-                Avg. Tokens/Sec: {usageStats.avgTokensPerSecond.toFixed(2)}
-              </Text>
-              <Text style={performanceStyles.performanceBlockDetail}>
-                Latest Performance: {usageStats.latestPerformance}
-              </Text>
+      <View style={{ marginBottom: 15 }}>
+        <View style={{ flexDirection: "row", marginBottom: 10, height: 145 }}>
+          <TouchableOpacity style={{ flex: 1, marginRight: 5 }} onPress={onOpenStats}>
+            <View style={styles.settingsBlock}>
+              <Ionicons name="speedometer-outline" size={22} color="#000000" style={styles.blockIcon}/>
+              <View style={styles.blockTextContainer}>
+                <Text style={styles.blockText}>Performance</Text>
+              </View>
             </View>
-          ) : (
-            <Text style={performanceStyles.performanceBlockDetail}>
-              No usage data available.
-            </Text>
-          )}
-        </View>
-      </TouchableOpacity>
-
-      {/* Horizontal row block with Model Selection and Chat/Dark mode, with unified spacing */}
-      <View style={{ flexDirection: "row", marginVertical: 5, height: 250 }}>
-        {/* Left: Model Selection Block */}
-        <TouchableOpacity
-          style={{
-            flex: 1,
-            backgroundColor: "#EAEAEA",
-            borderRadius: 30,
-            justifyContent: "flex-end",
-            alignItems: "flex-start",
-            padding: 20,
-            marginRight: 5,
-          }}
-          onPress={onGoToModelSelection}
-        >
-          {/* Bigger icon at top left */}
-          <Ionicons
-            name="grid-outline"
-            size={32}
-            color="#000000"
-            style={{ position: "absolute", top: 115, left: 15 }}
-          />
-          {/* Bigger circular icon at bottom right */}
-          <Ionicons
-            name="arrow-forward-circle-outline"
-            size={36}
-            color="#000000"
-            style={{ position: "absolute", bottom: 15, right: 15 }}
-          />
-
-          <View style={{ position: "absolute", bottom: 15, left: 15, right: 15 }}>
-            <Text
-              style={{
-                fontSize: 24,
-                fontWeight: "normal",
-                textAlign: "left",
-                lineHeight: 24,
-              }}
-            >
-              Model{"\n"}Selection
-            </Text>
-          </View>
-        </TouchableOpacity>
-
-        {/* Right: Column with Chat Mode and Dark Mode blocks */}
-        <View style={{ flex: 1, marginLeft: 5, justifyContent: "space-between" }}>
-          {/* Chat Mode Block */}
-          <TouchableOpacity style={{ flex: 1, marginBottom: 5 }} onPress={toggleChatMode}>
-            <Animated.View
-              style={{
-                flex: 1,
-                backgroundColor: chatModeBackground,
-                borderRadius: 30,
-                justifyContent: "flex-end",
-                padding: 15,
-              }}
-            >
-              {/* Smaller icon at top right */}
-              <Ionicons
-                name="chatbubble-outline"
-                size={22}
-                color={bubblesMode ? "#FFFFFF" : "#000000"}
-                style={{ position: "absolute", top: 15, right: 15 }}
-              />
-              {/* Stacked text (one word per line) at bottom left */}
-              <View style={{ position: "absolute", bottom: 15, left: 15 }}>
-                <Animated.Text
-                  style={{
-                    fontSize: 20,
-                    fontWeight: "normal",
-                    textAlign: "left",
-                    color: chatModeTextColor,
-                    lineHeight: 24,
-                  }}
-                >
-                  Chat{"\n"}Mode
-                </Animated.Text>
-              </View>
-              {/* Info icon at bottom right */}
-              <TouchableOpacity
-                style={{ position: "absolute", bottom: 15, right: 15 }}
-                onPress={showChatModeInfo}
-              >
-                <Ionicons
-                  name="information-circle-outline"
-                  size={20}
-                  color={bubblesMode ? "#FFFFFF" : "#000000"}
-                />
-              </TouchableOpacity>
-            </Animated.View>
           </TouchableOpacity>
-
-          {/* Dark Mode Block */}
-          <TouchableOpacity style={{ flex: 1, marginTop: 5 }} onPress={toggleDarkMode}>
-            <Animated.View
-              style={{
-                flex: 1,
-                backgroundColor: darkModeBackground,
-                borderRadius: 30,
-                justifyContent: "flex-end",
-                padding: 15,
-              }}
-            >
-              {/* Smaller icon at top right */}
-              <Ionicons
-                name="moon-outline"
-                size={22}
-                color={darkMode ? "#FFFFFF" : "#000000"}
-                style={{ position: "absolute", top: 15, right: 15 }}
-              />
-              {/* Stacked text at bottom left */}
-              <View style={{ position: "absolute", bottom: 15, left: 15 }}>
-                <Animated.Text
-                  style={{
-                    fontSize: 20,
-                    fontWeight: "normal",
-                    textAlign: "left",
-                    color: darkModeTextColor,
-                    lineHeight: 24,
-                  }}
-                >
-                  Dark{"\n"}Mode
-                </Animated.Text>
+          <TouchableOpacity style={{ flex: 1, marginLeft: 5 }} onPress={onGoToModelSelection}>
+            <View style={styles.settingsBlock}>
+              <Ionicons name="grid-outline" size={22} color="#000000" style={styles.blockIcon}/>
+              <View style={styles.blockTextContainer}>
+                <Text style={styles.blockText}>Models</Text>
               </View>
-              {/* "On"/"Off" at bottom right */}
-              <Animated.Text
-                style={{
-                  position: "absolute",
-                  bottom: 15,
-                  right: 15,
-                  fontSize: 16,
-                  fontWeight: "normal",
-                  color: darkModeTextColor,
-                }}
-              >
-                {darkMode ? "On" : "Off"}
-              </Animated.Text>
-            </Animated.View>
+            </View>
+          </TouchableOpacity>
+        </View>
+        <View style={{ flexDirection: "row", height: 145 }}>
+          <TouchableOpacity style={{ flex: 1, marginRight: 5 }}>
+            <View style={styles.settingsBlock}>
+              <Ionicons name="code-slash-outline" size={22} color="#000000" style={styles.blockIcon}/>
+              <View style={styles.blockTextContainer}>
+                <Text style={styles.blockText}>CodeLib</Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity style={{ flex: 1, marginLeft: 5 }}>
+            <View style={styles.settingsBlock}>
+              <Ionicons name="person-circle-outline" size={22} color="#000000" style={styles.blockIcon}/>
+              <View style={styles.blockTextContainer}>
+                <Text style={styles.blockText}>Personas</Text>
+              </View>
+            </View>
           </TouchableOpacity>
         </View>
       </View>
-
+      <View style={{height: 2.5, backgroundColor: '#DDDDDD', marginVertical: 12, width: '30%', alignSelf: 'center'}}/>
+      <View style={{ flexDirection: "row", height: 120, justifyContent: "space-between" }}>
+        <TouchableOpacity style={{ flex: 1, maxWidth: "48.5%" }} onPress={toggleChatMode}>
+          <Animated.View style={[styles.settingsBlock, { backgroundColor: chatModeBackground }]}>
+            <Ionicons name="chatbubble-outline" size={22} color={bubblesMode ? "#FFFFFF" : "#000000"} style={styles.blockIcon}/>
+            <View style={styles.blockTextContainer}>
+              <Animated.Text style={[styles.blockText, { color: chatModeTextColor }]}>Chat Mode</Animated.Text>
+            </View>
+            <TouchableOpacity style={styles.blockInfoIcon} onPress={showChatModeInfo}>
+              <Ionicons name="information-circle-outline" size={20} color={bubblesMode ? "#FFFFFF" : "#000000"}/>
+            </TouchableOpacity>
+          </Animated.View>
+        </TouchableOpacity>
+        <TouchableOpacity style={{ flex: 1, maxWidth: "48.5%" }} onPress={toggleDarkMode}>
+          <Animated.View style={[styles.settingsBlock, { backgroundColor: darkModeBackground }]}>
+            <Ionicons name="moon-outline" size={22} color={darkMode ? "#FFFFFF" : "#000000"} style={styles.blockIcon}/>
+            <View style={styles.blockTextContainer}>
+              <Animated.Text style={[styles.blockText, { color: darkModeTextColor }]}>Dark Mode</Animated.Text>
+            </View>
+            <Animated.Text style={[styles.blockToggleText, { color: darkModeTextColor }]}>{darkMode ? "On" : "Off"}</Animated.Text>
+          </Animated.View>
+        </TouchableOpacity>
+      </View>
       <View style={{ position: "absolute", bottom: 20, left: 15 }}>
-        <TouchableOpacity
-          onPress={onBackToConversation}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            backgroundColor: "#000000",
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 30,
-          }}
-        >
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-          <Text
-            style={{
-              color: "#FFFFFF",
-              fontSize: 20,
-              fontFamily: "Poppins",
-              marginLeft: 8,
-              marginBottom: 2,
-            }}
-          >
-            Back
-          </Text>
+        <TouchableOpacity onPress={onBackToConversation} style={{
+          flexDirection: "row",
+          alignItems: "center",
+          backgroundColor: "#000000",
+          paddingHorizontal: 16,
+          paddingVertical: 8,
+          borderRadius: 30,
+        }}>
+          <Ionicons name="arrow-back" size={24} color="#FFFFFF"/>
+          <Text style={{
+            color: "#FFFFFF",
+            fontSize: 20,
+            fontFamily: "Poppins",
+            marginLeft: 8,
+            marginBottom: 2,
+          }}>Back</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 }
 
-const performanceStyles = {
-  performanceBlock: {
-    backgroundColor: "#EAEAEA",
-    borderRadius: 30,
-    padding: 15,
-    marginVertical: 5,
-  },
-  performanceBlockTitle: {
-    fontSize: 20,
-    fontWeight: "400",
-    textAlign: "left" as const,
-    color: "#000000",
-    lineHeight: 24,
-    marginBottom: 8,
-  },
-  performanceBlockDetail: {
-    fontSize: 16,
-    textAlign: "left" as const,
-    color: "#000000",
-    marginBottom: 4,
-  },
-};
+// Performance styles moved to StagesScreen where the detailed stats are shown

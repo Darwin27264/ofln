@@ -315,6 +315,44 @@ export const styles = StyleSheet.create({
     color: "#000",
   },
 
+  /* Settings screen styles */
+  settingsBlock: {
+    flex: 1,
+    backgroundColor: "#EAEAEA",
+    borderRadius: 30,
+    padding: 15,
+    justifyContent: "flex-end",
+    height: "100%",
+  },
+  blockIcon: {
+    position: "absolute",
+    top: 15,
+    right: 15,
+  },
+  blockTextContainer: {
+    position: "absolute",
+    bottom: 15,
+    left: 15,
+  },
+  blockText: {
+    fontSize: 20,
+    fontWeight: "normal",
+    textAlign: "left",
+    color: "#000000",
+    lineHeight: 24,
+  },
+  blockInfoIcon: {
+    position: "absolute",
+    bottom: 15,
+    right: 15,
+  },
+  blockToggleText: {
+    position: "absolute",
+    bottom: 15,
+    right: 15,
+    fontSize: 16,
+    fontWeight: "normal",
+  },
 
   /* Additional styles for ModelSelection UI enhancements */
 
