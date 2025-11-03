@@ -1,8 +1,9 @@
 // SettingsScreen.tsx
 import React, { useRef, useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, Alert, Animated } from "react-native";
+import { View, Text, TouchableOpacity, Alert, Animated, Easing } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
-import { styles } from "../styles/styles";
+import { createStyles } from "../styles/styles";
+import { useTheme } from "../context/ThemeContext";
 import RNFS from "react-native-fs";
 
 interface Props {
@@ -20,16 +21,13 @@ export default function SettingsScreen({
   onGoToModelSelection,
   onOpenStats,
 }: Props) {
+  const { theme, toggleTheme, isDark, isTransitioning } = useTheme();
+  const styles = createStyles(theme.colors);
+
   // For Chat Mode, "on" means bubble mode.
   const bubblesMode = assistantDisplayMode === "bubble";
   const toggleChatMode = () => {
     setAssistantDisplayMode(bubblesMode ? "direct" : "bubble");
-  };
-
-  // New dark mode state.
-  const [darkMode, setDarkMode] = useState(false);
-  const toggleDarkMode = () => {
-    setDarkMode((prev) => !prev);
   };
 
   const showChatModeInfo = () => {
@@ -45,34 +43,36 @@ export default function SettingsScreen({
     Animated.timing(chatModeAnim, {
       toValue: bubblesMode ? 1 : 0,
       duration: 300,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
   }, [assistantDisplayMode]);
   const chatModeBackground = chatModeAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#EAEAEA", "#000000"],
+    outputRange: [theme.colors.secondary, theme.colors.primary],
   });
   const chatModeTextColor = chatModeAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#000000", "#FFFFFF"],
+    outputRange: [theme.colors.text, theme.colors.primaryText],
   });
 
   // Animated value for Dark Mode block.
-  const darkModeAnim = useRef(new Animated.Value(darkMode ? 1 : 0)).current;
+  const darkModeAnim = useRef(new Animated.Value(isDark ? 1 : 0)).current;
   useEffect(() => {
     Animated.timing(darkModeAnim, {
-      toValue: darkMode ? 1 : 0,
+      toValue: isDark ? 1 : 0,
       duration: 300,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
-  }, [darkMode]);
+  }, [isDark]);
   const darkModeBackground = darkModeAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#EAEAEA", "#000000"],
+    outputRange: [theme.colors.secondary, theme.colors.primary],
   });
   const darkModeTextColor = darkModeAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#000000", "#FFFFFF"],
+    outputRange: [theme.colors.text, theme.colors.primaryText],
   });
 
   // Define the type for usage stats
@@ -128,66 +128,76 @@ export default function SettingsScreen({
   }, []);
 
   return (
-    <View style={[styles.container, { padding: 20, flex: 1 }]}>
+    <Animated.View 
+      style={[
+        styles.container, 
+        { 
+          padding: 20, 
+          flex: 1, 
+          backgroundColor: theme.colors.background,
+          opacity: isTransitioning ? 0.95 : 1,
+        }
+      ]}
+    >
       <Text style={[styles.settingsTitle, { marginBottom: 40 }]}>Settings</Text>
       <View style={{ marginBottom: 15 }}>
         <View style={{ flexDirection: "row", marginBottom: 10, height: 145 }}>
           <TouchableOpacity style={{ flex: 1, marginRight: 5 }} onPress={onOpenStats}>
-            <View style={styles.settingsBlock}>
-              <Ionicons name="speedometer-outline" size={22} color="#000000" style={styles.blockIcon}/>
+            <Animated.View style={styles.settingsBlock}>
+              <Ionicons name="speedometer-outline" size={22} color={theme.colors.text} style={styles.blockIcon}/>
               <View style={styles.blockTextContainer}>
                 <Text style={styles.blockText}>Performance</Text>
               </View>
-            </View>
+            </Animated.View>
           </TouchableOpacity>
           <TouchableOpacity style={{ flex: 1, marginLeft: 5 }} onPress={onGoToModelSelection}>
-            <View style={styles.settingsBlock}>
-              <Ionicons name="grid-outline" size={22} color="#000000" style={styles.blockIcon}/>
+            <Animated.View style={styles.settingsBlock}>
+              <Ionicons name="grid-outline" size={22} color={theme.colors.text} style={styles.blockIcon}/>
               <View style={styles.blockTextContainer}>
                 <Text style={styles.blockText}>Models</Text>
               </View>
-            </View>
+            </Animated.View>
           </TouchableOpacity>
         </View>
         <View style={{ flexDirection: "row", height: 145 }}>
           <TouchableOpacity style={{ flex: 1, marginRight: 5 }}>
-            <View style={styles.settingsBlock}>
-              <Ionicons name="code-slash-outline" size={22} color="#000000" style={styles.blockIcon}/>
+            <Animated.View style={styles.settingsBlock}>
+              <Ionicons name="code-slash-outline" size={22} color={theme.colors.text} style={styles.blockIcon}/>
               <View style={styles.blockTextContainer}>
                 <Text style={styles.blockText}>CodeLib</Text>
               </View>
-            </View>
+            </Animated.View>
           </TouchableOpacity>
           <TouchableOpacity style={{ flex: 1, marginLeft: 5 }}>
-            <View style={styles.settingsBlock}>
-              <Ionicons name="person-circle-outline" size={22} color="#000000" style={styles.blockIcon}/>
+            <Animated.View style={styles.settingsBlock}>
+              <Ionicons name="person-circle-outline" size={22} color={theme.colors.text} style={styles.blockIcon}/>
               <View style={styles.blockTextContainer}>
                 <Text style={styles.blockText}>Personas</Text>
               </View>
-            </View>
+            </Animated.View>
           </TouchableOpacity>
         </View>
       </View>
-      <View style={{height: 2.5, backgroundColor: '#DDDDDD', marginVertical: 12, width: '30%', alignSelf: 'center'}}/>
+      <View style={{height: 2.5, backgroundColor: theme.colors.border, marginVertical: 12, width: '30%', alignSelf: 'center'}}/>
       <View style={{ flexDirection: "row", height: 120, justifyContent: "space-between" }}>
         <TouchableOpacity style={{ flex: 1, maxWidth: "48.5%" }} onPress={toggleChatMode}>
           <Animated.View style={[styles.settingsBlock, { backgroundColor: chatModeBackground }]}>
-            <Ionicons name="chatbubble-outline" size={22} color={bubblesMode ? "#FFFFFF" : "#000000"} style={styles.blockIcon}/>
+            <Ionicons name="chatbubble-outline" size={22} color={bubblesMode ? theme.colors.primaryText : theme.colors.text} style={styles.blockIcon}/>
             <View style={styles.blockTextContainer}>
               <Animated.Text style={[styles.blockText, { color: chatModeTextColor }]}>Chat Mode</Animated.Text>
             </View>
             <TouchableOpacity style={styles.blockInfoIcon} onPress={showChatModeInfo}>
-              <Ionicons name="information-circle-outline" size={20} color={bubblesMode ? "#FFFFFF" : "#000000"}/>
+              <Ionicons name="information-circle-outline" size={20} color={bubblesMode ? theme.colors.primaryText : theme.colors.text}/>
             </TouchableOpacity>
           </Animated.View>
         </TouchableOpacity>
-        <TouchableOpacity style={{ flex: 1, maxWidth: "48.5%" }} onPress={toggleDarkMode}>
+        <TouchableOpacity style={{ flex: 1, maxWidth: "48.5%" }} onPress={toggleTheme}>
           <Animated.View style={[styles.settingsBlock, { backgroundColor: darkModeBackground }]}>
-            <Ionicons name="moon-outline" size={22} color={darkMode ? "#FFFFFF" : "#000000"} style={styles.blockIcon}/>
+            <Ionicons name={isDark ? "moon" : "moon-outline"} size={22} color={isDark ? theme.colors.primaryText : theme.colors.text} style={styles.blockIcon}/>
             <View style={styles.blockTextContainer}>
               <Animated.Text style={[styles.blockText, { color: darkModeTextColor }]}>Dark Mode</Animated.Text>
             </View>
-            <Animated.Text style={[styles.blockToggleText, { color: darkModeTextColor }]}>{darkMode ? "On" : "Off"}</Animated.Text>
+            <Animated.Text style={[styles.blockToggleText, { color: darkModeTextColor }]}>{isDark ? "On" : "Off"}</Animated.Text>
           </Animated.View>
         </TouchableOpacity>
       </View>
@@ -195,14 +205,14 @@ export default function SettingsScreen({
         <TouchableOpacity onPress={onBackToConversation} style={{
           flexDirection: "row",
           alignItems: "center",
-          backgroundColor: "#000000",
+          backgroundColor: theme.colors.primary,
           paddingHorizontal: 16,
           paddingVertical: 8,
           borderRadius: 30,
         }}>
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF"/>
+          <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText}/>
           <Text style={{
-            color: "#FFFFFF",
+            color: theme.colors.primaryText,
             fontSize: 20,
             fontFamily: "Poppins",
             marginLeft: 8,
@@ -210,7 +220,7 @@ export default function SettingsScreen({
           }}>Back</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 

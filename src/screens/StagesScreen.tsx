@@ -16,7 +16,8 @@ import {
 import RNFS from 'react-native-fs';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { LineChart } from 'react-native-chart-kit';
-import { styles as shared } from '../styles/styles';
+import { createStyles } from '../styles/styles';
+import { useTheme } from '../context/ThemeContext';
 
 /* ──────────────────────────────────── constants ──────────────────────────────────── */
 const RADIUS = 30;
@@ -27,13 +28,7 @@ const GRAPH_SHIFT = 18;
 const STAT_CARD_HEIGHT = GRAPH_HEIGHT + 30;
 const USAGE_LOG_PATH = `${RNFS.DocumentDirectoryPath}/usage_log.json`;
 
-const COLORS = {
-  primary: '#2563EB',
-  textDark: '#000',
-  textLight: '#fff',
-  greyLight: '#EAEAEA',
-  greyCard: '#F0F0F0',
-};
+// COLORS removed - now using theme
 
 /* ────────────────────────────────────── types ────────────────────────────────────── */
 interface UsageRecord {
@@ -168,6 +163,8 @@ const validateUsageRecord = (record: any): record is UsageRecord => {
 
 /* ──────────────────────────────────── component ──────────────────────────────────── */
 const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
+  const { theme } = useTheme();
+  const shared = createStyles(theme.colors);
   const { usageRecords, isLoading, error, clearUsageData } = useUsageData();
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [modalVisible, setModalVisible] = useState(false);
@@ -211,13 +208,24 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
     }
   }, [modalVisible]);
 
+  const stylesLocalWithTheme = createStylesLocal(theme.colors);
+  
+  const perfColor = (p?: 'High' | 'Medium' | 'Low') =>
+    p === 'High'
+      ? theme.colors.success
+      : p === 'Medium'
+      ? theme.colors.warning
+      : p === 'Low'
+      ? theme.colors.error
+      : theme.colors.secondary;
+
   // Error handling
   if (error) {
     return (
-      <View style={[shared.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={{ marginBottom: 20 }}>Error: {error}</Text>
-        <TouchableOpacity onPress={onBack} style={stylesLocal.btn}>
-          <Text style={stylesLocal.btnText}>Go Back</Text>
+      <View style={[shared.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.background }]}>
+        <Text style={{ marginBottom: 20, color: theme.colors.text }}>Error: {error}</Text>
+        <TouchableOpacity onPress={onBack} style={[stylesLocalWithTheme.btn, { backgroundColor: theme.colors.primary }]}>
+          <Text style={stylesLocalWithTheme.btnText}>Go Back</Text>
         </TouchableOpacity>
       </View>
     );
@@ -225,11 +233,39 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
 
   if (isLoading) {
     return (
-      <View style={[shared.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+      <View style={[shared.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator size="large" color={theme.colors.accent} />
       </View>
     );
   }
+
+  // Chart configs
+  const hexToRgba = (hex: string, alpha: number) => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
+  const chartConfig = {
+    backgroundColor: 'transparent',
+    backgroundGradientFrom: 'transparent',
+    backgroundGradientTo: 'transparent',
+    backgroundGradientFromOpacity: 0,
+    backgroundGradientToOpacity: 0,
+    color: (o = 1) => hexToRgba(theme.colors.accent, o),
+    labelColor: () => 'transparent',
+    strokeWidth: 2,
+    decimalPlaces: 0,
+    propsForDots: { r: '0' },
+    fillShadowGradient: theme.colors.accent,
+    fillShadowGradientOpacity: 0.25,
+  };
+
+  const chartConfigDetailed = {
+    ...chartConfig,
+    labelColor: (o = 1) => hexToRgba(theme.colors.text, o),
+  };
 
   // Chart components
   const Chart: FC<{ data: number[]; anim: Animated.Value }> = ({ data, anim }) => (
@@ -271,32 +307,32 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
     
     return suggestions;
   };
-
+  
   return (
-    <View style={StyleSheet.absoluteFill}>
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.background }]}>
       <ScrollView
-        style={[shared.container, stylesLocal.scroll]}
-        contentContainerStyle={stylesLocal.scrollContent}
+        style={[shared.container, stylesLocalWithTheme.scroll]}
+        contentContainerStyle={stylesLocalWithTheme.scrollContent}
       >
-        <Text style={[shared.settingsTitle, stylesLocal.title]}>Performance</Text>
+        <Text style={[shared.settingsTitle, stylesLocalWithTheme.title, { color: theme.colors.text }]}>Performance</Text>
 
         {selectedModel && stats && (
           <>
             {/* Stats cards */}
             <View style={stylesLocal.row}>
-              <View style={[stylesLocal.statCard, { marginRight: 10 }]}>
-                <View style={stylesLocal.statInner}>
-                  <Text style={stylesLocal.statValue}>{stats.total}</Text>
-                  <Text style={stylesLocal.statCaption}>total inferences</Text>
+              <View style={[stylesLocalWithTheme.statCard, { marginRight: 10, backgroundColor: theme.colors.glass }]}>
+                <View style={stylesLocalWithTheme.statInner}>
+                  <Text style={[stylesLocalWithTheme.statValue, { color: theme.colors.text }]}>{stats.total}</Text>
+                  <Text style={[stylesLocalWithTheme.statCaption, { color: theme.colors.textSecondary }]}>total inferences</Text>
                 </View>
               </View>
 
-              <View style={[stylesLocal.statCard, { backgroundColor: perfColor(stats.perf) }]}>
-                <View style={stylesLocal.statInner}>
-                  <Text style={[stylesLocal.perfValue, { color: stats.perf === 'High' ? COLORS.textLight : COLORS.textDark }]}>
+              <View style={[stylesLocalWithTheme.statCard, { backgroundColor: perfColor(stats.perf) }]}>
+                <View style={stylesLocalWithTheme.statInner}>
+                  <Text style={[stylesLocalWithTheme.perfValue, { color: stats.perf === 'High' ? theme.colors.primaryText : theme.colors.text }]}>
                     {stats.perf}
                   </Text>
-                  <Text style={[stylesLocal.statCaption, { color: stats.perf === 'High' ? COLORS.textLight : COLORS.textDark }]}>
+                  <Text style={[stylesLocalWithTheme.statCaption, { color: stats.perf === 'High' ? theme.colors.primaryText : theme.colors.text }]}>
                     Performance level
                   </Text>
                 </View>
@@ -304,18 +340,18 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
             </View>
 
             {/* Graph cards */}
-            <View style={stylesLocal.row}>
+            <View style={stylesLocalWithTheme.row}>
               <TouchableOpacity
                 onPress={() => { setGraphType('tps'); setModalVisible(true); }}
                 style={{ marginRight: 10 }}
               >
-                <View style={stylesLocal.graphCard}>
-                  <Text style={stylesLocal.graphValue}>{stats.avgTps.toFixed(0)}</Text>
-                  <Text style={stylesLocal.graphCaption}>avg tokens/sec</Text>
+                <View style={[stylesLocalWithTheme.graphCard, { backgroundColor: theme.colors.surface }]}>
+                  <Text style={[stylesLocalWithTheme.graphValue, { color: theme.colors.text }]}>{stats.avgTps.toFixed(0)}</Text>
+                  <Text style={[stylesLocalWithTheme.graphCaption, { color: theme.colors.textSecondary }]}>avg tokens/sec</Text>
                   {stats.tpsData.length ? (
                     <Chart data={stats.tpsData.slice(-20)} anim={tpsAnim} />
                   ) : (
-                    <ActivityIndicator color={COLORS.primary} />
+                    <ActivityIndicator color={theme.colors.accent} />
                   )}
                 </View>
               </TouchableOpacity>
@@ -323,13 +359,13 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
               <TouchableOpacity
                 onPress={() => { setGraphType('inf'); setModalVisible(true); }}
               >
-                <View style={stylesLocal.graphCard}>
-                  <Text style={stylesLocal.graphValue}>{stats.avgTime.toFixed(0)}</Text>
-                  <Text style={stylesLocal.graphCaption}>avg ms/inference</Text>
+                <View style={[stylesLocalWithTheme.graphCard, { backgroundColor: theme.colors.surface }]}>
+                  <Text style={[stylesLocalWithTheme.graphValue, { color: theme.colors.text }]}>{stats.avgTime.toFixed(0)}</Text>
+                  <Text style={[stylesLocalWithTheme.graphCaption, { color: theme.colors.textSecondary }]}>avg ms/inference</Text>
                   {stats.timeData.length ? (
                     <Chart data={stats.timeData.slice(-20)} anim={infAnim} />
                   ) : (
-                    <ActivityIndicator color={COLORS.primary} />
+                    <ActivityIndicator color={theme.colors.accent} />
                   )}
                 </View>
               </TouchableOpacity>
@@ -338,23 +374,23 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
         )}
 
         {/* Suggestions */}
-        <View style={stylesLocal.suggestionCard}>
-          <View style={stylesLocal.suggestionHeader}>
-            <Text style={stylesLocal.suggestionTitle}>Suggestions</Text>
-            <Ionicons name="bulb-outline" size={22} color={COLORS.textDark} />
+        <View style={[stylesLocalWithTheme.suggestionCard, { backgroundColor: theme.colors.glass }]}>
+          <View style={stylesLocalWithTheme.suggestionHeader}>
+            <Text style={[stylesLocalWithTheme.suggestionTitle, { color: theme.colors.text }]}>Suggestions</Text>
+            <Ionicons name="bulb-outline" size={22} color={theme.colors.text} />
           </View>
           {getSuggestions().map((msg, i) => (
-            <Text key={i} style={stylesLocal.suggestionText}>{msg}</Text>
+            <Text key={i} style={[stylesLocalWithTheme.suggestionText, { color: theme.colors.textSecondary }]}>{msg}</Text>
           ))}
         </View>
       </ScrollView>
 
       {/* Model selector */}
-      <View style={stylesLocal.modelBar}>
+      <View style={stylesLocalWithTheme.modelBar}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={stylesLocal.modelList}
+          contentContainerStyle={stylesLocalWithTheme.modelList}
         >
           {sortedModels.map(m => (
             <TouchableOpacity
@@ -363,11 +399,11 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
                 userTouchedRef.current = true;
                 setSelectedModel(m);
               }}
-              style={[stylesLocal.modelChip, {
-                backgroundColor: selectedModel === m ? COLORS.primary : '#ccc'
+              style={[stylesLocalWithTheme.modelChip, {
+                backgroundColor: selectedModel === m ? theme.colors.accent : theme.colors.secondary
               }]}
             >
-              <Text style={stylesLocal.modelText}>{m}</Text>
+              <Text style={[stylesLocalWithTheme.modelText, { color: selectedModel === m ? theme.colors.primaryText : theme.colors.text }]}>{m}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -376,16 +412,20 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
       {/* Detail modal */}
       <Modal visible={modalVisible} transparent animationType="fade">
         <TouchableOpacity
-          style={stylesLocal.modalOverlay}
+          style={[stylesLocalWithTheme.modalOverlay, { backgroundColor: theme.colors.overlay }]}
           activeOpacity={1}
           onPress={() => setModalVisible(false)}
         >
           <TouchableWithoutFeedback>
             <Animated.View style={[
-              stylesLocal.modalCard,
-              { transform: [{ scale: modalAnim }], alignItems: 'flex-start' }
+              stylesLocalWithTheme.modalCard,
+              { 
+                transform: [{ scale: modalAnim }], 
+                alignItems: 'flex-start',
+                backgroundColor: theme.colors.card,
+              }
             ]}>
-              <Text style={stylesLocal.modalTitle}>
+              <Text style={[stylesLocalWithTheme.modalTitle, { color: theme.colors.text }]}>
                 {graphType === 'tps' ? 'Tokens Per Second' : 'Inference Time (ms)'}
               </Text>
               {stats && (
@@ -423,16 +463,16 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
       </Modal>
 
       {/* Navigation buttons */}
-      <View style={[stylesLocal.fixedBtn, { left: 15 }]}>
-        <TouchableOpacity style={stylesLocal.btn} onPress={onBack}>
-          <Ionicons name="arrow-back" size={24} color={COLORS.textLight} />
-          <Text style={stylesLocal.btnText}>Back</Text>
+      <View style={[stylesLocalWithTheme.fixedBtn, { left: 15 }]}>
+        <TouchableOpacity style={[stylesLocalWithTheme.btn, { backgroundColor: theme.colors.primary }]} onPress={onBack}>
+          <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
+          <Text style={stylesLocalWithTheme.btnText}>Back</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={[stylesLocal.fixedBtn, { right: 15 }]}>
+      <View style={[stylesLocalWithTheme.fixedBtn, { right: 15 }]}>
         <TouchableOpacity
-          style={stylesLocal.btn}
+          style={[stylesLocalWithTheme.btn, { backgroundColor: theme.colors.error }]}
           onPress={() => Alert.alert(
             'Clear Usage Data',
             'Are you sure?',
@@ -446,45 +486,19 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
             ]
           )}
         >
-          <Text style={stylesLocal.btnText}>Clear</Text>
+          <Text style={stylesLocalWithTheme.btnText}>Clear</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 };
 
-/* ───────────────────────────── chart configs ───────────────────────────── */
-const chartConfig = {
-  backgroundColor: 'transparent',
-  backgroundGradientFrom: 'transparent',
-  backgroundGradientTo: 'transparent',
-  backgroundGradientFromOpacity: 0,
-  backgroundGradientToOpacity: 0,
-  color: (o = 1) => `rgba(37,99,235,${o})`,
-  labelColor: () => 'transparent',
-  strokeWidth: 2,
-  decimalPlaces: 0,
-  propsForDots: { r: '0' },
-  fillShadowGradient: 'rgba(37,99,235,1)',
-  fillShadowGradientOpacity: 0.25,
-};
+// Chart configs will be created dynamically based on theme in component
 
-const chartConfigDetailed = {
-  ...chartConfig,
-  labelColor: (o = 1) => `rgba(0,0,0,${o})`,
-};
-
-const perfColor = (p?: 'High' | 'Medium' | 'Low') =>
-  p === 'High'
-    ? '#34C759'
-    : p === 'Medium'
-    ? '#FF9F0A'
-    : p === 'Low'
-    ? '#FF453A'
-    : COLORS.greyLight;
+// perfColor will be defined within component to access theme
 
 /* ───────────────────────────── styles ───────────────────────────── */
-const stylesLocal = StyleSheet.create({
+const createStylesLocal = (colors: any) => StyleSheet.create({
   scroll: { padding: 20 },
   scrollContent: { paddingBottom: 220 },
   title: { marginBottom: 40 },
@@ -493,17 +507,15 @@ const stylesLocal = StyleSheet.create({
   statCard: {
     width: GRAPH_WIDTH,
     height: STAT_CARD_HEIGHT,
-    backgroundColor: COLORS.greyLight,
     borderRadius: RADIUS,
     position: 'relative',
   },
   statInner: { position: 'absolute', bottom: 15, left: 15 },
   statValue: { fontSize: 42, fontWeight: '700' },
   perfValue: { fontSize: 34, fontWeight: '700' },
-  statCaption: { fontSize: 12, color: '#555' },
+  statCaption: { fontSize: 12 },
 
   graphCard: {
-    backgroundColor: COLORS.greyCard,
     borderRadius: RADIUS,
     paddingTop: 10,
     width: GRAPH_WIDTH,
@@ -511,10 +523,9 @@ const stylesLocal = StyleSheet.create({
     overflow: 'hidden',
   },
   graphValue: { fontSize: 36, fontWeight: '600', paddingLeft: 10 },
-  graphCaption: { fontSize: 12, color: '#555', marginBottom: 5, paddingLeft: 10 },
+  graphCaption: { fontSize: 12, marginBottom: 5, paddingLeft: 10 },
 
   suggestionCard: {
-    backgroundColor: COLORS.greyLight,
     borderRadius: RADIUS,
     padding: 20,
     marginBottom: 20,
@@ -540,16 +551,14 @@ const stylesLocal = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  modelText: { color: COLORS.textLight, fontSize: 16 },
+  modelText: { fontSize: 16 },
 
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.8)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalCard: {
-    backgroundColor: COLORS.greyCard,
     borderRadius: RADIUS,
     padding: 20,
     width: SCREEN_WIDTH - 40,
@@ -561,19 +570,20 @@ const stylesLocal = StyleSheet.create({
   btn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.textDark,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 24,
   },
   btnText: {
-    color: COLORS.textLight,
+    color: colors.primaryText,
     fontSize: 20,
     fontFamily: 'Poppins',
     marginLeft: 8,
     marginBottom: 2,
   },
 });
+
+const stylesLocal = createStylesLocal({ primaryText: '#fff' }); // Will be overridden
 
 const stylesChart = StyleSheet.create({
   chart: { backgroundColor: 'transparent', paddingLeft: 0, paddingRight: 0 },

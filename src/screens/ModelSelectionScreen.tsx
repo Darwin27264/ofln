@@ -1,11 +1,6 @@
 // ModelSelectionScreen.tsx
 
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-} from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -18,12 +13,39 @@ import {
   Pressable,
   BackHandler,
   Easing,
+  ScrollView,
 } from "react-native";
 import RNFS from "react-native-fs";
 import axios from "axios";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import Ionicons from "react-native-vector-icons/Ionicons";
-import { styles } from "../styles/styles";
+import { createStyles } from "../styles/styles";
+import { useTheme } from "../context/ThemeContext";
+import ProgressBar from "../components/ProgressBar";
+
+interface ModelFormat {
+  label: string;
+}
+
+interface ModelSelectionScreenProps {
+  modelFormats: ModelFormat[];
+  selectedModelFormat: string;
+  setSelectedModelFormat: (format: string) => void;
+  availableGGUFs: string[];
+  setAvailableGGUFs: (ggufs: string[]) => void;
+  selectedGGUF: string | null;
+  setSelectedGGUF: (gguf: string | null) => void;
+  isFetching: boolean;
+  setIsFetching: (fetching: boolean) => void;
+  downloadedModels: string[];
+  handleDownloadModel: (file: string, onProgress: (progress: number) => void) => Promise<void>;
+  loadModel: (path: string, context: any, setContext: (context: any) => void) => Promise<boolean>;
+  context: any;
+  setContext: (context: any) => void;
+  setCurrentPage: (page: "modelSelection" | "conversation" | "settings" | "stages") => void;
+  HF_TO_GGUF: { [key: string]: string };
+  checkDownloadedModels: () => Promise<void>;
+}
 
 // Helper function to prettify the model file name
 function prettifyModelName(fileName: string): string {
@@ -33,7 +55,10 @@ function prettifyModelName(fileName: string): string {
   return cleaned.trim();
 }
 
-export default function ModelSelectionScreen(props) {
+export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
+  const { theme } = useTheme();
+  const styles = createStyles(theme.colors);
+  
   const {
     modelFormats,
     selectedModelFormat,
@@ -51,13 +76,64 @@ export default function ModelSelectionScreen(props) {
     setContext,
     setCurrentPage,
     HF_TO_GGUF,
+    checkDownloadedModels,
   } = props;
 
-  // New state for model loading
-  const [isLoadingModel, setIsLoadingModel] = useState(false);
-  const [loadingModelFile, setLoadingModelFile] = useState(null);
-
+  // State declarations
+  const [isLoadingModel, setIsLoadingModel] = useState<boolean>(false);
+  const [loadingModelFile, setLoadingModelFile] = useState<string | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<{ [key: string]: number }>({});
+  const [downloadCancellationTokens, setDownloadCancellationTokens] = useState<{ [key: string]: () => void }>({});
+
+  const handleCancelDownload = (file: string) => {
+    const cancelDownload = downloadCancellationTokens[file];
+    if (cancelDownload) {
+      cancelDownload();
+      setDownloadProgress(prev => {
+        const newProgress = { ...prev };
+        delete newProgress[file];
+        return newProgress;
+      });
+      setDownloadCancellationTokens(prev => {
+        const newTokens = { ...prev };
+        delete newTokens[file];
+        return newTokens;
+      });
+      setSelectedGGUF(null);
+    }
+  };
+
+  const handleDeleteModel = async (file: string) => {
+    Alert.alert(
+      "Confirm Delete",
+      `Are you sure you want to delete ${file}?`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const filePath = `${RNFS.DocumentDirectoryPath}/${file}`;
+              if (selectedGGUF === file) {
+                setSelectedGGUF(null);
+              }
+              await RNFS.unlink(filePath);
+              await checkDownloadedModels(); // Refresh the list
+            } catch (error) {
+              console.error('Error deleting model:', error);
+              Alert.alert("Error", "Failed to delete the model file.");
+            }
+          }
+        }
+      ],
+      { cancelable: true }
+    );
+  };
 
   // For the bottom sheet
   const screenHeight = Dimensions.get("window").height;
@@ -178,8 +254,40 @@ export default function ModelSelectionScreen(props) {
         {
           text: "Yes",
           onPress: async () => {
-            await handleDownloadModel(file);
-            setCurrentPage("conversation");
+            try {
+              console.log(`Starting download for ${file}`);
+              setDownloadProgress(prev => ({ ...prev, [file]: 0 }));
+              
+              // Create an AbortController for this download
+              const controller = new AbortController();
+              setDownloadCancellationTokens(prev => ({
+                ...prev,
+                [file]: () => controller.abort()
+              }));
+
+              await handleDownloadModel(file, (progress) => {
+                console.log(`Download progress for ${file}: ${progress}%`);
+                setDownloadProgress(prev => ({ ...prev, [file]: progress }));
+              });
+
+              // Clean up cancellation token after successful download
+              setDownloadCancellationTokens(prev => {
+                const newTokens = { ...prev };
+                delete newTokens[file];
+                return newTokens;
+              });
+            } catch (error) {
+              if (error instanceof Error && error.name === 'AbortError') {
+                console.log(`Download cancelled for ${file}`);
+              } else {
+                setSelectedGGUF(null); // Reset selection on error
+                setDownloadProgress(prev => {
+                  const newProgress = { ...prev };
+                  delete newProgress[file];
+                  return newProgress;
+                });
+              }
+            }
           },
         },
       ],
@@ -188,88 +296,109 @@ export default function ModelSelectionScreen(props) {
   }
 
   return (
-    <View style={[styles.container, { padding: 20, flex: 1 }]}>
-      {/* Title changed to "Models" */}
-      <Text style={styles.settingsTitle}>Models</Text>
+    <View style={[styles.container, { padding: 20, flex: 1, backgroundColor: theme.colors.background }]}>
+      {/* Header container with fixed position */}
+      <View style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: theme.colors.background,
+        zIndex: 1,
+        paddingHorizontal: 20,
+        paddingTop: 20,
+        paddingBottom: 0,
+      }}>
+        <Text style={styles.settingsTitle}>Models</Text>
 
-      {/* Display the currently selected model in the top right as a minimal indicator
-          with a green dot and the prettified model text (multiline) */}
-      <View
-        style={{
-          position: "absolute",
-          top: 32,
-          right: 20,
-          flexDirection: "row",
-          alignItems: "center",
-          maxWidth: screenWidth * 0.2,
-        }}
-      >
-        {selectedGGUF && (
-          <View
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: 4,
-              backgroundColor: "green",
-              marginRight: 10,
-            }}
-          />
-        )}
-        <Text
+        {/* Selected model indicator */}
+        <View
           style={{
-            fontSize: 12,
-            color: "#000",
-            fontFamily: "Poppins",
-            textAlign: "left",
-            flexWrap: "wrap",
+            position: "absolute",
+            top: 32,
+            right: 40, // Increased to match the model grid's right padding
+            flexDirection: "row",
+            alignItems: "center",
+            maxWidth: screenWidth * 0.3,
           }}
-          // Allow wrapping to multiple lines without splitting words
-          numberOfLines={0}
         >
-          {selectedGGUF ? prettifyModelName(selectedGGUF) : "No model selected"}
-        </Text>
+          {selectedGGUF && (
+            <View
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                backgroundColor: "green",
+                marginRight: 10,
+              }}
+            />
+          )}
+          <Text
+            style={{
+              fontSize: 12,
+              color: theme.colors.text,
+              fontFamily: "Poppins",
+              textAlign: "left",
+              flexWrap: "wrap",
+            }}
+            numberOfLines={0}
+          >
+            {selectedGGUF ? prettifyModelName(selectedGGUF) : "No model selected"}
+          </Text>
+        </View>
       </View>
 
-      {/* Updated grid container with explicit row layout */}
-      <View
-        style={[
-          styles.modelFormatGrid,
-          {
-            flexDirection: "row",
-            flexWrap: "wrap",
-            justifyContent: "space-between",
-            marginTop: 20,
-          },
-        ]}
+      {/* Scrollable content */}
+      <ScrollView 
+        style={{ 
+          marginTop: 55, // Adjusted space for header
+          flex: 1,
+        }}
+        showsVerticalScrollIndicator={false}
       >
-        {modelFormats.map((format, index) => (
-          <TouchableOpacity
-            key={index}
-            style={[
-              styles.modelFormatBox,
-              {
-                width: boxWidth,
-                height: boxWidth,
-                borderWidth: 0,
-                borderColor: "transparent",
-                borderRadius: 24,
-                padding: 20,
-                marginBottom: 10,
-              },
-            ]}
-            onPress={() => handleFormatSelection(format.label)}
-          >
-            <Text
+        {/* Grid container */}
+        <View
+          style={[
+            styles.modelFormatGrid,
+            {
+              flexDirection: "row",
+              flexWrap: "wrap",
+              justifyContent: "space-between",
+              paddingBottom: 80, // Space for back button
+            },
+          ]}
+        >
+          {modelFormats.map((format, index) => (
+            <TouchableOpacity
+              key={index}
               style={[
-                styles.modelFormatBoxText,
-                { flexWrap: "wrap", textAlign: "center" },
+                styles.modelFormatBox,
+                {
+                  width: boxWidth,
+                  height: boxWidth * 0.7, // Reduced height
+                  borderRadius: 20,
+                  padding: 15,
+                  marginBottom: 10,
+                },
               ]}
+              onPress={() => handleFormatSelection(format.label)}
             >
-              {format.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+              <Animated.Text
+                style={[
+                  styles.modelFormatBoxText,
+                  { 
+                    flexWrap: "wrap", 
+                    textAlign: "center",
+                    fontSize: 14, // Slightly smaller text
+                  },
+                ]}
+              >
+                {format.label}
+              </Animated.Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </ScrollView>
 
       {/* The slide-out panel */}
       {isPanelOpen && (
@@ -278,7 +407,7 @@ export default function ModelSelectionScreen(props) {
           style={[
             styles.overlay,
             {
-              backgroundColor: "rgba(0, 0, 0, 0.1)",
+              backgroundColor: theme.colors.overlay,
             },
           ]}
         >
@@ -309,7 +438,7 @@ export default function ModelSelectionScreen(props) {
               onPress={(e) => e.stopPropagation()}
             >
               <Text style={styles.bottomSheetTitle}>Avaliable GGUF Files</Text>
-              {isFetching && <ActivityIndicator size="small" color="#2563EB" />}
+              {isFetching && <ActivityIndicator size="small" color={theme.colors.accent} />}
 
               <Animated.ScrollView
                 style={{ flex: 1 }}
@@ -326,9 +455,14 @@ export default function ModelSelectionScreen(props) {
                         isDownloaded && styles.downloadedModelButton,
                         { marginVertical: 6 },
                       ]}
-                      onPress={() =>
+                      onPress={(e) =>
                         isDownloaded
                           ? (() => {
+                              // Don't trigger model loading if clicking delete button
+                              const target = e.target as any;
+                              if (target && target.props && target.props.name === "delete") {
+                                return;
+                              }
                               setIsLoadingModel(true);
                               setLoadingModelFile(file);
                               loadModel(
@@ -347,20 +481,12 @@ export default function ModelSelectionScreen(props) {
                     >
                       <View style={styles.modelButtonContent}>
                         <View style={styles.modelStatusContainer}>
-                          {isDownloaded ? (
+                          {isDownloaded && (
                             <View style={styles.downloadedIndicator}>
                               <Icon
                                 name="check-circle"
                                 size={20}
-                                color="#2563EB"
-                              />
-                            </View>
-                          ) : (
-                            <View style={styles.notDownloadedIndicator}>
-                              <Icon
-                                name="hourglass-empty"
-                                size={20}
-                                color="#2563EB"
+                                color={theme.colors.accent}
                               />
                             </View>
                           )}
@@ -369,27 +495,55 @@ export default function ModelSelectionScreen(props) {
                               styles.buttonTextGGUF,
                               selectedGGUF === file && styles.selectedButtonText,
                               isDownloaded && styles.downloadedText,
-                              { flexWrap: "wrap", textAlign: "center" },
+                              { flexWrap: "wrap", textAlign: "left", flex: 1 },
                             ]}
                           >
                             {file.split("-").pop()}
                           </Text>
                         </View>
                         {isDownloaded ? (
-                          isLoadingModel && loadingModelFile === file ? (
-                            <ActivityIndicator size="small" color="#2563EB" />
-                          ) : (
-                            <Icon
-                              name="play-circle-outline"
-                              size={24}
-                              color="#2563EB"
-                            />
-                          )
+                          <View style={styles.modelActions}>
+                            <TouchableOpacity
+                              onPress={() => handleDeleteModel(file)}
+                              style={styles.deleteButton}
+                            >
+                              <Icon
+                                name="delete"
+                                size={22}
+                                color={theme.colors.error}
+                              />
+                            </TouchableOpacity>
+                              {isLoadingModel && loadingModelFile === file ? (
+                              <ActivityIndicator size="small" color={theme.colors.accent} />
+                            ) : (
+                              <Icon
+                                name="play-circle-outline"
+                                size={24}
+                                color={theme.colors.accent}
+                              />
+                            )}
+                          </View>
+                        ) : downloadProgress[file] !== undefined ? (
+                          <View style={styles.downloadProgressContainer}>
+                            <View style={{ width: 100 }}>
+                              <ProgressBar progress={downloadProgress[file]} />
+                            </View>
+                            <TouchableOpacity
+                              onPress={() => handleCancelDownload(file)}
+                              style={styles.cancelButton}
+                            >
+                              <Icon
+                                name="cancel"
+                                size={20}
+                                color={theme.colors.error}
+                              />
+                            </TouchableOpacity>
+                          </View>
                         ) : (
                           <Icon
                             name="file-download"
                             size={24}
-                            color="#2563EB"
+                            color={theme.colors.accent}
                           />
                         )}
                       </View>
@@ -409,16 +563,16 @@ export default function ModelSelectionScreen(props) {
           style={{
             flexDirection: "row",
             alignItems: "center",
-            backgroundColor: "#000000",
+            backgroundColor: theme.colors.primary,
             paddingHorizontal: 16,
             paddingVertical: 8,
             borderRadius: 24,
           }}
         >
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+          <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
           <Text
             style={{
-              color: "#FFFFFF",
+              color: theme.colors.primaryText,
               fontSize: 20,
               fontFamily: "Poppins",
               marginLeft: 8,

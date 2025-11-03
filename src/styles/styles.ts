@@ -1,12 +1,13 @@
 /* styles.ts */
 import { StyleSheet, Dimensions } from "react-native";
+import type { ThemeColors } from "../context/ThemeContext";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
-export const styles = StyleSheet.create({
+export const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.background,
     fontFamily: "Poppins",
   },
   scrollView: {
@@ -22,19 +23,22 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
   },
   topRightPill: {
-    backgroundColor: "#EAEAEA",
+    backgroundColor: colors.glass,
     borderRadius: 30,
     paddingHorizontal: 12,
     paddingVertical: 8,
     flexDirection: "row",
     alignItems: "center",
     marginLeft: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backdropFilter: "blur(10px)",
   },
   topRightPillText: {
     fontFamily: "Poppins",
     fontSize: 14,
     marginLeft: 6,
-    color: "#000",
+    color: colors.text,
   },
 
   /* Top-left pill for slide-out panel trigger */
@@ -43,12 +47,15 @@ export const styles = StyleSheet.create({
     top: 20,
     left: 16,
     zIndex: 10,
-    backgroundColor: "#EAEAEA",
+    backgroundColor: colors.glass,
     borderRadius: 30,
     paddingHorizontal: 12,
     paddingVertical: 8,
     flexDirection: "row",
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    backdropFilter: "blur(10px)",
   },
 
   /* Slide-out panel style */
@@ -58,9 +65,11 @@ export const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     width: 250,
-    backgroundColor: "#F2F2F2",
+    backgroundColor: colors.card,
     zIndex: 5,
     elevation: 5,
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
   },
 
   greetingContainer: {
@@ -77,7 +86,7 @@ export const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: "300",
     textAlign: "left",
-    color: "#334155",
+    color: colors.textSecondary,
     marginRight: 80,
     lineHeight: 40,
     fontFamily: "Poppins",
@@ -98,7 +107,7 @@ export const styles = StyleSheet.create({
     borderBottomRightRadius: 5,
     borderBottomLeftRadius: 20,
     alignSelf: "flex-end",
-    backgroundColor: "#EAEAEA",
+    backgroundColor: colors.primary,
   },
   llamaBubble: {
     borderTopLeftRadius: 20,
@@ -106,47 +115,50 @@ export const styles = StyleSheet.create({
     borderBottomRightRadius: 20,
     borderBottomLeftRadius: 5,
     alignSelf: "flex-start",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.glass,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: colors.border,
+    backdropFilter: "blur(10px)",
   },
   messageText: {
     fontSize: 18,
-    color: "#334155",
+    color: colors.textSecondary,
     fontFamily: "Poppins",
   },
   userMessageText: {
-    color: "#000000",
+    color: colors.primaryText,
     fontFamily: "Poppins",
   },
   tokenInfo: {
     fontSize: 12,
-    color: "#94A3B8",
+    color: colors.textTertiary,
     marginTop: 4,
     textAlign: "right",
     fontFamily: "Poppins",
   },
 
   bottomContainer: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.transparent,
     paddingVertical: 6,
   },
   inputBar: {
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#000000",
+    borderColor: colors.border,
     borderRadius: 30,
     paddingHorizontal: 16,
     paddingVertical: 6,
     marginHorizontal: 16,
     marginBottom: 8,
+    backgroundColor: colors.glass,
+    backdropFilter: "blur(10px)",
   },
   input: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.transparent,
     fontSize: 18,
-    color: "#334155",
+    color: colors.text,
     paddingVertical: 4,
     fontFamily: "Poppins",
   },
@@ -158,7 +170,7 @@ export const styles = StyleSheet.create({
     marginLeft: 8,
   },
   sendIconText: {
-    color: "#FFFFFF",
+    color: colors.primaryText,
     fontSize: 18,
     fontWeight: "600",
     fontFamily: "Poppins",
@@ -167,7 +179,7 @@ export const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#000000",
+    backgroundColor: colors.error,
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 8,
@@ -178,7 +190,7 @@ export const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   toggleText: {
-    color: "#000000",
+    color: colors.text,
     fontSize: 12,
     fontWeight: "500",
     fontFamily: "Poppins",
@@ -186,18 +198,20 @@ export const styles = StyleSheet.create({
   thoughtContainer: {
     marginTop: 8,
     padding: 10,
-    backgroundColor: "#F1F5F9",
+    backgroundColor: colors.surface,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   thoughtTitle: {
-    color: "#64748B",
+    color: colors.textSecondary,
     fontSize: 12,
     fontWeight: "600",
     marginBottom: 4,
     fontFamily: "Poppins",
   },
   thoughtText: {
-    color: "#475569",
+    color: colors.textSecondary,
     fontSize: 12,
     fontStyle: "italic",
     lineHeight: 16,
@@ -205,30 +219,34 @@ export const styles = StyleSheet.create({
   },
 
   card: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.card,
     padding: 16,
     margin: 16,
     borderRadius: 8,
     fontFamily: "Poppins",
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   subtitle: {
     fontSize: 18,
-    color: "#334155",
+    color: colors.textSecondary,
     marginBottom: 8,
     fontFamily: "Poppins",
   },
   button: {
-    backgroundColor: "#EAEAEA",
+    backgroundColor: colors.secondary,
     padding: 12,
     borderRadius: 8,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   selectedButton: {
-    backgroundColor: "#C0C0C0",
+    backgroundColor: colors.primary,
   },
   buttonText: {
     fontSize: 18,
-    color: "#000000",
+    color: colors.text,
     textAlign: "center",
     fontFamily: "Poppins",
   },
@@ -236,25 +254,48 @@ export const styles = StyleSheet.create({
     marginBottom: 8,
   },
   modelButton: {
-    backgroundColor: "#EAEAEA",
+    backgroundColor: colors.secondary,
     padding: 12,
     borderRadius: 8,
+    width: "100%",
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   modelButtonContent: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    width: "100%",
+  },
+  downloadProgressContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+  },
+  cancelButton: {
+    marginLeft: 8,
+    padding: 4,
+  },
+  modelActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  deleteButton: {
+    padding: 4,
   },
   modelStatusContainer: {
     flexDirection: "row",
     alignItems: "center",
+    flex: 1,
+    marginRight: 12,
   },
   downloadedIndicator: {
     marginRight: 8,
   },
   downloadedIcon: {
     fontSize: 18,
-    color: "#2563EB",
+    color: colors.accent,
     fontFamily: "Poppins",
   },
   notDownloadedIndicator: {
@@ -262,20 +303,20 @@ export const styles = StyleSheet.create({
   },
   notDownloadedIcon: {
     fontSize: 18,
-    color: "#2563EB",
+    color: colors.accent,
     fontFamily: "Poppins",
   },
   buttonTextGGUF: {
     fontSize: 18,
-    color: "#000000",
+    color: colors.text,
     fontFamily: "Poppins",
   },
   selectedButtonText: {
-    color: "#FFFFFF",
+    color: colors.primaryText,
     fontFamily: "Poppins",
   },
   downloadedText: {
-    color: "#2563EB",
+    color: colors.accent,
     fontFamily: "Poppins",
   },
   loadModelIndicator: {
@@ -283,7 +324,7 @@ export const styles = StyleSheet.create({
   },
   loadModelText: {
     fontSize: 18,
-    color: "#000000",
+    color: colors.text,
     fontFamily: "Poppins",
   },
   downloadIndicator: {
@@ -291,7 +332,7 @@ export const styles = StyleSheet.create({
   },
   downloadText: {
     fontSize: 18,
-    color: "#000000",
+    color: colors.text,
     fontFamily: "Poppins",
   },
 
@@ -299,9 +340,9 @@ export const styles = StyleSheet.create({
   settingsTitle: {
     fontSize: 36,
     fontWeight: "600",
-    marginBottom: 20,
+    marginBottom: 5,
     fontFamily: "Poppins",
-    color: "#334155",
+    color: colors.text,
   },
   settingsRow: {
     flexDirection: "row",
@@ -312,17 +353,20 @@ export const styles = StyleSheet.create({
   settingsLabel: {
     fontSize: 18,
     fontFamily: "Poppins",
-    color: "#000",
+    color: colors.text,
   },
 
   /* Settings screen styles */
   settingsBlock: {
     flex: 1,
-    backgroundColor: "#EAEAEA",
+    backgroundColor: colors.glass,
     borderRadius: 30,
     padding: 15,
     justifyContent: "flex-end",
     height: "100%",
+    borderWidth: 1,
+    borderColor: colors.border,
+    backdropFilter: "blur(10px)",
   },
   blockIcon: {
     position: "absolute",
@@ -338,7 +382,7 @@ export const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "normal",
     textAlign: "left",
-    color: "#000000",
+    color: colors.text,
     lineHeight: 24,
   },
   blockInfoIcon: {
@@ -368,24 +412,27 @@ export const styles = StyleSheet.create({
   modelFormatBox: {
     width: screenWidth * 0.45,
     height: screenWidth * 0.45,
-    backgroundColor: "#EAEAEA",
+    backgroundColor: colors.glass,
     borderRadius: 30,
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: colors.border,
     margin: 2,
     alignItems: "center",
     justifyContent: "center",
+    backdropFilter: "blur(10px)",
   },
   modelFormatBoxText: {
-    fontSize: 16,
+    fontSize: 28,
     fontFamily: "Poppins",
-    color: "#000",
+    fontWeight: "500",
+    color: colors.text,
     textAlign: "center",
     paddingHorizontal: 10,
   },
 
   downloadedModelButton: {
-    backgroundColor: "#E8FCEA",
+    backgroundColor: colors.success + "20",
+    borderColor: colors.success + "40",
   },
 
   /* Pill-like back button at bottom-left */
@@ -393,7 +440,7 @@ export const styles = StyleSheet.create({
     position: "absolute",
     bottom: 30,
     left: 20,
-    backgroundColor: "#000",
+    backgroundColor: colors.primary,
     borderRadius: 24,
     flexDirection: "row",
     alignItems: "center",
@@ -402,12 +449,12 @@ export const styles = StyleSheet.create({
   },
   backPillIcon: {
     fontSize: 24,
-    color: "#FFF",
+    color: colors.primaryText,
     marginRight: 8,
     fontFamily: "Poppins",
   },
   backPillText: {
-    color: "#FFF",
+    color: colors.primaryText,
     fontSize: 18,
     fontFamily: "Poppins",
   },
@@ -419,7 +466,7 @@ export const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: colors.overlay,
     zIndex: 999,
   },
 
@@ -430,9 +477,13 @@ export const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: screenHeight * 0.7, // 60% of screen
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.card,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: colors.border,
   },
   bottomSheetInner: {
     flex: 1,
@@ -443,8 +494,30 @@ export const styles = StyleSheet.create({
   bottomSheetTitle: {
     fontSize: 18,
     fontFamily: "Poppins",
-    color: "#000",
+    color: colors.text,
     marginBottom: 12,
     textAlign: "center",
   },
 });
+
+// Legacy export for backward compatibility (will be phased out)
+export const styles = createStyles({
+  background: "#FFFFFF",
+  surface: "#F8F9FA",
+  card: "#FFFFFF",
+  overlay: "rgba(0, 0, 0, 0.1)",
+  text: "#000000",
+  textSecondary: "#334155",
+  textTertiary: "#94A3B8",
+  border: "#E2E8F0",
+  borderLight: "#F1F5F9",
+  primary: "#000000",
+  primaryText: "#FFFFFF",
+  secondary: "#EAEAEA",
+  accent: "#2563EB",
+  success: "#34C759",
+  warning: "#FF9F0A",
+  error: "#FF453A",
+  transparent: "transparent",
+  glass: "rgba(255, 255, 255, 0.8)",
+} as ThemeColors);
