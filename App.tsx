@@ -1,6 +1,6 @@
 /* App.tsx */
 import React, { useState, useRef, useEffect } from "react";
-import { SafeAreaView, ScrollView, Alert, ActivityIndicator, Animated, Easing } from "react-native";
+import { SafeAreaView, ScrollView, ActivityIndicator, Animated, Easing } from "react-native";
 
 import { createStyles } from "./src/styles/styles";
 import { downloadModel } from "./src/api/model";
@@ -10,6 +10,9 @@ import axios from "axios";
 
 // Theme
 import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
+
+// Components
+import { CustomAlertProvider } from "./src/components/CustomAlert";
 
 // Screens
 import ModelSelectionScreen from "./src/screens/ModelSelectionScreen";
@@ -24,6 +27,7 @@ import {
   handleSendMessageCompletion,
   checkFileExists,
 } from "./src/services/llamaService";
+import { validateLocalModels, LocalModelInfo } from "./src/services/localModelService";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -46,16 +50,14 @@ function AppContent(): React.JSX.Element {
   const [conversation, setConversation] = useState<Message[]>(INITIAL_CONVERSATION);
   const [userInput, setUserInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [selectedModelFormat, setSelectedModelFormat] = useState<string>("");
   const [selectedGGUF, setSelectedGGUF] = useState<string | null>(null);
-  const [availableGGUFs, setAvailableGGUFs] = useState<string[]>([]);
   type PageType = "modelSelection" | "conversation" | "settings" | "stages";
   const [currentPage, setCurrentPage] = useState<PageType>("conversation");
   const [tokensPerSecond, setTokensPerSecond] = useState<number[]>([]);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [isFetching, setIsFetching] = useState<boolean>(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
   const [downloadedModels, setDownloadedModels] = useState<string[]>([]);
+  const [localModels, setLocalModels] = useState<LocalModelInfo[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 
   const [assistantDisplayMode, setAssistantDisplayMode] = useState<"bubble" | "direct">(
@@ -87,29 +89,6 @@ function AppContent(): React.JSX.Element {
     ]).start();
   }, [currentPage]);
 
-  // Top 8 best mobile models optimized for speed and quality (2024)
-  const HF_TO_GGUF = {
-    "Qwen2-0.5B-Instruct": "medmekk/Qwen2.5-0.5B-Instruct.GGUF",           // Best tiny model - excellent quality
-    "Llama-3.2-1B-Instruct": "medmekk/Llama-3.2-1B-Instruct.GGUF",         // Meta's latest - great balance
-    "SmolLM2-1.7B-Instruct": "medmekk/SmolLM2-1.7B-Instruct.GGUF",         // High quality reasoning
-    "DeepSeek-R1-Distill-Qwen-1.5B": "medmekk/DeepSeek-R1-Distill-Qwen-1.5B.GGUF", // Best reasoning model
-    "TinyLlama-1.1B-Chat": "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",        // Fast and reliable
-    "Phi-2-0.8B": "TheBloke/phi-2-GGUF",                                   // Microsoft's efficient model
-    "StableLM-Zephyr-0.8B": "TheBloke/stablelm-zephyr-0.8b-GGUF",          // Stable AI's efficient model
-    "Yi-6B-Chat": "TheBloke/Yi-6B-Chat-GGUF"                                // Best quality (larger but worth it)
-  };
-
-  const modelFormats = [
-    { label: "Qwen2-0.5B-Instruct" },        // Best tiny - excellent chat quality
-    { label: "Llama-3.2-1B-Instruct" },      // Meta's latest - great balance
-    { label: "SmolLM2-1.7B-Instruct" },      // High quality reasoning
-    { label: "DeepSeek-R1-Distill-Qwen-1.5B" }, // Best reasoning model
-    { label: "TinyLlama-1.1B-Chat" },        // Fast and reliable
-    { label: "Phi-2-0.8B" },                 // Microsoft's efficient model
-    { label: "StableLM-Zephyr-0.8B" },       // Stable AI's efficient model
-    { label: "Yi-6B-Chat" }                  // Best quality (larger)
-  ];
-
   const scrollViewRef = useRef<ScrollView>(null!) as React.RefObject<ScrollView>;
   const scrollPositionRef = useRef(0);
   const contentHeightRef = useRef(0);
@@ -120,9 +99,14 @@ function AppContent(): React.JSX.Element {
 
   const checkDownloadedModels = async () => {
     try {
+      // Check downloaded models from DocumentDirectoryPath
       const files = await RNFS.readDir(RNFS.DocumentDirectoryPath);
       const ggufFiles = files.filter((file) => file.name.endsWith(".gguf")).map((f) => f.name);
       setDownloadedModels(ggufFiles);
+
+      // Validate and update local models (checks if files still exist)
+      const validLocalModels = await validateLocalModels();
+      setLocalModels(validLocalModels);
     } catch (error) {
       console.error("Error checking downloaded models:", error);
     }
@@ -151,16 +135,14 @@ function AppContent(): React.JSX.Element {
     setCurrentPage("conversation");
   };
 
-  const handleDownloadModel = async (file: string, onProgress: (progress: number) => void) => {
-    const downloadUrl = `https://huggingface.co/${
-      HF_TO_GGUF[selectedModelFormat as keyof typeof HF_TO_GGUF]
-    }/resolve/main/${file}`;
+  const handleDownloadModel = async (file: string, repoId: string, onProgress: (progress: number) => void) => {
+    const downloadUrl = `https://huggingface.co/${repoId}/resolve/main/${file}`;
 
     const destPath = `${RNFS.DocumentDirectoryPath}/${file}`;
     if (await checkFileExists(destPath)) {
       const success = await loadModel(destPath, context, setContext);
       if (success) {
-        Alert.alert("Info", `File ${destPath} already exists, we'll load it directly.`);
+        setSelectedGGUF(file);
         await checkDownloadedModels(); // Refresh downloaded models list
         setCurrentPage("conversation");
         return;
@@ -171,14 +153,14 @@ function AppContent(): React.JSX.Element {
       await checkDownloadedModels(); // Refresh downloaded models list
       const success = await loadModel(destPath, context, setContext);
       if (success) {
-        Alert.alert("Success", `Model downloaded to: ${destPath}`);
+        setSelectedGGUF(file);
         setCurrentPage("conversation");
       } else {
-        Alert.alert("Error", "Failed to load the downloaded model.");
+        console.error("Failed to load the downloaded model");
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      Alert.alert("Error", `Download failed: ${errorMessage}`);
+      console.error("Download failed:", errorMessage);
       setSelectedGGUF(null); // Reset selection on error
     }
   };
@@ -193,23 +175,17 @@ function AppContent(): React.JSX.Element {
       {currentPage === "modelSelection" && (
         <Animated.View style={[{ flex: 1 }, pageTransitionStyle]}>
           <ModelSelectionScreen
-          modelFormats={modelFormats}
-          selectedModelFormat={selectedModelFormat}
-          setSelectedModelFormat={setSelectedModelFormat}
-          availableGGUFs={availableGGUFs}
-          setAvailableGGUFs={setAvailableGGUFs}
-          selectedGGUF={selectedGGUF}
-          setSelectedGGUF={setSelectedGGUF}
-          isFetching={isFetching}
-          setIsFetching={setIsFetching}
           downloadedModels={downloadedModels}
+          localModels={localModels}
+          setLocalModels={setLocalModels}
           handleDownloadModel={handleDownloadModel}
           loadModel={loadModel}
           context={context}
           setContext={setContext}
           setCurrentPage={setCurrentPage}
-          HF_TO_GGUF={HF_TO_GGUF}
           checkDownloadedModels={checkDownloadedModels}
+          selectedGGUF={selectedGGUF}
+          setSelectedGGUF={setSelectedGGUF}
           />
         </Animated.View>
       )}
@@ -259,6 +235,12 @@ function AppContent(): React.JSX.Element {
           }
           assistantDisplayMode={assistantDisplayMode}
           onOpenSettings={() => setCurrentPage("settings")}
+          selectedGGUF={selectedGGUF}
+          setSelectedGGUF={setSelectedGGUF}
+          downloadedModels={downloadedModels}
+          loadModel={loadModel}
+          setContext={setContext}
+          checkDownloadedModels={checkDownloadedModels}
           />
         </Animated.View>
       )}
@@ -291,7 +273,9 @@ function AppContent(): React.JSX.Element {
 export default function App(): React.JSX.Element {
   return (
     <ThemeProvider>
-      <AppContent />
+      <CustomAlertProvider>
+        <AppContent />
+      </CustomAlertProvider>
     </ThemeProvider>
   );
 }

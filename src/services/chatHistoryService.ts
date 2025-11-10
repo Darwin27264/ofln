@@ -14,6 +14,8 @@ export interface ChatConversation {
   messages: Message[];
   createdAt: number;
   updatedAt: number;
+  pinned?: boolean;
+  customTitle?: string; // User-defined custom title
 }
 
 const CHAT_HISTORY_KEY = '@chat_history';
@@ -48,7 +50,7 @@ class ChatHistoryService {
       const userMessages = messages.filter(m => m.role === 'user');
       const assistantMessages = messages.filter(m => m.role === 'assistant');
       
-      const title = userMessages[0]?.content.slice(0, 50) || 'New Chat';
+      const defaultTitle = userMessages[0]?.content.slice(0, 50) || 'New Chat';
       const preview = assistantMessages[0]?.content.slice(0, 100) || '';
       
       const now = Date.now();
@@ -57,22 +59,37 @@ class ChatHistoryService {
         // Update existing chat
         const index = history.findIndex(chat => chat.id === chatId);
         if (index !== -1) {
+          // Preserve custom title and pinned status if they exist
+          const existingChat = history[index];
+          
+          // Check if messages have actually changed (compare message count and content)
+          const messagesChanged = 
+            existingChat.messages.length !== messages.length ||
+            JSON.stringify(existingChat.messages) !== JSON.stringify(messages);
+          
+          // Only update updatedAt if messages have actually changed
+          const newUpdatedAt = messagesChanged ? now : existingChat.updatedAt;
+          
           history[index] = {
-            ...history[index],
-            title,
+            ...existingChat,
+            title: existingChat.customTitle || defaultTitle,
             preview,
             messages,
-            updatedAt: now,
+            updatedAt: newUpdatedAt,
+            // Preserve pinned status and customTitle
+            pinned: existingChat.pinned,
+            customTitle: existingChat.customTitle,
           };
         } else {
           // If chat ID doesn't exist, create new
           const newChat: ChatConversation = {
             id: chatId,
-            title,
+            title: defaultTitle,
             preview,
             messages,
             createdAt: now,
             updatedAt: now,
+            pinned: false,
           };
           history.unshift(newChat);
         }
@@ -80,11 +97,12 @@ class ChatHistoryService {
         // Create new chat
         const newChat: ChatConversation = {
           id: `chat_${now}_${Math.random().toString(36).substr(2, 9)}`,
-          title,
+          title: defaultTitle,
           preview,
           messages,
           createdAt: now,
           updatedAt: now,
+          pinned: false,
         };
         history.unshift(newChat);
         chatId = newChat.id;
@@ -95,29 +113,15 @@ class ChatHistoryService {
         history.splice(MAX_CHAT_HISTORY);
       }
       
-      // Sort by updatedAt descending
-      history.sort((a, b) => b.updatedAt - a.updatedAt);
+      // Sort by createdAt descending (preserve original order, newest first)
+      // This ensures chats maintain their position even when selected
+      history.sort((a, b) => b.createdAt - a.createdAt);
       
       await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(history));
       return chatId;
     } catch (error) {
       console.error('Error saving chat:', error);
       throw error;
-    }
-  }
-
-  async getAllChats(): Promise<ChatConversation[]> {
-    await this.initialize();
-    
-    try {
-      const historyJson = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
-      if (!historyJson) return [];
-      
-      const history: ChatConversation[] = JSON.parse(historyJson);
-      return history.sort((a, b) => b.updatedAt - a.updatedAt);
-    } catch (error) {
-      console.error('Error loading chat history:', error);
-      return [];
     }
   }
 
@@ -163,6 +167,79 @@ class ChatHistoryService {
     } catch (error) {
       console.error('Error clearing chat history:', error);
       return false;
+    }
+  }
+
+  async renameChat(chatId: string, newTitle: string): Promise<boolean> {
+    await this.initialize();
+    
+    try {
+      const historyJson = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
+      if (!historyJson) return false;
+      
+      const history: ChatConversation[] = JSON.parse(historyJson);
+      const chatIndex = history.findIndex(chat => chat.id === chatId);
+      
+      if (chatIndex === -1) return false;
+      
+      history[chatIndex] = {
+        ...history[chatIndex],
+        customTitle: newTitle.trim() || undefined,
+        title: newTitle.trim() || history[chatIndex].title,
+      };
+      
+      await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(history));
+      return true;
+    } catch (error) {
+      console.error('Error renaming chat:', error);
+      return false;
+    }
+  }
+
+  async togglePinChat(chatId: string): Promise<boolean> {
+    await this.initialize();
+    
+    try {
+      const historyJson = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
+      if (!historyJson) return false;
+      
+      const history: ChatConversation[] = JSON.parse(historyJson);
+      const chatIndex = history.findIndex(chat => chat.id === chatId);
+      
+      if (chatIndex === -1) return false;
+      
+      history[chatIndex] = {
+        ...history[chatIndex],
+        pinned: !history[chatIndex].pinned,
+      };
+      
+      await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(history));
+      return true;
+    } catch (error) {
+      console.error('Error toggling pin chat:', error);
+      return false;
+    }
+  }
+
+  async getAllChats(): Promise<ChatConversation[]> {
+    await this.initialize();
+    
+    try {
+      const historyJson = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
+      if (!historyJson) return [];
+      
+      const history: ChatConversation[] = JSON.parse(historyJson);
+      // Return sorted by createdAt descending, but preserve pinned status
+      return history.sort((a, b) => {
+        // First sort by pinned status (pinned first)
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        // Then by createdAt descending (newest first, preserves original order)
+        return b.createdAt - a.createdAt;
+      });
+    } catch (error) {
+      console.error('Error loading chat history:', error);
+      return [];
     }
   }
 }

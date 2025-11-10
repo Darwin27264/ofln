@@ -8,7 +8,6 @@ import {
   ScrollView,
   Dimensions,
   ActivityIndicator,
-  Alert,
   Modal,
   Animated,
   StyleSheet,
@@ -18,6 +17,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { LineChart } from 'react-native-chart-kit';
 import { createStyles } from '../styles/styles';
 import { useTheme } from '../context/ThemeContext';
+import { showAlert } from '../components/CustomAlert';
 
 /* ──────────────────────────────────── constants ──────────────────────────────────── */
 const RADIUS = 30;
@@ -473,7 +473,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
       <View style={[stylesLocalWithTheme.fixedBtn, { right: 15 }]}>
         <TouchableOpacity
           style={[stylesLocalWithTheme.btn, { backgroundColor: theme.colors.error }]}
-          onPress={() => Alert.alert(
+          onPress={() => showAlert(
             'Clear Usage Data',
             'Are you sure?',
             [

@@ -1,8 +1,8 @@
 // llamaservice.ts
-import { Alert } from "react-native";
 import RNFS from "react-native-fs";
 import { initLlama } from "llama.rn";
 import { recordUsage, getPerformanceLevel } from "./usageTracker";
+import { getModelSettings, ModelSettings, DEFAULT_SETTINGS } from "./modelSettingsService";
 
 // Types
 type Message = {
@@ -40,18 +40,22 @@ export const loadModel = async (
       context.release();
       setContext(null);
     }
+    
+    // Get model-specific settings
+    const fileName = filePath.split('/').pop() || '';
+    const settings = await getModelSettings(fileName);
+    
     const llamaContext = await initLlama({
       model: filePath,
       use_mlock: true,
-      n_ctx: 2048,
-      n_gpu_layers: 1,
+      n_ctx: settings.n_ctx,
+      n_gpu_layers: settings.n_gpu_layers,
     });
     setContext(llamaContext);
-    Alert.alert("Model Loaded", "The model was successfully loaded.");
     return true;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    Alert.alert("Error Loading Model", errorMessage);
+    console.error("Error loading model:", errorMessage);
     return false;
   }
 };
@@ -105,12 +109,21 @@ export const handleSendMessageCompletion = async (
   selectedModel: string
 ) => {
   if (!context) {
-    Alert.alert("Model Not Loaded", "Please load the model first.");
+    console.error("Model not loaded");
     return;
   }
   if (!userInput.trim()) {
-    Alert.alert("Input Error", "Please enter a message.");
+    console.error("Input error: empty message");
     return;
+  }
+
+  // Get model-specific settings (with fallback to defaults)
+  let settings: ModelSettings;
+  try {
+    settings = await getModelSettings(selectedModel);
+  } catch (error) {
+    console.error("Error loading model settings, using defaults:", error);
+    settings = DEFAULT_SETTINGS;
   }
 
   const newConversation: Message[] = [
@@ -162,10 +175,22 @@ export const handleSendMessageCompletion = async (
       };
     }
 
+    // Update conversation with model-specific system prompt if needed
+    const conversationWithSystemPrompt = newConversation.map((msg, idx) => {
+      if (idx === 0 && msg.role === "system") {
+        return { ...msg, content: settings.systemPrompt };
+      }
+      return msg;
+    });
+
     const result: CompletionResult = await context.completion(
       {
-        messages: newConversation,
-        n_predict: 10000,
+        messages: conversationWithSystemPrompt,
+        n_predict: settings.n_predict,
+        temperature: settings.temperature,
+        top_p: settings.top_p,
+        top_k: settings.top_k,
+        repeat_penalty: settings.repeat_penalty,
         stop: stopWords,
       },
       (data: CompletionData) => {
@@ -244,7 +269,7 @@ export const handleSendMessageCompletion = async (
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
-    Alert.alert("Error During Inference", errorMessage);
+    console.error("Error during inference:", errorMessage);
   } finally {
     setIsLoading(false);
     setIsGenerating(false);

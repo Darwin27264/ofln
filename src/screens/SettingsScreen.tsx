@@ -1,10 +1,11 @@
 // SettingsScreen.tsx
 import React, { useRef, useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, Alert, Animated, Easing } from "react-native";
+import { View, Text, TouchableOpacity, Animated, Easing } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import RNFS from "react-native-fs";
+import { showAlert } from "../components/CustomAlert";
 
 interface Props {
   assistantDisplayMode: "bubble" | "direct";
@@ -31,9 +32,10 @@ export default function SettingsScreen({
   };
 
   const showChatModeInfo = () => {
-    Alert.alert(
+    showAlert(
       "Chat Mode",
-      "When enabled, messages are shown in bubbles. When disabled, the assistant prints directly."
+      "When enabled, messages are shown in bubbles. When disabled, the assistant prints directly.",
+      [{ text: "OK" }]
     );
   };
 
