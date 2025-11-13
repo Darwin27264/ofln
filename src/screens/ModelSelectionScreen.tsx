@@ -322,6 +322,8 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [selectedModelForSettings, setSelectedModelForSettings] = useState<ModelInfo | null>(null);
   const [modelSettings, setModelSettings] = useState<ModelSettings | null>(null);
+  const [infoModalVisible, setInfoModalVisible] = useState<boolean>(false);
+  const [infoModalContent, setInfoModalContent] = useState<{ title: string; explanation: string } | null>(null);
 
   // Animation state - tracks whether we're in the initial animation phase
   // Optimized: Reduced animation window and simplified logic for better mobile performance
@@ -1167,6 +1169,46 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       showAlert("Error", "Failed to save model settings.", [{ text: "OK" }]);
     }
   }, [selectedModelForSettings]);
+
+  // Metric explanations
+  const metricExplanations: { [key: string]: { title: string; explanation: string } } = {
+    contextSize: {
+      title: "Context Size (n_ctx)",
+      explanation: "What it is:\nThe context size determines how many tokens (words/characters) the model can remember from the conversation history.\n\nEffects of tuning:\n• Higher values (4096-8192): Model remembers more conversation history, better for long conversations, but uses more memory\n• Lower values (512-1024): Uses less memory and is faster, but model forgets earlier parts of the conversation\n• Recommended: 2048-4096 for most use cases"
+    },
+    gpuLayers: {
+      title: "GPU Layers (n_gpu_layers)",
+      explanation: "What it is:\nControls how many layers of the neural network run on the GPU instead of CPU.\n\nEffects of tuning:\n• Higher values (4-8): Faster generation speed, but requires more GPU memory\n• Lower values (0-2): Uses less GPU memory, but generation is slower\n• 0: All processing on CPU (slowest but most compatible)\n• Recommended: Start with 1-2 and increase if you have GPU memory available"
+    },
+    temperature: {
+      title: "Temperature",
+      explanation: "What it is:\nControls the randomness and creativity of the model's responses.\n\nEffects of tuning:\n• Lower values (0.1-0.5): More focused, deterministic, and consistent responses. Better for factual tasks\n• Higher values (0.7-1.5): More creative, diverse, and unpredictable responses. Better for creative writing\n• Very high (1.5-2.0): May produce nonsensical or off-topic responses\n• Recommended: 0.7-0.9 for balanced responses"
+    },
+    topP: {
+      title: "Top P (Nucleus Sampling)",
+      explanation: "What it is:\nControls diversity by considering only tokens whose cumulative probability exceeds this threshold.\n\nEffects of tuning:\n• Lower values (0.1-0.5): More focused responses, considers fewer word choices\n• Higher values (0.7-0.95): More diverse responses, considers more word choices\n• Works together with temperature to control response quality\n• Recommended: 0.8-0.9 for most use cases"
+    },
+    topK: {
+      title: "Top K",
+      explanation: "What it is:\nLimits the model to consider only the top K most likely tokens when generating responses.\n\nEffects of tuning:\n• Lower values (1-10): More focused, predictable responses\n• Higher values (40-100): More diverse, creative responses\n• Setting too high may include unlikely tokens that reduce quality\n• Recommended: 40-60 for balanced quality and diversity"
+    },
+    repeatPenalty: {
+      title: "Repeat Penalty",
+      explanation: "What it is:\nPenalizes the model for repeating the same words or phrases.\n\nEffects of tuning:\n• Lower values (1.0-1.1): Model may repeat words or phrases more often\n• Higher values (1.2-1.5): Reduces repetition, but may make responses less natural if too high\n• Values above 1.5 may cause the model to avoid common words\n• Recommended: 1.1-1.2 for most use cases"
+    },
+    maxPredict: {
+      title: "Max Predict Tokens (n_predict)",
+      explanation: "What it is:\nThe maximum number of tokens the model will generate in a single response.\n\nEffects of tuning:\n• Lower values (128-512): Shorter responses, faster generation, less memory usage\n• Higher values (1024-4096): Longer responses, but slower and uses more memory\n• Setting too high may cause the model to ramble or go off-topic\n• Recommended: 512-2048 depending on your needs"
+    }
+  };
+
+  const showMetricInfo = useCallback((metricKey: string) => {
+    const info = metricExplanations[metricKey];
+    if (info) {
+      setInfoModalContent(info);
+      setInfoModalVisible(true);
+    }
+  }, []);
 
   const handleModelDownload = useCallback(async (model: ModelInfo) => {
     const isDownloaded = downloadedModels.includes(model.fileName);
@@ -2212,7 +2254,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           >
             <ScrollView
               style={{ maxHeight: "90%" }}
-              contentContainerStyle={{ padding: 20 }}
+              contentContainerStyle={{ padding: 20, paddingBottom: 8 }}
               showsVerticalScrollIndicator={true}
             >
               {/* Header */}
@@ -2241,12 +2283,6 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                     </Text>
                   )}
                 </View>
-                <TouchableOpacity
-                  onPress={() => setShowSettingsModal(false)}
-                  style={{ padding: 8 }}
-                >
-                  <Icon name="close" size={24} color={theme.colors.text} />
-                </TouchableOpacity>
               </View>
 
               {modelSettings && (
@@ -2288,16 +2324,24 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   {/* Context Size */}
                   <View style={{ marginBottom: 24 }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <Text
-                        style={{
-                          fontSize: 16,
-                          fontWeight: "600",
-                          color: theme.colors.text,
-                          fontFamily: "Poppins",
-                        }}
-                      >
-                        Context Size (n_ctx)
-                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                        <Text
+                          style={{
+                            fontSize: 16,
+                            fontWeight: "600",
+                            color: theme.colors.text,
+                            fontFamily: "Poppins",
+                          }}
+                        >
+                          Context Size (n_ctx)
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => showMetricInfo("contextSize")}
+                          style={{ marginLeft: 8, padding: 4 }}
+                        >
+                          <Ionicons name="information-circle-outline" size={20} color={theme.colors.textSecondary} />
+                        </TouchableOpacity>
+                      </View>
                       <Text
                         style={{
                           fontSize: 14,
@@ -2342,16 +2386,24 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   {/* GPU Layers */}
                   <View style={{ marginBottom: 24 }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <Text
-                        style={{
-                          fontSize: 16,
-                          fontWeight: "600",
-                          color: theme.colors.text,
-                          fontFamily: "Poppins",
-                        }}
-                      >
-                        GPU Layers (n_gpu_layers)
-                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                        <Text
+                          style={{
+                            fontSize: 16,
+                            fontWeight: "600",
+                            color: theme.colors.text,
+                            fontFamily: "Poppins",
+                          }}
+                        >
+                          GPU Layers (n_gpu_layers)
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => showMetricInfo("gpuLayers")}
+                          style={{ marginLeft: 8, padding: 4 }}
+                        >
+                          <Ionicons name="information-circle-outline" size={20} color={theme.colors.textSecondary} />
+                        </TouchableOpacity>
+                      </View>
                       <Text
                         style={{
                           fontSize: 14,
@@ -2396,16 +2448,24 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   {/* Temperature */}
                   <View style={{ marginBottom: 24 }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <Text
-                        style={{
-                          fontSize: 16,
-                          fontWeight: "600",
-                          color: theme.colors.text,
-                          fontFamily: "Poppins",
-                        }}
-                      >
-                        Temperature
-                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                        <Text
+                          style={{
+                            fontSize: 16,
+                            fontWeight: "600",
+                            color: theme.colors.text,
+                            fontFamily: "Poppins",
+                          }}
+                        >
+                          Temperature
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => showMetricInfo("temperature")}
+                          style={{ marginLeft: 8, padding: 4 }}
+                        >
+                          <Ionicons name="information-circle-outline" size={20} color={theme.colors.textSecondary} />
+                        </TouchableOpacity>
+                      </View>
                       <Text
                         style={{
                           fontSize: 14,
@@ -2469,16 +2529,24 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   {/* Top P */}
                   <View style={{ marginBottom: 24 }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <Text
-                        style={{
-                          fontSize: 16,
-                          fontWeight: "600",
-                          color: theme.colors.text,
-                          fontFamily: "Poppins",
-                        }}
-                      >
-                        Top P
-                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                        <Text
+                          style={{
+                            fontSize: 16,
+                            fontWeight: "600",
+                            color: theme.colors.text,
+                            fontFamily: "Poppins",
+                          }}
+                        >
+                          Top P
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => showMetricInfo("topP")}
+                          style={{ marginLeft: 8, padding: 4 }}
+                        >
+                          <Ionicons name="information-circle-outline" size={20} color={theme.colors.textSecondary} />
+                        </TouchableOpacity>
+                      </View>
                       <Text
                         style={{
                           fontSize: 14,
@@ -2515,16 +2583,24 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   {/* Top K */}
                   <View style={{ marginBottom: 24 }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <Text
-                        style={{
-                          fontSize: 16,
-                          fontWeight: "600",
-                          color: theme.colors.text,
-                          fontFamily: "Poppins",
-                        }}
-                      >
-                        Top K
-                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                        <Text
+                          style={{
+                            fontSize: 16,
+                            fontWeight: "600",
+                            color: theme.colors.text,
+                            fontFamily: "Poppins",
+                          }}
+                        >
+                          Top K
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => showMetricInfo("topK")}
+                          style={{ marginLeft: 8, padding: 4 }}
+                        >
+                          <Ionicons name="information-circle-outline" size={20} color={theme.colors.textSecondary} />
+                        </TouchableOpacity>
+                      </View>
                       <Text
                         style={{
                           fontSize: 14,
@@ -2561,16 +2637,24 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   {/* Repeat Penalty */}
                   <View style={{ marginBottom: 24 }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <Text
-                        style={{
-                          fontSize: 16,
-                          fontWeight: "600",
-                          color: theme.colors.text,
-                          fontFamily: "Poppins",
-                        }}
-                      >
-                        Repeat Penalty
-                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                        <Text
+                          style={{
+                            fontSize: 16,
+                            fontWeight: "600",
+                            color: theme.colors.text,
+                            fontFamily: "Poppins",
+                          }}
+                        >
+                          Repeat Penalty
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => showMetricInfo("repeatPenalty")}
+                          style={{ marginLeft: 8, padding: 4 }}
+                        >
+                          <Ionicons name="information-circle-outline" size={20} color={theme.colors.textSecondary} />
+                        </TouchableOpacity>
+                      </View>
                       <Text
                         style={{
                           fontSize: 14,
@@ -2607,16 +2691,24 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   {/* Max Predict Tokens */}
                   <View style={{ marginBottom: 24 }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <Text
-                        style={{
-                          fontSize: 16,
-                          fontWeight: "600",
-                          color: theme.colors.text,
-                          fontFamily: "Poppins",
-                        }}
-                      >
-                        Max Predict Tokens (n_predict)
-                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                        <Text
+                          style={{
+                            fontSize: 16,
+                            fontWeight: "600",
+                            color: theme.colors.text,
+                            fontFamily: "Poppins",
+                          }}
+                        >
+                          Max Predict Tokens (n_predict)
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => showMetricInfo("maxPredict")}
+                          style={{ marginLeft: 8, padding: 4 }}
+                        >
+                          <Ionicons name="information-circle-outline" size={20} color={theme.colors.textSecondary} />
+                        </TouchableOpacity>
+                      </View>
                       <Text
                         style={{
                           fontSize: 14,
@@ -2651,7 +2743,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   </View>
 
                   {/* Action Buttons */}
-                  <View style={{ flexDirection: "row", gap: 12, marginTop: 8 }}>
+                  <View style={{ flexDirection: "row", gap: 12, marginTop: 16, marginBottom: 8 }}>
                     <TouchableOpacity
                       onPress={() => setShowSettingsModal(false)}
                       style={{
@@ -2698,13 +2790,105 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                           fontFamily: "Poppins",
                         }}
                       >
-                        Save Settings
+                        Save
                       </Text>
                     </TouchableOpacity>
                   </View>
                 </>
               )}
             </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Info Modal for Metric Explanations */}
+      <Modal
+        visible={infoModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setInfoModalVisible(false)}
+      >
+        <Pressable
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+          onPress={() => setInfoModalVisible(false)}
+        >
+          <Pressable
+            style={{
+              backgroundColor: theme.colors.card,
+              borderRadius: 16,
+              padding: 24,
+              maxWidth: "90%",
+              maxHeight: "80%",
+            }}
+            onPress={(e) => e.stopPropagation()}
+          >
+            {infoModalContent && (
+              <>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <Text
+                    style={{
+                      fontSize: 20,
+                      fontWeight: "600",
+                      color: theme.colors.text,
+                      fontFamily: "Poppins",
+                      flex: 1,
+                    }}
+                  >
+                    {infoModalContent.title}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setInfoModalVisible(false)}
+                    style={{ padding: 4, marginLeft: 12 }}
+                  >
+                    <Ionicons name="close" size={24} color={theme.colors.text} />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView
+                  style={{ maxHeight: 400 }}
+                  showsVerticalScrollIndicator={true}
+                >
+                  <View>
+                    {infoModalContent.explanation.split('\n').map((line, index) => {
+                      if (line.startsWith('•')) {
+                        return (
+                          <Text key={index} style={{ 
+                            fontSize: 15,
+                            color: theme.colors.text,
+                            fontFamily: "Poppins",
+                            lineHeight: 24,
+                            marginLeft: 8,
+                            marginBottom: 4,
+                          }}>
+                            {line}
+                          </Text>
+                        );
+                      } else if (line.trim() === '') {
+                        return <View key={index} style={{ height: 8 }} />;
+                      } else {
+                        return (
+                          <Text key={index} style={{ 
+                            fontSize: 15,
+                            color: theme.colors.text,
+                            fontFamily: "Poppins",
+                            lineHeight: 24,
+                            fontWeight: line.includes(':') ? '600' : '400',
+                            marginBottom: 4,
+                          }}>
+                            {line}
+                          </Text>
+                        );
+                      }
+                    })}
+                  </View>
+                </ScrollView>
+              </>
+            )}
           </Pressable>
         </Pressable>
       </Modal>
