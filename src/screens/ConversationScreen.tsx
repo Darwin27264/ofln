@@ -463,10 +463,14 @@ export default function ConversationScreen({
     return undefined;
   }, [conversation, currentChatId, isGenerating, onChatIdChange, isPanelOpen, isTemporaryMode]);
 
+  /**
+   * Toggles the chat history side panel
+   * Optimized: Faster animations and better state management for mobile performance
+   */
   const togglePanel = useCallback(() => {
-    // Smoother animation with optimized easing
+    // Optimized animation config with reduced duration for snappier feel
     const animationConfig = {
-      duration: 250,
+      duration: 200, // Reduced from 250ms for better mobile responsiveness
       useNativeDriver: true,
       easing: Easing.bezier(0.4, 0.0, 0.2, 1), // Material Design easing for smooth feel
     };
@@ -798,23 +802,31 @@ export default function ConversationScreen({
     showToast("Message copied to clipboard");
   }, [showToast]);
 
-  // Open model selector
+  /**
+   * Opens the model selector bottom sheet
+   * Optimized: Faster spring animation for better mobile responsiveness
+   */
   const openModelSelector = useCallback(() => {
     setIsModelSelectorVisible(true);
+    // Optimized: Reduced friction and increased tension for snappier animation
     Animated.spring(modelSelectorAnim, {
       toValue: 1,
       useNativeDriver: true,
-      friction: 8,
-      tension: 40,
+      friction: 7, // Reduced from 8 for faster animation
+      tension: 50, // Increased from 40 for snappier feel
     }).start();
   }, [modelSelectorAnim]);
 
-  // Close model selector
+  /**
+   * Closes the model selector bottom sheet
+   * Optimized: Faster close animation and proper cleanup
+   */
   const closeModelSelector = useCallback(() => {
     if (isLoadingModel) return; // Don't allow closing while loading
+    // Optimized: Reduced duration for snappier close animation
     Animated.timing(modelSelectorAnim, {
       toValue: 0,
-      duration: 200,
+      duration: 150, // Reduced from 200ms for better responsiveness
       useNativeDriver: true,
       easing: Easing.out(Easing.quad),
     }).start(() => {

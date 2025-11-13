@@ -187,18 +187,20 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
       animatedModelIds.current.add(modelKey);
       
       // Start animation with index-based delay for staggered effect
+      // Optimized: Reduced duration and delay for better mobile performance
+      // Reduced delay multiplier from 40ms to 25ms to prevent long animation chains
       Animated.parallel([
         Animated.timing(cardOpacity, {
           toValue: 1,
-          duration: 300,
-          delay: index * 40,
+          duration: 200, // Reduced from 300ms for faster animations
+          delay: Math.min(index * 25, 200), // Reduced from 40ms, capped at 200ms max delay
           easing: Easing.bezier(0.4, 0.0, 0.2, 1),
           useNativeDriver: true,
         }),
         Animated.timing(cardTranslateY, {
           toValue: 0,
-          duration: 300,
-          delay: index * 40,
+          duration: 200, // Reduced from 300ms for faster animations
+          delay: Math.min(index * 25, 200), // Reduced from 40ms, capped at 200ms max delay
           easing: Easing.bezier(0.4, 0.0, 0.2, 1),
           useNativeDriver: true,
         }),
@@ -214,19 +216,20 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
   /**
    * Animate dropdown when expanded state changes
    * Only animates if not downloading or loading
+   * Optimized: Faster animations for better mobile responsiveness
    */
   useEffect(() => {
     if (isExpanded && !isDownloading && !isLoading) {
       Animated.parallel([
         Animated.timing(dropdownTranslateY, {
           toValue: 0,
-          duration: 200,
+          duration: 150, // Reduced from 200ms
           easing: Easing.bezier(0.4, 0.0, 0.2, 1),
           useNativeDriver: true,
         }),
         Animated.timing(dropdownOpacity, {
           toValue: 1,
-          duration: 180,
+          duration: 120, // Reduced from 180ms
           easing: Easing.bezier(0.4, 0.0, 0.2, 1),
           useNativeDriver: true,
         }),
@@ -235,13 +238,13 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
       Animated.parallel([
         Animated.timing(dropdownTranslateY, {
           toValue: -20,
-          duration: 150,
+          duration: 120, // Reduced from 150ms
           easing: Easing.bezier(0.4, 0.0, 1, 1),
           useNativeDriver: true,
         }),
         Animated.timing(dropdownOpacity, {
           toValue: 0,
-          duration: 120,
+          duration: 100, // Reduced from 120ms
           easing: Easing.bezier(0.4, 0.0, 1, 1),
           useNativeDriver: true,
         }),

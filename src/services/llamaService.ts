@@ -27,6 +27,20 @@ export const checkFileExists = async (filePath: string) => {
 
 /**
  * Load the model from local path
+ * 
+ * Handles model loading with proper error handling and context management.
+ * Releases previous model context before loading new one to prevent memory leaks.
+ * 
+ * @param filePath - Full path to the model file
+ * @param context - Current llama context (if any)
+ * @param setContext - State setter for context
+ * @returns Promise<boolean> - True if model loaded successfully, false otherwise
+ * 
+ * Edge cases handled:
+ * - Missing or invalid file path
+ * - Model settings loading failures (uses defaults)
+ * - Context release failures
+ * - Memory constraints during model loading
  */
 export const loadModel = async (
   filePath: string,
@@ -34,28 +48,61 @@ export const loadModel = async (
   setContext: React.Dispatch<React.SetStateAction<any>>
 ): Promise<boolean> => {
   try {
+    // Validate file path
+    if (!filePath || typeof filePath !== 'string') {
+      console.error("Invalid file path provided to loadModel");
+      return false;
+    }
+
+    // Release old context to prevent memory leaks
     if (context) {
-      // release old context
-      // but you can also call releaseAllLlama() if you want
-      context.release();
-      setContext(null);
+      try {
+        // Release old context before loading new one
+        // This prevents memory leaks and ensures clean state
+        if (typeof context.release === 'function') {
+          context.release();
+        }
+        setContext(null);
+      } catch (releaseError) {
+        // Log but don't fail - we'll try to load anyway
+        console.warn("Error releasing previous context:", releaseError);
+      }
     }
     
-    // Get model-specific settings
+    // Get model-specific settings with fallback to defaults
     const fileName = filePath.split('/').pop() || '';
-    const settings = await getModelSettings(fileName);
+    let settings;
+    try {
+      settings = await getModelSettings(fileName);
+    } catch (settingsError) {
+      // Use defaults if settings loading fails
+      console.warn("Failed to load model settings, using defaults:", settingsError);
+      settings = DEFAULT_SETTINGS;
+    }
     
+    // Initialize llama context with model settings
+    // use_mlock: true helps prevent memory swapping on mobile devices
     const llamaContext = await initLlama({
       model: filePath,
-      use_mlock: true,
+      use_mlock: true, // Lock memory to prevent swapping (important for mobile)
       n_ctx: settings.n_ctx,
       n_gpu_layers: settings.n_gpu_layers,
     });
+    
+    // Validate context was created successfully
+    if (!llamaContext) {
+      console.error("Failed to create llama context - initLlama returned null/undefined");
+      return false;
+    }
+    
     setContext(llamaContext);
     return true;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     console.error("Error loading model:", errorMessage);
+    
+    // Ensure context is cleared on error
+    setContext(null);
     return false;
   }
 };
@@ -93,6 +140,36 @@ export const stopGeneration = async (
 
 /**
  * Handle sending a message and streaming the completion tokens
+ * 
+ * Manages the complete message sending and response generation flow:
+ * - Validates input and context
+ * - Updates conversation state
+ * - Streams tokens in real-time
+ * - Handles thinking/reasoning blocks for reasoning models
+ * - Tracks performance metrics
+ * - Handles errors gracefully
+ * 
+ * @param conversation - Current conversation messages
+ * @param userInput - User's message input
+ * @param context - Llama context for inference
+ * @param setConversation - State setter for conversation
+ * @param setUserInput - State setter for user input
+ * @param setIsLoading - State setter for loading state
+ * @param setIsGenerating - State setter for generation state
+ * @param setAutoScrollEnabled - State setter for auto-scroll
+ * @param tokensPerSecond - Array of tokens per second metrics
+ * @param setTokensPerSecond - State setter for tokens per second
+ * @param scrollViewRef - Ref to scroll view for auto-scrolling
+ * @param selectedModel - Currently selected model name
+ * 
+ * Edge cases handled:
+ * - Missing or invalid context
+ * - Empty user input
+ * - Model settings loading failures
+ * - Streaming errors
+ * - Stop word handling
+ * - Thinking block parsing
+ * - Performance metric calculation errors
  */
 export const handleSendMessageCompletion = async (
   conversation: Message[],
@@ -108,12 +185,15 @@ export const handleSendMessageCompletion = async (
   scrollViewRef: React.RefObject<any>,
   selectedModel: string
 ) => {
+  // Validate context exists
   if (!context) {
-    console.error("Model not loaded");
+    console.error("Model not loaded - cannot send message");
     return;
   }
-  if (!userInput.trim()) {
-    console.error("Input error: empty message");
+  
+  // Validate user input is not empty
+  if (!userInput || !userInput.trim()) {
+    console.error("Input error: empty message - cannot send");
     return;
   }
 
@@ -270,7 +350,24 @@ export const handleSendMessageCompletion = async (
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
     console.error("Error during inference:", errorMessage);
+    
+    // Update conversation to show error state
+    setConversation((prev) => {
+      const lastMessage = prev[prev.length - 1];
+      if (lastMessage && lastMessage.role === "assistant" && lastMessage.content === "") {
+        // Replace empty assistant message with error message
+        return [
+          ...prev.slice(0, -1),
+          {
+            ...lastMessage,
+            content: `Error: ${errorMessage}. Please try again.`,
+          },
+        ];
+      }
+      return prev;
+    });
   } finally {
+    // Always reset loading states, even on error
     setIsLoading(false);
     setIsGenerating(false);
   }

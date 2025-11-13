@@ -324,7 +324,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const [modelSettings, setModelSettings] = useState<ModelSettings | null>(null);
 
   // Animation state - tracks whether we're in the initial animation phase
-  // This ensures animations only play once when entering the page
+  // Optimized: Reduced animation window and simplified logic for better mobile performance
   const isInitialAnimationPhase = useRef(true);
   const animatedModelIds = useRef<Set<string>>(new Set());
   
@@ -334,13 +334,13 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     animatedModelIds.current.clear();
     
     // Use InteractionManager to ensure animations start after initial render
-    // Then close the animation window after a reasonable delay to catch all initial cards
+    // Optimized: Reduced timeout from 1500ms to 800ms for faster UI responsiveness
     const interaction = InteractionManager.runAfterInteractions(() => {
-      // Give enough time for all initial cards to mount and start their animations
-      // Cards that mount after this window will not animate
+      // Give enough time for initial cards to mount and start their animations
+      // Cards that mount after this window will not animate (prevents lag)
       setTimeout(() => {
         isInitialAnimationPhase.current = false;
-      }, 1500); // 1.5 seconds should be enough for initial cards to mount
+      }, 800); // Reduced from 1500ms for better performance
     });
     
     return () => {
@@ -424,6 +424,10 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     return () => subscription.remove();
   }, [handleBackPress]);
 
+  /**
+   * Opens the HuggingFace model browser panel
+   * Optimized: Deferred heavy operations to prevent blocking UI thread
+   */
   function openHFPanel() {
     setIsHFPanelOpen(true);
     // Reset filters when opening panel
@@ -433,14 +437,16 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     setShowAuthorInput(false);
     
     // Start animation immediately for smooth opening
+    // Optimized: Reduced duration from 250ms to 200ms for snappier feel
     Animated.timing(animatedValue, {
       toValue: 1,
-      duration: 250,
+      duration: 200, // Reduced from 250ms for better mobile performance
       easing: Easing.bezier(0.4, 0.0, 0.2, 1), // Material Design easing
       useNativeDriver: true,
     }).start();
 
     // Defer heavy operations until after animation starts
+    // This prevents blocking the UI thread during animation
     InteractionManager.runAfterInteractions(() => {
       // Reset pagination state when opening panel (refs will be reset by fetchHFModels)
       setCurrentAuthorIndex(0);
@@ -452,10 +458,14 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     });
   }
 
+  /**
+   * Closes the HuggingFace model browser panel
+   * Optimized: Faster close animation for better responsiveness
+   */
   function closeHFPanel() {
     Animated.timing(animatedValue, {
       toValue: 0,
-      duration: 200,
+      duration: 150, // Reduced from 200ms for snappier close animation
       useNativeDriver: true,
       easing: Easing.bezier(0.4, 0.0, 1, 1), // Material Design easing
     }).start(() => {

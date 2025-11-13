@@ -97,18 +97,38 @@ function AppContent(): React.JSX.Element {
     checkDownloadedModels();
   }, [currentPage]);
 
+  /**
+   * Check and update list of downloaded models
+   * 
+   * Scans the document directory for .gguf files and validates
+   * local model metadata. Called when navigating to model selection
+   * to ensure UI reflects current state.
+   * 
+   * Edge cases handled:
+   * - Directory read failures
+   * - Invalid file entries
+   * - Local model validation errors
+   */
   const checkDownloadedModels = async () => {
     try {
       // Check downloaded models from DocumentDirectoryPath
       const files = await RNFS.readDir(RNFS.DocumentDirectoryPath);
-      const ggufFiles = files.filter((file) => file.name.endsWith(".gguf")).map((f) => f.name);
+      // Filter for .gguf files only (case-insensitive check)
+      const ggufFiles = files
+        .filter((file) => file.name.toLowerCase().endsWith(".gguf"))
+        .map((f) => f.name);
       setDownloadedModels(ggufFiles);
 
       // Validate and update local models (checks if files still exist)
+      // This removes models that have been deleted outside the app
       const validLocalModels = await validateLocalModels();
       setLocalModels(validLocalModels);
     } catch (error) {
+      // Log error but don't crash - models list will be empty
       console.error("Error checking downloaded models:", error);
+      // Set empty arrays on error to prevent stale state
+      setDownloadedModels([]);
+      setLocalModels([]);
     }
   };
 
@@ -135,33 +155,61 @@ function AppContent(): React.JSX.Element {
     setCurrentPage("conversation");
   };
 
+  /**
+   * Handle model download and loading
+   * 
+   * Downloads model from HuggingFace if not already present,
+   * then loads it into memory. If model already exists, loads directly.
+   * 
+   * @param file - Model file name
+   * @param repoId - HuggingFace repository ID
+   * @param onProgress - Progress callback (0-100)
+   * 
+   * Edge cases handled:
+   * - Model already exists (loads directly)
+   * - Download failures (error logged, selection reset)
+   * - Load failures after download (error logged)
+   * - Network interruptions (handled by downloadModel)
+   */
   const handleDownloadModel = async (file: string, repoId: string, onProgress: (progress: number) => void) => {
     const downloadUrl = `https://huggingface.co/${repoId}/resolve/main/${file}`;
-
     const destPath = `${RNFS.DocumentDirectoryPath}/${file}`;
+    
+    // Check if model already exists locally
     if (await checkFileExists(destPath)) {
+      // Model exists - load it directly without downloading
       const success = await loadModel(destPath, context, setContext);
       if (success) {
         setSelectedGGUF(file);
         await checkDownloadedModels(); // Refresh downloaded models list
         setCurrentPage("conversation");
         return;
+      } else {
+        // File exists but failed to load - may be corrupted
+        console.error("Model file exists but failed to load - may be corrupted");
+        return;
       }
     }
+    
+    // Model doesn't exist - download it
     try {
       await downloadModel(file, downloadUrl, onProgress);
       await checkDownloadedModels(); // Refresh downloaded models list
+      
+      // Load model after successful download
       const success = await loadModel(destPath, context, setContext);
       if (success) {
         setSelectedGGUF(file);
         setCurrentPage("conversation");
       } else {
-        console.error("Failed to load the downloaded model");
+        console.error("Failed to load the downloaded model - file may be corrupted");
+        setSelectedGGUF(null); // Reset selection on load failure
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       console.error("Download failed:", errorMessage);
       setSelectedGGUF(null); // Reset selection on error
+      // Error is already handled by downloadModel, but we ensure state is clean
     }
   };
 

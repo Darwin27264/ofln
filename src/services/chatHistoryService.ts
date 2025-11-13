@@ -39,10 +39,32 @@ class ChatHistoryService {
     }
   }
 
+  /**
+   * Save or update a chat conversation
+   * 
+   * Handles both creating new chats and updating existing ones.
+   * Automatically generates title from first user message.
+   * Preserves custom titles and pinned status on updates.
+   * 
+   * @param messages - Array of conversation messages
+   * @param chatId - Optional existing chat ID for updates
+   * @returns Promise<string> - The chat ID (new or existing)
+   * 
+   * Edge cases handled:
+   * - Empty message arrays
+   * - Missing user messages (uses default title)
+   * - Large message arrays (limited to MAX_CHAT_HISTORY)
+   * - Storage failures (throws error for caller to handle)
+   */
   async saveChat(messages: Message[], chatId?: string | null): Promise<string> {
     await this.initialize();
     
     try {
+      // Validate messages array
+      if (!Array.isArray(messages) || messages.length === 0) {
+        throw new Error('Invalid messages array provided to saveChat');
+      }
+
       const historyJson = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
       const history: ChatConversation[] = historyJson ? JSON.parse(historyJson) : [];
       
@@ -50,7 +72,9 @@ class ChatHistoryService {
       const userMessages = messages.filter(m => m.role === 'user');
       const assistantMessages = messages.filter(m => m.role === 'assistant');
       
+      // Generate title from first user message (max 50 chars)
       const defaultTitle = userMessages[0]?.content.slice(0, 50) || 'New Chat';
+      // Generate preview from first assistant message (max 100 chars)
       const preview = assistantMessages[0]?.content.slice(0, 100) || '';
       
       const now = Date.now();

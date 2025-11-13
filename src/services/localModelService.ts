@@ -64,7 +64,21 @@ export const removeLocalModel = async (filePath: string): Promise<void> => {
 
 /**
  * Validate that all saved local models still exist on the file system
- * Returns list of valid models and removes invalid ones from storage
+ * 
+ * Checks each saved model to ensure:
+ * - File still exists at the specified path
+ * - Path points to a file (not a directory)
+ * - File size is accessible (updates if changed)
+ * 
+ * Invalid models are automatically removed from storage.
+ * 
+ * @returns Promise<LocalModelInfo[]> - Array of valid local models
+ * 
+ * Edge cases handled:
+ * - Missing files (removed from storage)
+ * - Directory paths (removed from storage)
+ * - Permission errors (logged, model removed)
+ * - File size changes (updated in storage)
  */
 export const validateLocalModels = async (): Promise<LocalModelInfo[]> => {
   try {
@@ -72,26 +86,33 @@ export const validateLocalModels = async (): Promise<LocalModelInfo[]> => {
     const validModels: LocalModelInfo[] = [];
     const invalidModels: string[] = [];
 
+    // Validate each model file
     for (const model of models) {
       try {
+        // Check if file exists
         const exists = await RNFS.exists(model.filePath);
         if (exists) {
           // Verify it's still a file (not a directory)
           const stat = await RNFS.stat(model.filePath);
           if (stat.isFile()) {
-            // Update file size if it changed
+            // Update file size if it changed (file may have been modified)
             const updatedModel = {
               ...model,
               fileSize: stat.size,
             };
             validModels.push(updatedModel);
           } else {
+            // Path exists but is not a file (directory or other)
+            console.warn(`Model path is not a file: ${model.filePath}`);
             invalidModels.push(model.filePath);
           }
         } else {
+          // File no longer exists
+          console.warn(`Model file no longer exists: ${model.filePath}`);
           invalidModels.push(model.filePath);
         }
       } catch (error) {
+        // Handle permission errors, invalid paths, etc.
         console.error(`Error checking model ${model.filePath}:`, error);
         invalidModels.push(model.filePath);
       }
