@@ -35,6 +35,19 @@ local.properties
 !debug.keystore
 .kotlin/
 
+# Android signing & app secrets (VERY IMPORTANT)
+android/app/*.keystore
+android/app/*.jks
+android/app/*.p12
+android/keystore.properties
+**/google-services.json
+**/FirebaseAppIDFile.json
+**/sentry.properties
+
+# Artifacts generated locally
+*.apk
+*.aab
+
 # node.js
 #
 node_modules/
