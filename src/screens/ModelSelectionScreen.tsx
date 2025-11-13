@@ -1580,7 +1580,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       <BottomSheet
         visible={isHFPanelOpen}
         onClose={closeHFPanel}
-        title="Browse HuggingFace Models"
+        title="HuggingFace Models"
         height={0.7}
         headerRight={
           <TouchableOpacity
@@ -2160,7 +2160,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   <View style={{ marginBottom: 24 }}>
                     <Text
                       style={{
-                        fontSize: 16,
+                        fontSize: 18,
                         fontWeight: "600",
                         color: theme.colors.text,
                         fontFamily: "Poppins",
@@ -2176,7 +2176,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                         padding: 12,
                         color: theme.colors.text,
                         fontFamily: "Poppins",
-                        fontSize: 14,
+                        fontSize: 16,
                         minHeight: 100,
                         textAlignVertical: "top",
                         borderWidth: 1,
@@ -2196,7 +2196,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
                         <Text
                           style={{
-                            fontSize: 16,
+                            fontSize: 18,
                             fontWeight: "600",
                             color: theme.colors.text,
                             fontFamily: "Poppins",
@@ -2213,7 +2213,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       </View>
                       <Text
                         style={{
-                          fontSize: 14,
+                          fontSize: 16,
                           color: theme.colors.textSecondary,
                           fontFamily: "Poppins",
                         }}
@@ -2239,7 +2239,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                         >
                           <Text
                             style={{
-                              fontSize: 12,
+                              fontSize: 14,
                               fontWeight: "600",
                               color: modelSettings.n_ctx === value ? theme.colors.primaryText : theme.colors.text,
                               fontFamily: "Poppins",
@@ -2258,7 +2258,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
                         <Text
                           style={{
-                            fontSize: 16,
+                            fontSize: 18,
                             fontWeight: "600",
                             color: theme.colors.text,
                             fontFamily: "Poppins",
@@ -2275,7 +2275,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       </View>
                       <Text
                         style={{
-                          fontSize: 14,
+                          fontSize: 16,
                           color: theme.colors.textSecondary,
                           fontFamily: "Poppins",
                         }}
@@ -2301,7 +2301,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                         >
                           <Text
                             style={{
-                              fontSize: 12,
+                              fontSize: 14,
                               fontWeight: "600",
                               color: modelSettings.n_gpu_layers === value ? theme.colors.primaryText : theme.colors.text,
                               fontFamily: "Poppins",
@@ -2320,7 +2320,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
                         <Text
                           style={{
-                            fontSize: 16,
+                            fontSize: 18,
                             fontWeight: "600",
                             color: theme.colors.text,
                             fontFamily: "Poppins",
@@ -2337,7 +2337,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       </View>
                       <Text
                         style={{
-                          fontSize: 14,
+                          fontSize: 16,
                           color: theme.colors.textSecondary,
                           fontFamily: "Poppins",
                         }}
@@ -2346,7 +2346,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       </Text>
                     </View>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                      <Text style={{ fontSize: 12, color: theme.colors.textTertiary, fontFamily: "Poppins", minWidth: 30 }}>0.0</Text>
+                      <Text style={{ fontSize: 14, color: theme.colors.textTertiary, fontFamily: "Poppins", minWidth: 30 }}>0.0</Text>
                       <View style={{ flex: 1 }}>
                         <View style={{ position: "relative", height: 40, justifyContent: "center" }}>
                           <View
@@ -2369,7 +2369,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                           />
                         </View>
                       </View>
-                      <Text style={{ fontSize: 12, color: theme.colors.textTertiary, fontFamily: "Poppins", minWidth: 30 }}>2.0</Text>
+                      <Text style={{ fontSize: 14, color: theme.colors.textTertiary, fontFamily: "Poppins", minWidth: 30 }}>2.0</Text>
                     </View>
                     <TextInput
                       style={{
@@ -2379,7 +2379,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                         padding: 10,
                         color: theme.colors.text,
                         fontFamily: "Poppins",
-                        fontSize: 14,
+                        fontSize: 16,
                         borderWidth: 1,
                         borderColor: theme.colors.border,
                       }}
@@ -2401,7 +2401,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
                         <Text
                           style={{
-                            fontSize: 16,
+                            fontSize: 18,
                             fontWeight: "600",
                             color: theme.colors.text,
                             fontFamily: "Poppins",
@@ -2418,7 +2418,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       </View>
                       <Text
                         style={{
-                          fontSize: 14,
+                          fontSize: 16,
                           color: theme.colors.textSecondary,
                           fontFamily: "Poppins",
                         }}
@@ -2433,7 +2433,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                         padding: 10,
                         color: theme.colors.text,
                         fontFamily: "Poppins",
-                        fontSize: 14,
+                        fontSize: 16,
                         borderWidth: 1,
                         borderColor: theme.colors.border,
                       }}
@@ -2455,7 +2455,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
                         <Text
                           style={{
-                            fontSize: 16,
+                            fontSize: 18,
                             fontWeight: "600",
                             color: theme.colors.text,
                             fontFamily: "Poppins",
@@ -2472,7 +2472,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       </View>
                       <Text
                         style={{
-                          fontSize: 14,
+                          fontSize: 16,
                           color: theme.colors.textSecondary,
                           fontFamily: "Poppins",
                         }}
@@ -2487,7 +2487,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                         padding: 10,
                         color: theme.colors.text,
                         fontFamily: "Poppins",
-                        fontSize: 14,
+                        fontSize: 16,
                         borderWidth: 1,
                         borderColor: theme.colors.border,
                       }}
@@ -2509,7 +2509,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
                         <Text
                           style={{
-                            fontSize: 16,
+                            fontSize: 18,
                             fontWeight: "600",
                             color: theme.colors.text,
                             fontFamily: "Poppins",
@@ -2526,7 +2526,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       </View>
                       <Text
                         style={{
-                          fontSize: 14,
+                          fontSize: 16,
                           color: theme.colors.textSecondary,
                           fontFamily: "Poppins",
                         }}
@@ -2541,7 +2541,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                         padding: 10,
                         color: theme.colors.text,
                         fontFamily: "Poppins",
-                        fontSize: 14,
+                        fontSize: 16,
                         borderWidth: 1,
                         borderColor: theme.colors.border,
                       }}
