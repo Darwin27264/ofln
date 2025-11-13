@@ -14,7 +14,6 @@ import {
   Dimensions,
   Pressable,
   Modal,
-  PanResponder,
   BackHandler,
   ActivityIndicator,
 } from "react-native";
@@ -26,6 +25,7 @@ import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { chatHistoryService, ChatConversation } from "../services/chatHistoryService";
 import { showAlert } from "../components/CustomAlert";
+import { BottomSheet } from "../components/BottomSheet";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -319,11 +319,6 @@ export default function ConversationScreen({
   const [isModelSelectorVisible, setIsModelSelectorVisible] = useState(false);
   const [isLoadingModel, setIsLoadingModel] = useState(false);
   const [loadingModelFile, setLoadingModelFile] = useState<string | null>(null);
-  
-  // Slide-up card animation for model selector
-  const screenHeight = Dimensions.get('window').height;
-  const modelSelectorPanelHeight = screenHeight * 0.6;
-  const modelSelectorAnim = useRef(new Animated.Value(0)).current; // 0 => closed, 1 => open
 
   // Helper function to prettify model name
   const prettifyModelName = (fileName: string): string => {
@@ -804,37 +799,20 @@ export default function ConversationScreen({
 
   /**
    * Opens the model selector bottom sheet
-   * Optimized: Faster spring animation for better mobile responsiveness
    */
   const openModelSelector = useCallback(() => {
     setIsModelSelectorVisible(true);
-    // Optimized: Reduced friction and increased tension for snappier animation
-    Animated.spring(modelSelectorAnim, {
-      toValue: 1,
-      useNativeDriver: true,
-      friction: 7, // Reduced from 8 for faster animation
-      tension: 50, // Increased from 40 for snappier feel
-    }).start();
-  }, [modelSelectorAnim]);
+  }, []);
 
   /**
    * Closes the model selector bottom sheet
-   * Optimized: Faster close animation and proper cleanup
    */
   const closeModelSelector = useCallback(() => {
     if (isLoadingModel) return; // Don't allow closing while loading
-    // Optimized: Reduced duration for snappier close animation
-    Animated.timing(modelSelectorAnim, {
-      toValue: 0,
-      duration: 150, // Reduced from 200ms for better responsiveness
-      useNativeDriver: true,
-      easing: Easing.out(Easing.quad),
-    }).start(() => {
-      setIsModelSelectorVisible(false);
-      setIsLoadingModel(false);
-      setLoadingModelFile(null);
-    });
-  }, [modelSelectorAnim, isLoadingModel]);
+    setIsModelSelectorVisible(false);
+    setIsLoadingModel(false);
+    setLoadingModelFile(null);
+  }, [isLoadingModel]);
 
   // Handle model switching
   const handleModelSwitch = useCallback(async (modelFile: string) => {
@@ -873,33 +851,6 @@ export default function ConversationScreen({
     }
   }, [isGenerating, context, loadModel, setContext, setSelectedGGUF, checkDownloadedModels, showToast, closeModelSelector]);
 
-  // PanResponder for drag-down close
-  const modelSelectorPanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onPanResponderMove: (_, gestureState) => {
-        const { dy } = gestureState;
-        if (dy > 0 && !isLoadingModel) {
-          modelSelectorAnim.setValue(1 - dy / modelSelectorPanelHeight);
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        const { dy } = gestureState;
-        if (isLoadingModel) return; // Don't allow closing while loading
-        // Close if dragged >30% of panel
-        if (dy > modelSelectorPanelHeight * 0.3) {
-          closeModelSelector();
-        } else {
-          Animated.spring(modelSelectorAnim, {
-            toValue: 1,
-            useNativeDriver: true,
-            friction: 8,
-            tension: 40,
-          }).start();
-        }
-      },
-    })
-  ).current;
 
   // Handle Android back button
   useEffect(() => {
@@ -914,13 +865,6 @@ export default function ConversationScreen({
     const subscription = BackHandler.addEventListener("hardwareBackPress", handleBackPress);
     return () => subscription.remove();
   }, [isModelSelectorVisible, isLoadingModel, closeModelSelector]);
-
-  // Update openModelSelector when isModelSelectorVisible changes
-  useEffect(() => {
-    if (isModelSelectorVisible) {
-      openModelSelector();
-    }
-  }, [isModelSelectorVisible, openModelSelector]);
 
   // Regenerate assistant message
   const handleRegenerateMessage = useCallback(async (messageIndex: number) => {
@@ -1707,150 +1651,105 @@ export default function ConversationScreen({
           </View>
         </View>
 
-        {/* Model Selector Slide-up Card */}
-        {isModelSelectorVisible && (
-          <>
-            {/* Overlay */}
-            <Animated.View
-              pointerEvents={isModelSelectorVisible ? "auto" : "none"}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: theme.colors.overlay,
-                opacity: modelSelectorAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 0.5],
-                }),
-                zIndex: 15,
-              }}
-            >
-              <TouchableWithoutFeedback onPress={closeModelSelector}>
-                <View style={{ flex: 1 }} />
-              </TouchableWithoutFeedback>
-            </Animated.View>
-
-            {/* Slide-up Card */}
-            <Animated.View
-              {...modelSelectorPanResponder.panHandlers}
-              style={[
-                styles.bottomSheetContainer,
-                {
-                  transform: [
-                    {
-                      translateY: modelSelectorAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [modelSelectorPanelHeight, 0],
-                      }),
-                    },
-                  ],
-                  zIndex: 20,
-                  height: modelSelectorPanelHeight,
-                },
-              ]}
-            >
-              <Pressable
-                style={styles.bottomSheetInner}
-                onPress={(e) => e.stopPropagation()}
-              >
-                <Text style={styles.bottomSheetTitle}>Downloaded Models</Text>
-
-                <ScrollView 
-                  style={{ flex: 1 }} 
-                  contentContainerStyle={{ paddingBottom: 32 }}
+        {/* Model Selector Bottom Sheet */}
+        <BottomSheet
+          visible={isModelSelectorVisible}
+          onClose={closeModelSelector}
+          title="Downloaded Models"
+          height={0.6}
+          disableDrag={isLoadingModel}
+        >
+          <ScrollView 
+            style={{ flex: 1 }} 
+            contentContainerStyle={{ paddingBottom: 32 }}
+          >
+            {downloadedModels.length === 0 ? (
+              <View style={{
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 40,
+              }}>
+                <Text style={{
+                  fontSize: 16,
+                  fontFamily: 'Poppins',
+                  color: theme.colors.textSecondary,
+                  textAlign: 'center',
+                  marginBottom: 20,
+                }}>
+                  No models downloaded
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    closeModelSelector();
+                    onBackToModelSelection();
+                  }}
+                  style={{
+                    backgroundColor: theme.colors.primary,
+                    paddingVertical: 12,
+                    paddingHorizontal: 24,
+                    borderRadius: 12,
+                  }}
                 >
-                  {downloadedModels.length === 0 ? (
-                    <View style={{
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      paddingVertical: 40,
-                    }}>
-                      <Text style={{
-                        fontSize: 16,
-                        fontFamily: 'Poppins',
-                        color: theme.colors.textSecondary,
-                        textAlign: 'center',
-                        marginBottom: 20,
-                      }}>
-                        No models downloaded
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          closeModelSelector();
-                          onBackToModelSelection();
-                        }}
-                        style={{
-                          backgroundColor: theme.colors.primary,
-                          paddingVertical: 12,
-                          paddingHorizontal: 24,
-                          borderRadius: 12,
-                        }}
+                  <Text style={{
+                    fontSize: 16,
+                    fontFamily: 'Poppins',
+                    color: theme.colors.primaryText,
+                    fontWeight: '600',
+                  }}>
+                    Go to Model Selection
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              downloadedModels.map((model, index) => {
+                const isSelected = selectedGGUF === model;
+                const isCurrentlyLoading = isLoadingModel && loadingModelFile === model;
+                return (
+                  <TouchableOpacity
+                    key={index}
+                    onPress={() => handleModelSwitch(model)}
+                    disabled={isLoadingModel || isSelected}
+                    style={[
+                      styles.modelButton,
+                      isSelected && styles.selectedButton,
+                      {
+                        marginVertical: 6,
+                        opacity: isLoadingModel && !isSelected && !isCurrentlyLoading ? 0.5 : 1,
+                      },
+                    ]}
+                  >
+                    <View style={styles.modelButtonContent}>
+                      <Text style={[
+                        styles.buttonText,
+                        isSelected && styles.selectedButtonText,
+                      ]}
+                      numberOfLines={2}
+                      ellipsizeMode="tail"
                       >
-                        <Text style={{
-                          fontSize: 16,
-                          fontFamily: 'Poppins',
-                          color: theme.colors.primaryText,
-                          fontWeight: '600',
-                        }}>
-                          Go to Model Selection
-                        </Text>
-                      </TouchableOpacity>
+                        {prettifyModelName(model)}
+                      </Text>
+                      {isSelected && (
+                        <Ionicons 
+                          name="checkmark-circle" 
+                          size={20} 
+                          color={theme.colors.primaryText} 
+                          style={{ marginLeft: 8 }}
+                        />
+                      )}
+                      {isCurrentlyLoading && (
+                        <ActivityIndicator 
+                          size="small" 
+                          color={theme.colors.accent} 
+                          style={{ marginLeft: 8 }}
+                        />
+                      )}
                     </View>
-                  ) : (
-                    downloadedModels.map((model, index) => {
-                      const isSelected = selectedGGUF === model;
-                      const isCurrentlyLoading = isLoadingModel && loadingModelFile === model;
-                      return (
-                        <TouchableOpacity
-                          key={index}
-                          onPress={() => handleModelSwitch(model)}
-                          disabled={isLoadingModel || isSelected}
-                          style={[
-                            styles.modelButton,
-                            isSelected && styles.selectedButton,
-                            {
-                              marginVertical: 6,
-                              opacity: isLoadingModel && !isSelected && !isCurrentlyLoading ? 0.5 : 1,
-                            },
-                          ]}
-                        >
-                          <View style={styles.modelButtonContent}>
-                            <Text style={[
-                              styles.buttonText,
-                              isSelected && styles.selectedButtonText,
-                            ]}
-                            numberOfLines={2}
-                            ellipsizeMode="tail"
-                            >
-                              {prettifyModelName(model)}
-                            </Text>
-                            {isSelected && (
-                              <Ionicons 
-                                name="checkmark-circle" 
-                                size={20} 
-                                color={theme.colors.primaryText} 
-                                style={{ marginLeft: 8 }}
-                              />
-                            )}
-                            {isCurrentlyLoading && (
-                              <ActivityIndicator 
-                                size="small" 
-                                color={theme.colors.accent} 
-                                style={{ marginLeft: 8 }}
-                              />
-                            )}
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })
-                  )}
-                </ScrollView>
-              </Pressable>
-            </Animated.View>
-          </>
-        )}
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </ScrollView>
+        </BottomSheet>
 
         {/* Toast notification */}
         {toastVisible && (

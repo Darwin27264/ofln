@@ -20,7 +20,6 @@ import {
   ActivityIndicator,
   Dimensions,
   Animated,
-  PanResponder,
   Pressable,
   BackHandler,
   Easing,
@@ -35,6 +34,7 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
+import { BottomSheet } from "../components/BottomSheet";
 import { getModelSettings, saveModelSettings, ModelSettings } from "../services/modelSettingsService";
 import { pick, isErrorWithCode, errorCodes } from "@react-native-documents/picker";
 import { saveLocalModel, removeLocalModel, LocalModelInfo } from "../services/localModelService";
@@ -353,61 +353,6 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     };
   }, []);
 
-  // Memoize screen dimensions to avoid recalculation
-  const { screenHeight, panelHeight } = useMemo(() => {
-    const height = Dimensions.get("window").height;
-    return {
-      screenHeight: height,
-      panelHeight: height * 0.7,
-    };
-  }, []);
-
-  const animatedValue = useRef(new Animated.Value(0)).current;
-
-  // Memoize interpolations to avoid recalculation on every render
-  const overlayOpacity = useMemo(
-    () =>
-      animatedValue.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, 0.1],
-      }),
-    []
-  );
-
-  const panelTranslateY = useMemo(
-    () =>
-      animatedValue.interpolate({
-        inputRange: [0, 1],
-        outputRange: [panelHeight, 0],
-      }),
-    [panelHeight]
-  );
-
-  // PanResponder for drag-down close
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onPanResponderMove: (_, gestureState) => {
-        const { dy } = gestureState;
-        if (dy > 0) {
-          animatedValue.setValue(1 - dy / panelHeight);
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        const { dy } = gestureState;
-        if (dy > panelHeight * 0.3) {
-          closeHFPanel();
-        } else {
-          Animated.timing(animatedValue, {
-            toValue: 1,
-            duration: 250,
-            easing: Easing.bezier(0.4, 0.0, 0.2, 1),
-            useNativeDriver: true,
-          }).start();
-        }
-      },
-    })
-  ).current;
 
   // Android hardware back handling
   const handleBackPress = useCallback(() => {
@@ -437,15 +382,6 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     setSelectedAuthor(null);
     setCustomAuthor("");
     setShowAuthorInput(false);
-    
-    // Start animation immediately for smooth opening
-    // Optimized: Reduced duration from 250ms to 200ms for snappier feel
-    Animated.timing(animatedValue, {
-      toValue: 1,
-      duration: 200, // Reduced from 250ms for better mobile performance
-      easing: Easing.bezier(0.4, 0.0, 0.2, 1), // Material Design easing
-      useNativeDriver: true,
-    }).start();
 
     // Defer heavy operations until after animation starts
     // This prevents blocking the UI thread during animation
@@ -462,17 +398,9 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
 
   /**
    * Closes the HuggingFace model browser panel
-   * Optimized: Faster close animation for better responsiveness
    */
   function closeHFPanel() {
-    Animated.timing(animatedValue, {
-      toValue: 0,
-      duration: 150, // Reduced from 200ms for snappier close animation
-      useNativeDriver: true,
-      easing: Easing.bezier(0.4, 0.0, 1, 1), // Material Design easing
-    }).start(() => {
-      setIsHFPanelOpen(false);
-    });
+    setIsHFPanelOpen(false);
   }
 
   // Fetch models from HuggingFace using reputable authors
@@ -1649,72 +1577,60 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       </View>
 
       {/* HuggingFace Panel */}
-      {isHFPanelOpen && (
-        <Pressable
-          onPress={closeHFPanel}
-          style={[
-            styles.overlay,
-            {
-              backgroundColor: theme.colors.overlay,
-            },
-          ]}
-        >
-          <Animated.View
-            style={{
-              flex: 1,
-              opacity: overlayOpacity,
+      <BottomSheet
+        visible={isHFPanelOpen}
+        onClose={closeHFPanel}
+        title="Browse HuggingFace Models"
+        height={0.7}
+        headerRight={
+          <TouchableOpacity
+            onPress={() => {
+              const hasActiveFilters = selectedModelType || selectedAuthor;
+              if (hasActiveFilters) {
+                // If filters are active, clear them and refetch all models
+                setSelectedModelType(null);
+                handleClearSearch();
+              } else {
+                // Toggle filter panel
+                const newShowState = !showAuthorInput;
+                setShowAuthorInput(newShowState);
+                if (!newShowState) {
+                  setCustomAuthor("");
+                }
+              }
             }}
-          />
-          <Animated.View
-            {...panResponder.panHandlers}
-            style={[
-              styles.bottomSheetContainer,
-              {
-                transform: [
-                  {
-                    translateY: panelTranslateY,
-                  },
-                ],
-              },
-            ]}
+            style={{
+              paddingVertical: 10,
+              paddingHorizontal: 16,
+              borderRadius: 12,
+              backgroundColor: (showAuthorInput || selectedModelType || selectedAuthor) ? theme.colors.primary : theme.colors.surface,
+              borderWidth: 1,
+              borderColor: (showAuthorInput || selectedModelType || selectedAuthor) ? theme.colors.primary : theme.colors.border,
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}
           >
-            <Pressable
-              style={styles.bottomSheetInner}
-              onPress={(e) => e.stopPropagation()}
-            >
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <Text style={styles.bottomSheetTitle}>Browse HuggingFace Models</Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    const hasActiveFilters = selectedModelType || selectedAuthor;
-                    if (hasActiveFilters) {
-                      // If filters are active, clear them and refetch all models
-                      setSelectedModelType(null);
-                      handleClearSearch();
-                    } else {
-                      // Toggle filter panel
-                      const newShowState = !showAuthorInput;
-                      setShowAuthorInput(newShowState);
-                      if (!newShowState) {
-                        setCustomAuthor("");
-                      }
-                    }
-                  }}
-                  style={{
-                    padding: 8,
-                    borderRadius: 8,
-                    backgroundColor: (showAuthorInput || selectedModelType || selectedAuthor) ? theme.colors.primary : theme.colors.surface,
-                    borderWidth: 1,
-                    borderColor: (showAuthorInput || selectedModelType || selectedAuthor) ? theme.colors.primary : theme.colors.border,
-                  }}
-                >
-                  <Icon 
-                    name="filter-list" 
-                    size={20} 
-                    color={(showAuthorInput || selectedModelType || selectedAuthor) ? theme.colors.primaryText : theme.colors.text} 
-                  />
-                </TouchableOpacity>
-              </View>
+            <Icon 
+              name="filter-list" 
+              size={24} 
+              color={(showAuthorInput || selectedModelType || selectedAuthor) ? theme.colors.primaryText : theme.colors.text} 
+            />
+            {(showAuthorInput || selectedModelType || selectedAuthor) && (
+              <Text
+                style={{
+                  marginLeft: 8,
+                  fontSize: 16,
+                  fontFamily: 'Poppins',
+                  fontWeight: '600',
+                  color: theme.colors.primaryText,
+                }}
+              >
+                Filter
+              </Text>
+            )}
+          </TouchableOpacity>
+        }
+      >
 
               {/* Filters Section */}
               {(showAuthorInput || selectedModelType || selectedAuthor) && (
@@ -2006,10 +1922,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   </View>
                 )}
               </ScrollView>
-            </Pressable>
-          </Animated.View>
-        </Pressable>
-      )}
+      </BottomSheet>
 
       {/* Quantization Selector Modal */}
       <Modal
@@ -2228,62 +2141,18 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       </Modal>
 
       {/* Model Settings Modal */}
-      <Modal
+      <BottomSheet
         visible={showSettingsModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowSettingsModal(false)}
+        onClose={() => setShowSettingsModal(false)}
+        title="Model Settings"
+        subtitle={selectedModelForSettings?.name}
+        height={0.9}
       >
-        <Pressable
-          style={{
-            flex: 1,
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
-            justifyContent: "flex-end",
-          }}
-          onPress={() => setShowSettingsModal(false)}
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: 8 }}
+          showsVerticalScrollIndicator={true}
         >
-          <Pressable
-            style={{
-              backgroundColor: theme.colors.card,
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
-              maxHeight: "90%",
-              paddingBottom: 20,
-            }}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <ScrollView
-              style={{ maxHeight: "90%" }}
-              contentContainerStyle={{ padding: 20, paddingBottom: 8 }}
-              showsVerticalScrollIndicator={true}
-            >
-              {/* Header */}
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-                <View style={{ flex: 1 }}>
-                  <Text
-                    style={{
-                      fontSize: 24,
-                      fontWeight: "600",
-                      color: theme.colors.text,
-                      fontFamily: "Poppins",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Model Settings
-                  </Text>
-                  {selectedModelForSettings && (
-                    <Text
-                      style={{
-                        fontSize: 14,
-                        color: theme.colors.textSecondary,
-                        fontFamily: "Poppins",
-                      }}
-                    >
-                      {selectedModelForSettings.name}
-                    </Text>
-                  )}
-                </View>
-              </View>
 
               {modelSettings && (
                 <>
@@ -2743,17 +2612,21 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   </View>
 
                   {/* Action Buttons */}
-                  <View style={{ flexDirection: "row", gap: 12, marginTop: 16, marginBottom: 8 }}>
+                  <View style={{ flexDirection: "row", gap: 8, marginTop: 8, marginBottom: 8 }}>
                     <TouchableOpacity
                       onPress={() => setShowSettingsModal(false)}
                       style={{
                         flex: 1,
                         backgroundColor: theme.colors.surface,
-                        paddingVertical: 14,
-                        borderRadius: 12,
+                        paddingVertical: 12,
+                        paddingHorizontal: 20,
+                        borderRadius: 8,
+                        flexDirection: "row",
                         alignItems: "center",
+                        justifyContent: "center",
                         borderWidth: 1,
                         borderColor: theme.colors.border,
+                        minHeight: 44,
                       }}
                     >
                       <Text
@@ -2777,9 +2650,13 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       style={{
                         flex: 1,
                         backgroundColor: theme.colors.primary,
-                        paddingVertical: 14,
-                        borderRadius: 12,
+                        paddingVertical: 12,
+                        paddingHorizontal: 20,
+                        borderRadius: 8,
+                        flexDirection: "row",
                         alignItems: "center",
+                        justifyContent: "center",
+                        minHeight: 44,
                       }}
                     >
                       <Text
@@ -2796,10 +2673,8 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   </View>
                 </>
               )}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
+        </ScrollView>
+      </BottomSheet>
 
       {/* Info Modal for Metric Explanations */}
       <Modal

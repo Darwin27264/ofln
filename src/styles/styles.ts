@@ -471,34 +471,8 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     zIndex: 999,
   },
 
-  /* Bottom sheet container */
-  bottomSheetContainer: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: screenHeight * 0.7, // 60% of screen
-    backgroundColor: colors.card,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderTopWidth: 1,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: colors.border,
-  },
-  bottomSheetInner: {
-    flex: 1,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 16,
-  },
-  bottomSheetTitle: {
-    fontSize: 18,
-    fontFamily: "Poppins",
-    color: colors.text,
-    marginBottom: 12,
-    textAlign: "center",
-  },
+  /* Note: Bottom sheet styles have been moved to src/components/BottomSheet.tsx
+     for unified implementation across all slide-up panels */
 });
 
 // Legacy export for backward compatibility (will be phased out)
