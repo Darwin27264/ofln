@@ -1,0 +1,6 @@
+<resources>
+    <!-- System bar colors -->
+    <color name="app_status_bar">#000000</color>
+    <color name="app_nav_bar">#000000</color>
+</resources>
+

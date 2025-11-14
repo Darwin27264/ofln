@@ -1,6 +1,6 @@
 /* App.tsx */
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { ScrollView, ActivityIndicator, Animated, Easing } from "react-native";
+import { ScrollView, ActivityIndicator, Animated, Easing, StatusBar, Platform } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { createStyles } from "./src/styles/styles";
@@ -11,6 +11,7 @@ import axios from "axios";
 
 // Theme
 import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
+import { applySystemBarTheme } from "./src/utils/systemBars";
 
 // Components
 import { CustomAlertProvider } from "./src/components/CustomAlert";
@@ -40,6 +41,21 @@ type Message = {
 function AppContent(): React.JSX.Element {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  
+  // Determine status bar and nav bar colors based on app theme
+  // Use theme background color for system bars to match app theme
+  const statusBarColor = theme.colors.background;
+  const navBarColor = theme.colors.background;
+  
+  // Apply system bar theme when theme changes
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      applySystemBarTheme({ 
+        statusBarColor, 
+        navBarColor 
+      });
+    }
+  }, [statusBarColor, navBarColor]);
   const INITIAL_CONVERSATION: Message[] = [
     {
       role: "system",
@@ -271,8 +287,15 @@ function AppContent(): React.JSX.Element {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {currentPage === "modelSelection" && (
+    <>
+      <StatusBar
+        translucent={false}
+        // Android: 'light-content' = light text/icons; 'dark-content' = dark icons
+        barStyle={theme.mode === 'dark' ? 'light-content' : 'dark-content'}
+        backgroundColor={statusBarColor}
+      />
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        {currentPage === "modelSelection" && (
         <Animated.View style={[{ flex: 1 }, pageTransitionStyle]}>
           <ModelSelectionScreen
           downloadedModels={downloadedModels}
@@ -366,7 +389,8 @@ function AppContent(): React.JSX.Element {
           />
         </Animated.View>
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </>
   );
 }
 
