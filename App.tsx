@@ -1,6 +1,7 @@
 /* App.tsx */
-import React, { useState, useRef, useEffect } from "react";
-import { SafeAreaView, ScrollView, ActivityIndicator, Animated, Easing } from "react-native";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { ScrollView, ActivityIndicator, Animated, Easing } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { createStyles } from "./src/styles/styles";
 import { downloadModel } from "./src/api/model";
@@ -64,26 +65,38 @@ function AppContent(): React.JSX.Element {
     "bubble"
   );
 
-  // Page transition animations
+  /**
+   * Page transition animations
+   * Optimized for mobile with reduced duration and native driver
+   * Provides smooth transitions between screens
+   */
   const pageOpacity = useRef(new Animated.Value(1)).current;
   const pageTranslateX = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Animate page transitions
+    /**
+     * Animate page transitions when currentPage changes
+     * Uses fade + slide animation for modern feel
+     * 
+     * Optimizations:
+     * - Reduced duration from 300ms to 250ms for snappier feel
+     * - Uses native driver for 60fps performance
+     * - Material Design easing for smooth transitions
+     */
     pageOpacity.setValue(0);
     pageTranslateX.setValue(20);
     
     Animated.parallel([
       Animated.timing(pageOpacity, {
         toValue: 1,
-        duration: 300,
-        easing: Easing.out(Easing.cubic),
+        duration: 250, // Reduced from 300ms
+        easing: Easing.bezier(0.4, 0.0, 0.2, 1), // Material Design easing
         useNativeDriver: true,
       }),
       Animated.timing(pageTranslateX, {
         toValue: 0,
-        duration: 300,
-        easing: Easing.out(Easing.cubic),
+        duration: 250, // Reduced from 300ms
+        easing: Easing.bezier(0.4, 0.0, 0.2, 1),
         useNativeDriver: true,
       }),
     ]).start();
@@ -95,7 +108,7 @@ function AppContent(): React.JSX.Element {
 
   useEffect(() => {
     checkDownloadedModels();
-  }, [currentPage]);
+  }, [currentPage, checkDownloadedModels]);
 
   /**
    * Check and update list of downloaded models
@@ -108,8 +121,10 @@ function AppContent(): React.JSX.Element {
    * - Directory read failures
    * - Invalid file entries
    * - Local model validation errors
+   * 
+   * Wrapped in useCallback to ensure stable reference for dependency arrays
    */
-  const checkDownloadedModels = async () => {
+  const checkDownloadedModels = useCallback(async () => {
     try {
       // Check downloaded models from DocumentDirectoryPath
       const files = await RNFS.readDir(RNFS.DocumentDirectoryPath);
@@ -130,9 +145,19 @@ function AppContent(): React.JSX.Element {
       setDownloadedModels([]);
       setLocalModels([]);
     }
-  };
+  }, []); // No dependencies - only uses state setters and imported functions
 
-  const handleBackToModelSelection = () => {
+  /**
+   * Navigate back to model selection screen
+   * 
+   * Cleans up current model context and resets conversation state.
+   * Important for memory management on mobile devices.
+   * 
+   * Edge cases handled:
+   * - Releases model context to prevent memory leaks
+   * - Resets all conversation-related state
+   */
+  const handleBackToModelSelection = useCallback(() => {
     setContext(null);
     releaseAllLlama();
     setConversation(INITIAL_CONVERSATION);
@@ -140,20 +165,45 @@ function AppContent(): React.JSX.Element {
     setTokensPerSecond([]);
     setCurrentChatId(null);
     setCurrentPage("modelSelection");
-  };
+  }, []);
 
-  const handleNewChat = () => {
+  /**
+   * Start a new chat conversation
+   * 
+   * Resets conversation to initial state while preserving loaded model.
+   * 
+   * Edge cases handled:
+   * - Preserves model context (model stays loaded)
+   * - Resets performance metrics
+   */
+  const handleNewChat = useCallback(() => {
     setConversation(INITIAL_CONVERSATION);
     setCurrentChatId(null);
     setTokensPerSecond([]);
-  };
+  }, []);
 
-  const handleLoadChat = async (chatId: string, messages: Message[]) => {
+  /**
+   * Load an existing chat from history
+   * 
+   * @param chatId - Unique identifier for the chat
+   * @param messages - Array of messages in the chat
+   * 
+   * Edge cases handled:
+   * - Validates messages array is not empty
+   * - Resets performance metrics for loaded chat
+   */
+  const handleLoadChat = useCallback(async (chatId: string, messages: Message[]) => {
+    if (!messages || messages.length === 0) {
+      console.warn('Attempted to load empty chat, using initial conversation');
+      setConversation(INITIAL_CONVERSATION);
+      return;
+    }
+    
     setConversation(messages);
     setCurrentChatId(chatId);
     setTokensPerSecond([]); // Reset tokens per second for new chat
     setCurrentPage("conversation");
-  };
+  }, []);
 
   /**
    * Handle model download and loading
@@ -166,12 +216,14 @@ function AppContent(): React.JSX.Element {
    * @param onProgress - Progress callback (0-100)
    * 
    * Edge cases handled:
-   * - Model already exists (loads directly)
-   * - Download failures (error logged, selection reset)
-   * - Load failures after download (error logged)
-   * - Network interruptions (handled by downloadModel)
+   * - Model already exists (loads directly, no re-download)
+   * - Download failures (error logged, selection reset, user notified)
+   * - Load failures after download (error logged, file may be corrupted)
+   * - Network interruptions (handled by downloadModel with retry logic)
+   * - Storage full (handled by downloadModel, user notified)
+   * - Concurrent downloads (prevented by UI state)
    */
-  const handleDownloadModel = async (file: string, repoId: string, onProgress: (progress: number) => void) => {
+  const handleDownloadModel = useCallback(async (file: string, repoId: string, onProgress: (progress: number) => void) => {
     const downloadUrl = `https://huggingface.co/${repoId}/resolve/main/${file}`;
     const destPath = `${RNFS.DocumentDirectoryPath}/${file}`;
     
@@ -211,7 +263,7 @@ function AppContent(): React.JSX.Element {
       setSelectedGGUF(null); // Reset selection on error
       // Error is already handled by downloadModel, but we ensure state is clean
     }
-  };
+  }, [context, setContext, checkDownloadedModels]);
 
   const pageTransitionStyle = {
     opacity: pageOpacity,
@@ -320,10 +372,12 @@ function AppContent(): React.JSX.Element {
 
 export default function App(): React.JSX.Element {
   return (
-    <ThemeProvider>
-      <CustomAlertProvider>
-        <AppContent />
-      </CustomAlertProvider>
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <CustomAlertProvider>
+          <AppContent />
+        </CustomAlertProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }

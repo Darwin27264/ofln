@@ -139,7 +139,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
 
   bottomContainer: {
     backgroundColor: colors.transparent,
-    paddingVertical: 6,
+    paddingTop: 8,
   },
   inputBar: {
     flexDirection: "row",

@@ -39,16 +39,27 @@ export default function SettingsScreen({
     );
   };
 
-  // Animated value for Chat Mode block.
+  /**
+   * Animation configuration for settings toggles
+   * Optimized for mobile with native driver where possible
+   */
+  const TOGGLE_ANIMATION_CONFIG = {
+    duration: 250, // Reduced from 300ms for snappier feel
+    easing: Easing.bezier(0.4, 0.0, 0.2, 1), // Material Design easing
+    useNativeDriver: false, // Color animations can't use native driver
+  };
+
+  /**
+   * Animated value for Chat Mode toggle
+   * Animates background color and text color transitions
+   */
   const chatModeAnim = useRef(new Animated.Value(bubblesMode ? 1 : 0)).current;
   useEffect(() => {
     Animated.timing(chatModeAnim, {
       toValue: bubblesMode ? 1 : 0,
-      duration: 300,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
+      ...TOGGLE_ANIMATION_CONFIG,
     }).start();
-  }, [assistantDisplayMode]);
+  }, [assistantDisplayMode, chatModeAnim]);
   const chatModeBackground = chatModeAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [theme.colors.secondary, theme.colors.primary],
@@ -58,16 +69,17 @@ export default function SettingsScreen({
     outputRange: [theme.colors.text, theme.colors.primaryText],
   });
 
-  // Animated value for Dark Mode block.
+  /**
+   * Animated value for Dark Mode toggle
+   * Animates background color and text color transitions
+   */
   const darkModeAnim = useRef(new Animated.Value(isDark ? 1 : 0)).current;
   useEffect(() => {
     Animated.timing(darkModeAnim, {
       toValue: isDark ? 1 : 0,
-      duration: 300,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
+      ...TOGGLE_ANIMATION_CONFIG,
     }).start();
-  }, [isDark]);
+  }, [isDark, darkModeAnim]);
   const darkModeBackground = darkModeAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [theme.colors.secondary, theme.colors.primary],

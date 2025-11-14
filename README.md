@@ -55,6 +55,17 @@ The codebase follows these principles:
 - **Keep It Simple Stupid (KISS)**: Simple, readable code over complex abstractions
 - **Performance First**: Optimized for mobile devices with 60fps animations and efficient rendering
 
+### Code Quality
+
+The codebase maintains high code quality through:
+
+- **Comprehensive Comments**: All functions and complex logic have clear documentation
+- **Type Safety**: Full TypeScript coverage with proper type definitions
+- **Error Handling**: Comprehensive try-catch blocks with graceful error recovery
+- **Edge Case Coverage**: Extensive validation and handling of edge cases
+- **Consistent Patterns**: Standardized animation configs, error handling, and component structure
+- **Maintainability**: Clear separation of concerns and modular architecture
+
 ## Project Structure
 
 ```
@@ -287,19 +298,28 @@ npm test -- --coverage
 
 ### Rendering Optimizations
 
-- **React.memo**: ModelCard component is memoized to prevent unnecessary re-renders
+- **React.memo**: Multiple components memoized (ModelCard, ThinkingIndicator, ChatHistoryCard)
 - **useMemo**: Filtered models list, grouped chat history, and expensive calculations are memoized
-- **useCallback**: Event handlers are memoized to prevent child re-renders
+- **useCallback**: All event handlers are memoized to prevent child re-renders
 - **Lazy Loading**: Models are loaded on-demand, not all at once
+- **Optimized Re-renders**: Custom comparison functions in memo() prevent unnecessary updates
+- **Refs for Non-Reactive State**: Animation values and scroll tracking use refs to avoid re-renders
 - **Virtualization**: Consider using FlatList for long lists (future optimization)
 
 ### Animation Optimizations
 
 - **Native Driver**: All animations use `useNativeDriver: true` for 60fps performance
-- **Reduced Durations**: Animation durations optimized for mobile (150-200ms instead of 250-300ms)
+- **Reduced Durations**: Animation durations optimized for mobile (120-250ms instead of 300-400ms)
+  - Page transitions: 250ms (reduced from 300ms)
+  - Panel animations: 200ms (reduced from 250ms)
+  - Menu animations: 150ms (reduced from 200ms)
+  - Thinking indicator: 300ms (reduced from 400ms)
+- **Material Design Easing**: Consistent bezier curves for smooth, modern feel
+- **Standardized Configs**: Centralized animation configurations prevent duplication
 - **Single Animation Phase**: Animations only play once on initial mount (prevents lag)
 - **Staggered Animations**: Card animations are staggered with capped delays (max 200ms)
 - **InteractionManager**: Heavy operations deferred until after animations complete
+- **Memoized Components**: ThinkingIndicator and ChatHistoryCard are memoized to prevent unnecessary re-renders
 
 ### Memory Management
 
@@ -366,15 +386,21 @@ npm test -- --coverage
 
 ### Error Handling
 
-The application handles various error scenarios:
+The application handles various error scenarios with comprehensive edge case coverage:
 
 - **Network Errors**: Download failures are caught and displayed to user with retry options
 - **File System Errors**: File operations are wrapped in try-catch blocks with validation
 - **Model Loading Errors**: Invalid models are detected and reported with helpful messages
 - **Storage Errors**: AsyncStorage failures are handled gracefully with fallbacks
 - **Context Errors**: Model context errors are caught and context is cleared
+- **Generation Errors**: Streaming errors are caught and user is notified
+- **Empty State Validation**: All functions validate inputs before processing
+- **Graceful Degradation**: UI remains functional even when operations fail
+- **Error Recovery**: Failed operations can be retried without app restart
 
 ### Edge Cases
+
+The application handles numerous edge cases to ensure robust operation:
 
 - **Concurrent Downloads**: Only one download at a time is supported (UI prevents multiple)
 - **Model Deletion During Use**: Active models cannot be deleted (validation in place)
@@ -383,6 +409,13 @@ The application handles various error scenarios:
 - **App Backgrounding**: Downloads pause when app goes to background (platform limitation)
 - **Memory Pressure**: Low memory situations handled with context release
 - **Network Interruption**: Download progress saved, can resume (future enhancement)
+- **Empty Conversations**: Empty message arrays are validated before processing
+- **Missing Context**: Model context validation before all operations
+- **Animation Conflicts**: Animation cancellation prevents overlapping animations
+- **Keyboard Handling**: Complex keyboard padding calculations for various Android OEMs
+- **Scroll State**: Auto-scroll intelligently enables/disables based on user interaction
+- **Chat History**: Empty or corrupted history files are handled gracefully
+- **Model Settings**: Missing settings fall back to defaults automatically
 
 ### Security Considerations
 

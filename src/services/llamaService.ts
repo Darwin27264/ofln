@@ -109,6 +109,19 @@ export const loadModel = async (
 
 /**
  * Stop generation
+ * 
+ * Stops the ongoing model generation and updates UI state.
+ * Adds a marker to the last assistant message indicating generation was stopped.
+ * 
+ * @param context - Llama context instance
+ * @param setIsGenerating - State setter for generation state
+ * @param setIsLoading - State setter for loading state
+ * @param setConversation - State setter for conversation
+ * 
+ * Edge cases handled:
+ * - Missing or invalid context (gracefully handles)
+ * - No assistant message to update (preserves conversation)
+ * - stopCompletion() failure (still updates UI state)
  */
 export const stopGeneration = async (
   context: any,
@@ -117,12 +130,24 @@ export const stopGeneration = async (
   setConversation: React.Dispatch<React.SetStateAction<Message[]>>
 ) => {
   try {
-    await context.stopCompletion();
+    // Attempt to stop completion if context is valid
+    if (context && typeof context.stopCompletion === 'function') {
+      await context.stopCompletion();
+    }
+  } catch (error) {
+    // Log error but continue to update UI state
+    console.error("Error stopping completion:", error);
+  } finally {
+    // Always update UI state, even if stopCompletion failed
     setIsGenerating(false);
     setIsLoading(false);
+    
+    // Update conversation to indicate generation was stopped
     setConversation((prev) => {
+      if (prev.length === 0) return prev;
+      
       const lastMessage = prev[prev.length - 1];
-      if (lastMessage.role === "assistant") {
+      if (lastMessage && lastMessage.role === "assistant") {
         return [
           ...prev.slice(0, -1),
           {
@@ -133,8 +158,6 @@ export const stopGeneration = async (
       }
       return prev;
     });
-  } catch (error) {
-    console.error("Error stopping completion:", error);
   }
 };
 

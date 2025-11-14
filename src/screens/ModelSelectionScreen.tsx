@@ -87,30 +87,6 @@ const REPUTABLE_AUTHORS = [
 // Popular models optimized for mobile (pre-selected quantization)
 const POPULAR_MODELS: ModelInfo[] = [
   {
-    id: "qwen-25-05b",
-    name: "Qwen2.5 0.5B Instruct",
-    repoId: "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
-    fileName: "qwen2.5-0.5b-instruct-q2_k.gguf",
-    size: "0.3GB",
-    description: "Ultra-compact 0.5B model. Extremely fast with surprisingly good quality for its size.",
-    author: "Qwen",
-    downloads: 30000,
-    tags: ["instruct", "tiny", "ultra-fast"],
-    publishedDate: "2024-09-12"
-  },
-  {
-    id: "deepseek-r1d-15b",
-    name: "DeepSeek R1 Distill Qwen 1.5B",
-    repoId: "bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
-    fileName: "deepseek-r1-distill-qwen-1.5b-q2_k.gguf",
-    size: "0.9GB",
-    description: "Compact reasoning model. Shows reasoning process in a smaller, faster package.",
-    author: "bartowski",
-    downloads: 25000,
-    tags: ["reasoning", "thinking", "compact"],
-    publishedDate: "2024-12-19"
-  },
-  {
     id: "llama-32-1b",
     name: "Llama 3.2 1B Instruct",
     repoId: "bartowski/Llama-3.2-1B-Instruct-GGUF",
