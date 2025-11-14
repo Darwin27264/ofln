@@ -35,7 +35,7 @@ import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
 import { BottomSheet } from "../components/BottomSheet";
-import { getModelSettings, saveModelSettings, ModelSettings } from "../services/modelSettingsService";
+import { getModelSettings, saveModelSettings, ModelSettings, DEFAULT_SETTINGS } from "../services/modelSettingsService";
 import { pick, isErrorWithCode, errorCodes } from "@react-native-documents/picker";
 import { saveLocalModel, removeLocalModel, LocalModelInfo } from "../services/localModelService";
 import { ModelCard, ModelInfo } from "../components/ModelCard";
@@ -2590,7 +2590,9 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   {/* Action Buttons */}
                   <View style={{ flexDirection: "row", gap: 8, marginTop: 8, marginBottom: 8 }}>
                     <TouchableOpacity
-                      onPress={() => setShowSettingsModal(false)}
+                      onPress={() => {
+                        setModelSettings({ ...DEFAULT_SETTINGS });
+                      }}
                       style={{
                         flex: 1,
                         backgroundColor: theme.colors.surface,
@@ -2613,7 +2615,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                           fontFamily: "Poppins",
                         }}
                       >
-                        Cancel
+                        Reset
                       </Text>
                     </TouchableOpacity>
                     <TouchableOpacity

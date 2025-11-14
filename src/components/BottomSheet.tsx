@@ -23,6 +23,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import type { ThemeColors } from '../context/ThemeContext';
 
 interface BottomSheetProps {
   visible: boolean;
@@ -37,10 +38,28 @@ interface BottomSheetProps {
   subtitle?: string; // Optional subtitle text below the title
 }
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DRAG_HANDLE_HEIGHT = 40; // Height of the drag handle area
 const VELOCITY_THRESHOLD = 0.5; // Minimum velocity to trigger dismiss
 const DRAG_THRESHOLD = 0.3; // Percentage of panel height to drag before dismissing
+
+// Standardized animation config - moved outside component for performance
+const ANIMATION_CONFIG = {
+  open: {
+    duration: 300,
+    easing: Easing.bezier(0.25, 0.46, 0.45, 0.94), // Smooth ease-out
+    useNativeDriver: true,
+  },
+  close: {
+    duration: 250,
+    easing: Easing.bezier(0.55, 0.06, 0.68, 0.19), // Smooth ease-in
+    useNativeDriver: true,
+  },
+  snapBack: {
+    duration: 200,
+    easing: Easing.out(Easing.cubic),
+    useNativeDriver: true,
+  },
+} as const;
 
 export const BottomSheet: React.FC<BottomSheetProps> = ({
   visible,
@@ -55,31 +74,27 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   subtitle,
 }) => {
   const { theme } = useTheme();
-  const panelHeight = SCREEN_HEIGHT * height;
   const animatedValue = useRef(new Animated.Value(0)).current;
   const currentAnimation = useRef<Animated.CompositeAnimation | null>(null);
   const isDragging = useRef(false);
   const dragStartY = useRef(0);
+  const currentAnimatedValue = useRef(0); // Track current animated value to avoid _value access
   const [isMounted, setIsMounted] = useState(false);
+  const [screenHeight, setScreenHeight] = useState(() => Dimensions.get('window').height);
 
-  // Standardized animation config - smooth, performant
-  const ANIMATION_CONFIG = {
-    open: {
-      duration: 300,
-      easing: Easing.bezier(0.25, 0.46, 0.45, 0.94), // Smooth ease-out
-      useNativeDriver: true,
-    },
-    close: {
-      duration: 250,
-      easing: Easing.bezier(0.55, 0.06, 0.68, 0.19), // Smooth ease-in
-      useNativeDriver: true,
-    },
-    snapBack: {
-      duration: 200,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    },
-  };
+  // Handle orientation changes and window resizing
+  useEffect(() => {
+    const subscription = Dimensions.addEventListener('change', ({ window }) => {
+      setScreenHeight(window.height);
+    });
+
+    return () => {
+      subscription?.remove();
+    };
+  }, []);
+
+  // Memoize panel height calculation
+  const panelHeight = useMemo(() => screenHeight * height, [screenHeight, height]);
 
   // Cancel any ongoing animation
   const cancelAnimation = useCallback(() => {
@@ -88,6 +103,17 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
       currentAnimation.current = null;
     }
   }, []);
+
+  // Update current value ref when animated value changes
+  useEffect(() => {
+    const listenerId = animatedValue.addListener(({ value }) => {
+      currentAnimatedValue.current = value;
+    });
+
+    return () => {
+      animatedValue.removeListener(listenerId);
+    };
+  }, [animatedValue]);
 
   // Memoize interpolations
   const overlayOpacity = useMemo(
@@ -150,74 +176,78 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
 
   // PanResponder for drag-to-dismiss with velocity support
   // Attached to drag handle area to prevent conflicts with ScrollView
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => !disableDrag,
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Respond if dragging down
-        return !disableDrag && gestureState.dy > 5;
-      },
-      onPanResponderGrant: () => {
-        cancelAnimation();
-        isDragging.current = true;
-        dragStartY.current = animatedValue._value;
-      },
-      onPanResponderMove: (_, gestureState) => {
-        if (!disableDrag && isDragging.current && gestureState.dy > 0) {
-          // Calculate new value based on drag distance
-          const dragProgress = gestureState.dy / panelHeight;
-          const newValue = Math.max(0, Math.min(1, dragStartY.current - dragProgress));
-          animatedValue.setValue(newValue);
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        isDragging.current = false;
-        
-        if (disableDrag) {
-          return;
-        }
-
-        const dragDistance = gestureState.dy;
-        const dragProgress = dragDistance / panelHeight;
-        const velocity = gestureState.vy;
-        
-        // Determine if we should dismiss based on drag distance or velocity
-        const shouldDismiss = 
-          dragProgress > DRAG_THRESHOLD || 
-          (dragProgress > 0.15 && velocity > VELOCITY_THRESHOLD);
-
-        if (shouldDismiss) {
-          closeSheet();
-        } else {
-          // Snap back to open position
-          const animation = Animated.timing(animatedValue, {
-            toValue: 1,
-            ...ANIMATION_CONFIG.snapBack,
-          });
+  // Recreated when disableDrag or panelHeight changes
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => !disableDrag,
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          // Respond if dragging down
+          return !disableDrag && gestureState.dy > 5;
+        },
+        onPanResponderGrant: () => {
+          cancelAnimation();
+          isDragging.current = true;
+          // Use tracked value instead of private _value property
+          dragStartY.current = currentAnimatedValue.current;
+        },
+        onPanResponderMove: (_, gestureState) => {
+          if (!disableDrag && isDragging.current && gestureState.dy > 0) {
+            // Calculate new value based on drag distance
+            const dragProgress = gestureState.dy / panelHeight;
+            const newValue = Math.max(0, Math.min(1, dragStartY.current - dragProgress));
+            animatedValue.setValue(newValue);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          isDragging.current = false;
           
-          currentAnimation.current = animation;
-          animation.start(() => {
-            currentAnimation.current = null;
-          });
-        }
-      },
-      onPanResponderTerminate: () => {
-        isDragging.current = false;
-        // Snap back if gesture is interrupted
-        if (!disableDrag) {
-          const animation = Animated.timing(animatedValue, {
-            toValue: 1,
-            ...ANIMATION_CONFIG.snapBack,
-          });
+          if (disableDrag) {
+            return;
+          }
+
+          const dragDistance = gestureState.dy;
+          const dragProgress = dragDistance / panelHeight;
+          const velocity = gestureState.vy;
           
-          currentAnimation.current = animation;
-          animation.start(() => {
-            currentAnimation.current = null;
-          });
-        }
-      },
-    })
-  ).current;
+          // Determine if we should dismiss based on drag distance or velocity
+          const shouldDismiss = 
+            dragProgress > DRAG_THRESHOLD || 
+            (dragProgress > 0.15 && velocity > VELOCITY_THRESHOLD);
+
+          if (shouldDismiss) {
+            closeSheet();
+          } else {
+            // Snap back to open position
+            const animation = Animated.timing(animatedValue, {
+              toValue: 1,
+              ...ANIMATION_CONFIG.snapBack,
+            });
+            
+            currentAnimation.current = animation;
+            animation.start(() => {
+              currentAnimation.current = null;
+            });
+          }
+        },
+        onPanResponderTerminate: () => {
+          isDragging.current = false;
+          // Snap back if gesture is interrupted
+          if (!disableDrag) {
+            const animation = Animated.timing(animatedValue, {
+              toValue: 1,
+              ...ANIMATION_CONFIG.snapBack,
+            });
+            
+            currentAnimation.current = animation;
+            animation.start(() => {
+              currentAnimation.current = null;
+            });
+          }
+        },
+      }),
+    [disableDrag, panelHeight, animatedValue, cancelAnimation, closeSheet]
+  );
 
   useEffect(() => {
     if (visible) {
@@ -232,6 +262,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
       cancelAnimation();
       animatedValue.setValue(0);
       setIsMounted(false);
+      return undefined;
     }
   }, [visible, openSheet, cancelAnimation, animatedValue]);
 
@@ -242,11 +273,12 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
     };
   }, [cancelAnimation]);
 
+  // Memoize styles to avoid recreating on every render
+  const styles = useMemo(() => createStyles(theme.colors), [theme.colors]);
+
   if (!visible && !isMounted) {
     return null;
   }
-
-  const styles = createStyles(theme.colors);
 
   return (
     <>
@@ -277,7 +309,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
       >
         {/* Drag Handle Area - Always visible for UI consistency */}
         <View
-          {...(!disableDrag ? panResponder.panHandlers : {})}
+          {...(disableDrag ? {} : panResponder.panHandlers)}
           style={styles.dragHandleArea}
         >
           <View style={styles.dragHandle} />
@@ -312,7 +344,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   );
 };
 
-const createStyles = (colors: any) => StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   overlay: {
     position: 'absolute',
     top: 0,
