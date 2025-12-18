@@ -1876,7 +1876,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                               marginLeft: 8,
                             }}
                           >
-                            Load More Models
+                            Load More
                           </Text>
                         </>
                       )}

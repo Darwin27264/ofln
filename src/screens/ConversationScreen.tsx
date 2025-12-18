@@ -977,8 +977,8 @@ export default function ConversationScreen({
         setSelectedGGUF(modelFile);
         showToast("Model switched successfully");
         await checkDownloadedModels();
-        // Close panel after successful load
-        closeModelSelector();
+        setIsLoadingModel(false);
+        setLoadingModelFile(null);
       } else {
         showToast("Failed to load the model");
         setIsLoadingModel(false);
@@ -1205,7 +1205,7 @@ export default function ConversationScreen({
               <Ionicons name="reorder-two-outline" size={23} color={theme.colors.text} />
             </TouchableOpacity>
             <TouchableOpacity 
-              style={[styles.topLeftPill, { left: 73, maxWidth: screenWidth * 0.4, minHeight: 42 }]} 
+              style={[styles.topLeftPill, { left: 73, maxWidth: screenWidth * 0.4, minHeight: 42, paddingRight: selectedPersona ? 8 : undefined }]} 
               onPress={openModelSelector}
             >
               <Ionicons name="cube-outline" size={20} color={theme.colors.text} style={{ marginRight: 6 }} />
@@ -1221,37 +1221,20 @@ export default function ConversationScreen({
               >
                 {selectedGGUF ? prettifyModelName(selectedGGUF) : "No model"}
               </Text>
+              {selectedPersona && (
+                <View style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 12,
+                  backgroundColor: '#007AFF',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: 8,
+                }}>
+                  <Ionicons name="person" size={14} color="#FFFFFF" />
+                </View>
+              )}
             </TouchableOpacity>
-            {selectedPersona && (
-              <View style={{
-                position: "absolute",
-                left: 73 + screenWidth * 0.4 + 8,
-                top: 20,
-                flexDirection: "row",
-                alignItems: "center",
-                backgroundColor: theme.colors.accent + "20",
-                paddingHorizontal: 8,
-                paddingVertical: 4,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: theme.colors.accent + "40",
-                maxWidth: screenWidth * 0.3,
-              }}>
-                <Ionicons name="person" size={12} color={theme.colors.accent} />
-                <Text style={{
-                  fontSize: 11,
-                  fontFamily: "Poppins",
-                  color: theme.colors.accent,
-                  marginLeft: 4,
-                  fontWeight: "500",
-                }}
-                numberOfLines={1}
-                ellipsizeMode="tail"
-                >
-                  {selectedPersona.name}
-                </Text>
-              </View>
-            )}
             {isTemporaryMode && hasStartedChat && (
               <Text style={{
                 position: 'absolute',
@@ -1901,6 +1884,26 @@ export default function ConversationScreen({
           title={selectorTab === "models" ? "Select Model" : "Select Persona"}
           height={0.6}
           disableDrag={isLoadingModel}
+          headerRight={
+            selectorTab === "personas" && selectedPersona ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setSelectedPersona(null);
+                  showToast('Persona cleared');
+                }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Text style={{
+                  fontSize: 14,
+                  fontFamily: 'Poppins',
+                  color: theme.colors.textSecondary,
+                  fontWeight: '400',
+                }}>
+                  Clear
+                </Text>
+              </TouchableOpacity>
+            ) : undefined
+          }
         >
           {/* Tab Selector */}
           <View style={{
@@ -2088,7 +2091,6 @@ export default function ConversationScreen({
                       onPress={() => {
                         setSelectedPersona(persona);
                         showToast(`Persona "${persona.name}" selected`);
-                        closeModelSelector();
                       }}
                       disabled={isSelected}
                       style={[
