@@ -23,7 +23,9 @@ import SettingsScreen from "./src/screens/SettingsScreen";
 import StagesScreen from "./src/screens/StagesScreen";
 import PersonasLibraryScreen from "./src/screens/PersonasLibraryScreen";
 import PersonaEditorScreen from "./src/screens/PersonaEditorScreen";
+import ModelSettingsScreen from "./src/screens/ModelSettingsScreen";
 import { Persona } from "./src/services/personaService";
+import { ModelInfo } from "./src/components/ModelCard";
 
 // Services
 import {
@@ -71,9 +73,10 @@ function AppContent(): React.JSX.Element {
   const [userInput, setUserInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedGGUF, setSelectedGGUF] = useState<string | null>(null);
-  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor";
+  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings";
   const [currentPage, setCurrentPage] = useState<PageType>("conversation");
   const [editingPersona, setEditingPersona] = useState<Persona | null | undefined>(undefined);
+  const [selectedModelForSettings, setSelectedModelForSettings] = useState<ModelInfo | null>(null);
   const [tokensPerSecond, setTokensPerSecond] = useState<number[]>([]);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
@@ -419,6 +422,10 @@ function AppContent(): React.JSX.Element {
           checkDownloadedModels={checkDownloadedModels}
           selectedGGUF={selectedGGUF}
           setSelectedGGUF={setSelectedGGUF}
+          onOpenModelSettings={(model) => {
+            setSelectedModelForSettings(model);
+            setCurrentPage("modelSettings");
+          }}
           />
         </Animated.View>
       )}
@@ -542,6 +549,21 @@ function AppContent(): React.JSX.Element {
             onCancel={() => {
               setEditingPersona(undefined);
               setCurrentPage("personas");
+            }}
+          />
+        </Animated.View>
+      )}
+
+      {currentPage === "modelSettings" && selectedModelForSettings && (
+        <Animated.View 
+          style={[{ flex: 1 }, pageTransitionStyle]}
+          collapsable={false}
+        >
+          <ModelSettingsScreen
+            model={selectedModelForSettings}
+            onBack={() => {
+              setSelectedModelForSettings(null);
+              setCurrentPage("modelSelection");
             }}
           />
         </Animated.View>
