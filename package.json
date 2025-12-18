@@ -7,7 +7,12 @@
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
-    "test": "jest"
+    "test": "jest",
+    "android:clean": "cd android && ./gradlew clean",
+    "android:uninstall": "adb uninstall com.ofln",
+    "android:clean-emulator": "adb shell pm trim-caches 500M && adb uninstall com.ofln",
+    "android:check-storage": "adb shell df -h",
+    "android:install": "cd android && ./gradlew installDebug"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^2.2.0",

@@ -463,14 +463,14 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
       </Modal>
 
       {/* Navigation buttons */}
-      <View style={[stylesLocalWithTheme.fixedBtn, { left: 15 }]}>
+      <View style={[stylesLocalWithTheme.fixedBtn, { left: 15, bottom: 20, backgroundColor: "transparent" }]}>
         <TouchableOpacity style={[stylesLocalWithTheme.btn, { backgroundColor: theme.colors.primary }]} onPress={onBack}>
           <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
           <Text style={stylesLocalWithTheme.btnText}>Back</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={[stylesLocalWithTheme.fixedBtn, { right: 15 }]}>
+      <View style={[stylesLocalWithTheme.fixedBtn, { right: 15, bottom: 20, backgroundColor: "transparent" }]}>
         <TouchableOpacity
           style={[stylesLocalWithTheme.btn, { backgroundColor: theme.colors.error }]}
           onPress={() => showAlert(

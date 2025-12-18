@@ -342,7 +342,7 @@ export default function ConversationScreen({
   
   // Animated padding value for smooth transitions
   const animatedPadding = useRef(new Animated.Value(0)).current;
-  const animatedBottomPadding = useRef(new Animated.Value(insets.bottom)).current;
+  const animatedBottomPadding = useRef(new Animated.Value(0)).current;
 
   // Chat history state
   const [chatHistory, setChatHistory] = useState<ChatConversation[]>([]);
@@ -1156,12 +1156,12 @@ export default function ConversationScreen({
 
   // Update animated padding when keyboard height changes
   useEffect(() => {
-    // Function to update padding based on current keyboard height and insets
+    // Function to update padding based on current keyboard height
     const updatePadding = (keyboardH: number) => {
       const additionalPadding = calculatePaddingMultiplier(keyboardH);
       animatedPadding.setValue(additionalPadding);
-      // Update total bottom padding: safe area + keyboard padding
-      animatedBottomPadding.setValue(insets.bottom + additionalPadding);
+      // Update bottom padding: only keyboard padding (no safe area insets)
+      animatedBottomPadding.setValue(additionalPadding);
     };
 
     // Create a listener to update padding as keyboard animates
@@ -1175,7 +1175,7 @@ export default function ConversationScreen({
     return () => {
       animatedHeight.removeListener(listenerId);
     };
-  }, [animatedHeight, animatedPadding, animatedBottomPadding, calculatePaddingMultiplier, insets.bottom, keyboardPadding]);
+  }, [animatedHeight, animatedPadding, animatedBottomPadding, calculatePaddingMultiplier, keyboardPadding]);
 
   return (
     <KeyboardAvoidingView
@@ -1234,18 +1234,18 @@ export default function ConversationScreen({
                 styles.topRightPill,
                 {
                   backgroundColor: isTemporaryMode 
-                    ? (theme.mode === 'dark' ? theme.colors.text : theme.colors.background)
-                    : (theme.mode === 'dark' ? theme.colors.background : theme.colors.text),
+                    ? (theme.mode === 'dark' ? theme.colors.text : theme.colors.text)
+                    : (theme.mode === 'dark' ? theme.colors.background : theme.colors.background),
                 },
               ]} 
               onPress={toggleTemporaryMode}
             >
               <Ionicons 
-                name="flash-outline" 
+                name={isTemporaryMode ? "flash" : "flash-outline"} 
                 size={23} 
                 color={isTemporaryMode 
-                  ? (theme.mode === 'dark' ? theme.colors.primaryText : theme.colors.text)
-                  : (theme.mode === 'dark' ? theme.colors.text : theme.colors.primaryText)
+                  ? (theme.mode === 'dark' ? theme.colors.primaryText : theme.colors.primaryText)
+                  : (theme.mode === 'dark' ? theme.colors.text : theme.colors.text)
                 } 
               />
             </TouchableOpacity>

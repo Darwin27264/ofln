@@ -256,6 +256,11 @@ No environment variables are required. The app uses:
 - `cd android && ./gradlew clean`: Clean Android build artifacts
 - `cd android && ./gradlew assembleDebug`: Build debug APK without installing
 - `cd android && ./gradlew installDebug`: Install debug APK on connected device
+- `npm run android:clean`: Clean Android build artifacts (convenience script)
+- `npm run android:uninstall`: Uninstall app from connected device/emulator
+- `npm run android:clean-emulator`: Free up emulator storage (trim caches + uninstall app)
+- `npm run android:check-storage`: Check storage usage on connected device/emulator
+- `npm run android:install`: Install debug APK without building (faster if already built)
 
 ### iOS Specific
 
@@ -443,6 +448,34 @@ The application handles numerous edge cases to ensure robust operation:
 - Check `android/build.gradle` for version conflicts
 - Ensure Android emulator/device is connected: `adb devices`
 
+#### Android Installation Fails: INSTALL_FAILED_INSUFFICIENT_STORAGE
+
+This error occurs when the Android emulator runs out of storage space. Here's how to prevent and fix it:
+
+**Prevention:**
+1. **Regularly clean emulator storage**: Run `npm run android:clean-emulator` before installing
+2. **Monitor storage**: Use `npm run android:check-storage` to check available space
+3. **Increase emulator storage**: When creating a new AVD in Android Studio, set internal storage to at least 8GB (recommended: 16GB)
+4. **Uninstall unused apps**: Remove apps you're not testing from the emulator
+5. **Wipe emulator periodically**: In Android Studio AVD Manager → Wipe Data (cold boot)
+
+**Quick Fix:**
+```bash
+# Option 1: Use the convenience script
+npm run android:clean-emulator
+
+# Option 2: Manual steps
+adb uninstall com.ofln          # Uninstall existing app
+adb shell pm trim-caches 500M   # Free up cache space
+npm run android                 # Try installing again
+```
+
+**If issue persists:**
+1. Check storage: `adb shell df -h` - Look for partitions at 100% usage
+2. Wipe emulator data: Android Studio → AVD Manager → Wipe Data
+3. Create new AVD with larger storage: Settings → Advanced → Internal Storage (set to 16GB+)
+4. Uninstall other apps: `adb shell pm list packages` then `adb uninstall <package-name>`
+
 #### iOS Build Fails
 
 - Run `pod install` in `ios` directory
@@ -510,6 +543,40 @@ Enable debug logging by checking console output. The app logs:
 4. Check device storage and memory availability
 5. Review network connectivity for downloads
 6. Check React Native and dependency versions for compatibility
+
+### Emulator Storage Management
+
+To prevent storage issues during development:
+
+**Best Practices:**
+- Run `npm run android:clean-emulator` before each install if you've been testing for a while
+- Monitor storage weekly: `npm run android:check-storage`
+- Keep emulator storage usage below 80% to avoid installation failures
+- Wipe emulator data monthly or when storage consistently runs low
+
+**Storage Cleanup Commands:**
+```bash
+# Quick cleanup (recommended before each install)
+npm run android:clean-emulator
+
+# Check current storage status
+npm run android:check-storage
+
+# Uninstall app only
+npm run android:uninstall
+
+# Full emulator reset (via Android Studio)
+# AVD Manager → Select emulator → Wipe Data
+```
+
+**Creating Emulators with Adequate Storage:**
+1. Open Android Studio → AVD Manager
+2. Create Virtual Device → Select device → Next
+3. Select System Image → Next
+4. **Show Advanced Settings** → Set:
+   - **Internal Storage**: 16GB (minimum 8GB)
+   - **SD Card**: Optional, 1GB+ if needed
+5. Finish → Start emulator
 
 ### Performance Monitoring
 

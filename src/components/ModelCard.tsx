@@ -149,6 +149,14 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
 }) => {
   const { theme } = useTheme();
   
+  // Helper function to convert hex to rgba for better cross-platform support
+  const hexToRgba = (hex: string, alpha: number): string => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+  
   // Animation values - use refs to avoid re-creation on re-renders
   const cardOpacity = useRef(new Animated.Value(0)).current;
   const cardTranslateY = useRef(new Animated.Value(20)).current;
@@ -281,8 +289,11 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
             overflow: "hidden",
           },
           isDownloaded && {
-            backgroundColor: theme.colors.success + "10",
-            borderColor: theme.colors.success + "40",
+            backgroundColor: hexToRgba(theme.colors.success, 0.06),
+            borderWidth: 0,
+            borderColor: 'transparent',
+            shadowOpacity: 0,
+            elevation: 0,
           },
         ]}
       >
@@ -397,7 +408,7 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
-                    backgroundColor: theme.colors.success + "20",
+                    backgroundColor: hexToRgba(theme.colors.success, 0.12),
                     paddingHorizontal: 6,
                     paddingVertical: 2,
                     borderRadius: 4,
@@ -450,10 +461,10 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
         {isExpanded && !isDownloading && !isLoading && (
           <Animated.View
             style={{
-              borderTopWidth: 1,
+              borderTopWidth: isDownloaded ? 0 : 1,
               borderTopColor: theme.colors.border,
               padding: 12,
-              backgroundColor: theme.colors.surface,
+              backgroundColor: isDownloaded ? hexToRgba(theme.colors.success, 0.06) : theme.colors.surface,
               opacity: dropdownOpacity,
               transform: [
                 {

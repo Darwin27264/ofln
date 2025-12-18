@@ -1525,7 +1525,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       </ScrollView>
 
       {/* Back button */}
-      <View style={{ position: "absolute", bottom: 20, left: 15 }}>
+      <View style={{ position: "absolute", bottom: 20, left: 15, backgroundColor: "transparent" }}>
         <TouchableOpacity
           onPress={() => setCurrentPage("settings")}
           style={{

@@ -215,7 +215,7 @@ export default function SettingsScreen({
           </Animated.View>
         </TouchableOpacity>
       </View>
-      <View style={{ position: "absolute", bottom: 20, left: 15 }}>
+      <View style={{ position: "absolute", bottom: 20, left: 15, backgroundColor: "transparent" }}>
         <TouchableOpacity onPress={onBackToConversation} style={{
           flexDirection: "row",
           alignItems: "center",
