@@ -482,14 +482,14 @@ export default function ConversationScreen({
   const PRESET_MESSAGES = [
     "Give me a random fact",
     "Summarize my clipboard",
-    "Help me write a professional email",
+    "Help me draft an email",
   ];
 
   // Icon mapping for preset messages
   const PRESET_ICONS: { [key: string]: string } = {
     "Give me a random fact": "sparkles-outline",
     "Summarize my clipboard": "clipboard-outline",
-    "Help me write a professional email": "mail-outline",
+    "Help me draft an email": "mail-outline",
   };
 
   // Initialize chat history service
@@ -2387,6 +2387,7 @@ export default function ConversationScreen({
                           <Text style={[
                             styles.buttonText,
                             isSelected && styles.selectedButtonText,
+                            { textAlign: 'left' },
                           ]}
                           numberOfLines={1}
                           >
@@ -2398,6 +2399,7 @@ export default function ConversationScreen({
                               fontFamily: 'Poppins',
                               color: isSelected ? theme.colors.primaryText : theme.colors.textSecondary,
                               marginTop: 4,
+                              textAlign: 'left',
                             }}
                             numberOfLines={1}
                             >
