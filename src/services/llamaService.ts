@@ -3,6 +3,7 @@ import RNFS from "react-native-fs";
 import { initLlama } from "llama.rn";
 import { recordUsage, getPerformanceLevel } from "./usageTracker";
 import { getModelSettings, ModelSettings, DEFAULT_SETTINGS } from "./modelSettingsService";
+import { Persona, buildPersonaSystemPrompt } from "./personaService";
 
 // Types
 type Message = {
@@ -184,6 +185,7 @@ export const stopGeneration = async (
  * @param setTokensPerSecond - State setter for tokens per second
  * @param scrollViewRef - Ref to scroll view for auto-scrolling
  * @param selectedModel - Currently selected model name
+ * @param selectedPersona - Currently selected persona (optional)
  * 
  * Edge cases handled:
  * - Missing or invalid context
@@ -206,7 +208,8 @@ export const handleSendMessageCompletion = async (
   tokensPerSecond: number[],
   setTokensPerSecond: React.Dispatch<React.SetStateAction<number[]>>,
   scrollViewRef: React.RefObject<any>,
-  selectedModel: string
+  selectedModel: string,
+  selectedPersona: Persona | null = null
 ) => {
   // Validate context exists
   if (!context) {
@@ -278,13 +281,29 @@ export const handleSendMessageCompletion = async (
       };
     }
 
-    // Update conversation with model-specific system prompt if needed
-    const conversationWithSystemPrompt = newConversation.map((msg, idx) => {
-      if (idx === 0 && msg.role === "system") {
-        return { ...msg, content: settings.systemPrompt };
-      }
-      return msg;
-    });
+    // Build system prompt with persona information if available
+    const systemPrompt = buildPersonaSystemPrompt(selectedPersona, settings.systemPrompt);
+    
+    // Update conversation with system prompt
+    // If there's no system message, add one; otherwise update the first system message
+    let conversationWithSystemPrompt: Message[];
+    const systemMessageIndex = newConversation.findIndex(msg => msg.role === "system");
+    
+    if (systemMessageIndex >= 0) {
+      // Update the first system message
+      conversationWithSystemPrompt = newConversation.map((msg, idx) => {
+        if (idx === systemMessageIndex) {
+          return { ...msg, content: systemPrompt };
+        }
+        return msg;
+      });
+    } else {
+      // Add system message at the beginning
+      conversationWithSystemPrompt = [
+        { role: "system", content: systemPrompt },
+        ...newConversation,
+      ];
+    }
 
     const result: CompletionResult = await context.completion(
       {

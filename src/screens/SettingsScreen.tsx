@@ -13,6 +13,7 @@ interface Props {
   onBackToConversation: () => void;
   onGoToModelSelection: () => void;
   onOpenStats: () => void; // NEW prop to open the stats (stages) page
+  onGoToPersonas: () => void; // NEW prop to open the personas page
 }
 
 export default function SettingsScreen({
@@ -21,6 +22,7 @@ export default function SettingsScreen({
   onBackToConversation,
   onGoToModelSelection,
   onOpenStats,
+  onGoToPersonas,
 }: Props) {
   const { theme, toggleTheme, isDark, isTransitioning } = useTheme();
   const styles = createStyles(theme.colors);
@@ -182,7 +184,7 @@ export default function SettingsScreen({
               </View>
             </Animated.View>
           </TouchableOpacity>
-          <TouchableOpacity style={{ flex: 1, marginLeft: 5 }}>
+          <TouchableOpacity style={{ flex: 1, marginLeft: 5 }} onPress={onGoToPersonas}>
             <Animated.View style={styles.settingsBlock}>
               <Ionicons name="person-circle-outline" size={22} color={theme.colors.text} style={styles.blockIcon}/>
               <View style={styles.blockTextContainer}>

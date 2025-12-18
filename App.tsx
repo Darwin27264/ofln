@@ -21,6 +21,9 @@ import ModelSelectionScreen from "./src/screens/ModelSelectionScreen";
 import ConversationScreen from "./src/screens/ConversationScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
 import StagesScreen from "./src/screens/StagesScreen";
+import PersonasLibraryScreen from "./src/screens/PersonasLibraryScreen";
+import PersonaEditorScreen from "./src/screens/PersonaEditorScreen";
+import { Persona } from "./src/services/personaService";
 
 // Services
 import {
@@ -68,8 +71,9 @@ function AppContent(): React.JSX.Element {
   const [userInput, setUserInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedGGUF, setSelectedGGUF] = useState<string | null>(null);
-  type PageType = "modelSelection" | "conversation" | "settings" | "stages";
+  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor";
   const [currentPage, setCurrentPage] = useState<PageType>("conversation");
+  const [editingPersona, setEditingPersona] = useState<Persona | null | undefined>(undefined);
   const [tokensPerSecond, setTokensPerSecond] = useState<number[]>([]);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
@@ -80,6 +84,7 @@ function AppContent(): React.JSX.Element {
   const [assistantDisplayMode, setAssistantDisplayMode] = useState<"bubble" | "direct">(
     "bubble"
   );
+  const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
 
   /**
    * Page transition animations
@@ -461,7 +466,8 @@ function AppContent(): React.JSX.Element {
               tokensPerSecond,
               setTokensPerSecond,
               scrollViewRef,
-              selectedGGUF || "unknown"  // Pass the selected model for usage tracking
+              selectedGGUF || "unknown",  // Pass the selected model for usage tracking
+              selectedPersona  // Pass the selected persona for prompt injection
             )
           }
           assistantDisplayMode={assistantDisplayMode}
@@ -472,6 +478,8 @@ function AppContent(): React.JSX.Element {
           loadModel={loadModel}
           setContext={setContext}
           checkDownloadedModels={checkDownloadedModels}
+          selectedPersona={selectedPersona}
+          setSelectedPersona={setSelectedPersona}
           />
         </Animated.View>
       )}
@@ -488,6 +496,7 @@ function AppContent(): React.JSX.Element {
           // Clicking the stats block navigates to the Stages page.
           onOpenStats={() => setCurrentPage("stages")}
           onGoToModelSelection={() => setCurrentPage("modelSelection")}
+          onGoToPersonas={() => setCurrentPage("personas")}
           />
         </Animated.View>
       )}
@@ -500,6 +509,40 @@ function AppContent(): React.JSX.Element {
           <StagesScreen
             downloadedModels={downloadedModels}
             onBack={() => setCurrentPage("settings")}
+          />
+        </Animated.View>
+      )}
+
+      {currentPage === "personas" && (
+        <Animated.View 
+          style={[{ flex: 1 }, pageTransitionStyle]}
+          collapsable={false}
+        >
+          <PersonasLibraryScreen
+            onBack={() => setCurrentPage("settings")}
+            onEditPersona={(persona) => {
+              setEditingPersona(persona);
+              setCurrentPage("personaEditor");
+            }}
+          />
+        </Animated.View>
+      )}
+
+      {currentPage === "personaEditor" && editingPersona !== undefined && (
+        <Animated.View 
+          style={[{ flex: 1 }, pageTransitionStyle]}
+          collapsable={false}
+        >
+          <PersonaEditorScreen
+            persona={editingPersona}
+            onSave={(savedPersona) => {
+              setEditingPersona(undefined);
+              setCurrentPage("personas");
+            }}
+            onCancel={() => {
+              setEditingPersona(undefined);
+              setCurrentPage("personas");
+            }}
           />
         </Animated.View>
       )}

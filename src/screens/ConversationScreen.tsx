@@ -29,6 +29,7 @@ import { showAlert } from "../components/CustomAlert";
 import { BottomSheet } from "../components/BottomSheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useKeyboardPadding } from "../hooks/useKeyboardPadding";
+import { Persona, getPersonas } from "../services/personaService";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -300,6 +301,8 @@ interface Props {
   loadModel: (path: string, context: any, setContext: (context: any) => void) => Promise<boolean>;
   setContext: (context: any) => void;
   checkDownloadedModels: () => Promise<void>;
+  selectedPersona: Persona | null;
+  setSelectedPersona: (persona: Persona | null) => void;
 }
 
 export default function ConversationScreen({
@@ -332,6 +335,8 @@ export default function ConversationScreen({
   loadModel,
   setContext,
   checkDownloadedModels,
+  selectedPersona,
+  setSelectedPersona,
 }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
@@ -389,6 +394,8 @@ export default function ConversationScreen({
   const [isModelSelectorVisible, setIsModelSelectorVisible] = useState(false);
   const [isLoadingModel, setIsLoadingModel] = useState(false);
   const [loadingModelFile, setLoadingModelFile] = useState<string | null>(null);
+  const [selectorTab, setSelectorTab] = useState<"models" | "personas">("models");
+  const [availablePersonas, setAvailablePersonas] = useState<Persona[]>([]);
 
   // Helper function to prettify model name
   const prettifyModelName = (fileName: string): string => {
@@ -927,8 +934,15 @@ export default function ConversationScreen({
   /**
    * Opens the model selector bottom sheet
    */
-  const openModelSelector = useCallback(() => {
+  const openModelSelector = useCallback(async () => {
     setIsModelSelectorVisible(true);
+    // Load personas when opening selector
+    try {
+      const personas = await getPersonas();
+      setAvailablePersonas(personas);
+    } catch (error) {
+      console.error("Error loading personas:", error);
+    }
   }, []);
 
   /**
@@ -1208,6 +1222,36 @@ export default function ConversationScreen({
                 {selectedGGUF ? prettifyModelName(selectedGGUF) : "No model"}
               </Text>
             </TouchableOpacity>
+            {selectedPersona && (
+              <View style={{
+                position: "absolute",
+                left: 73 + screenWidth * 0.4 + 8,
+                top: 20,
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: theme.colors.accent + "20",
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: theme.colors.accent + "40",
+                maxWidth: screenWidth * 0.3,
+              }}>
+                <Ionicons name="person" size={12} color={theme.colors.accent} />
+                <Text style={{
+                  fontSize: 11,
+                  fontFamily: "Poppins",
+                  color: theme.colors.accent,
+                  marginLeft: 4,
+                  fontWeight: "500",
+                }}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                >
+                  {selectedPersona.name}
+                </Text>
+              </View>
+            )}
             {isTemporaryMode && hasStartedChat && (
               <Text style={{
                 position: 'absolute',
@@ -1850,102 +1894,247 @@ export default function ConversationScreen({
           </View>
         </Animated.View>
 
-        {/* Model Selector Bottom Sheet */}
+        {/* Model & Persona Selector Bottom Sheet */}
         <BottomSheet
           visible={isModelSelectorVisible}
           onClose={closeModelSelector}
-          title="Downloaded Models"
+          title={selectorTab === "models" ? "Select Model" : "Select Persona"}
           height={0.6}
           disableDrag={isLoadingModel}
         >
+          {/* Tab Selector */}
+          <View style={{
+            flexDirection: "row",
+            marginBottom: 16,
+            backgroundColor: theme.colors.surface,
+            borderRadius: 12,
+            padding: 4,
+          }}>
+            <TouchableOpacity
+              onPress={() => setSelectorTab("models")}
+              style={{
+                flex: 1,
+                backgroundColor: selectorTab === "models" ? theme.colors.primary : "transparent",
+                paddingVertical: 10,
+                borderRadius: 8,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{
+                fontSize: 14,
+                fontWeight: "600",
+                fontFamily: "Poppins",
+                color: selectorTab === "models" ? theme.colors.primaryText : theme.colors.text,
+              }}>
+                Models
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setSelectorTab("personas")}
+              style={{
+                flex: 1,
+                backgroundColor: selectorTab === "personas" ? theme.colors.primary : "transparent",
+                paddingVertical: 10,
+                borderRadius: 8,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{
+                fontSize: 14,
+                fontWeight: "600",
+                fontFamily: "Poppins",
+                color: selectorTab === "personas" ? theme.colors.primaryText : theme.colors.text,
+              }}>
+                Personas
+              </Text>
+            </TouchableOpacity>
+          </View>
+
           <ScrollView 
             style={{ flex: 1 }} 
             contentContainerStyle={{ paddingBottom: 32 }}
           >
-            {downloadedModels.length === 0 ? (
-              <View style={{
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingVertical: 40,
-              }}>
-                <Text style={{
-                  fontSize: 16,
-                  fontFamily: 'Poppins',
-                  color: theme.colors.textSecondary,
-                  textAlign: 'center',
-                  marginBottom: 20,
+            {selectorTab === "models" ? (
+              downloadedModels.length === 0 ? (
+                <View style={{
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingVertical: 40,
                 }}>
-                  No models downloaded
-                </Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    closeModelSelector();
-                    onBackToModelSelection();
-                  }}
-                  style={{
-                    backgroundColor: theme.colors.primary,
-                    paddingVertical: 12,
-                    paddingHorizontal: 24,
-                    borderRadius: 12,
-                  }}
-                >
                   <Text style={{
                     fontSize: 16,
                     fontFamily: 'Poppins',
-                    color: theme.colors.primaryText,
-                    fontWeight: '600',
+                    color: theme.colors.textSecondary,
+                    textAlign: 'center',
+                    marginBottom: 20,
                   }}>
-                    Go to Model Selection
+                    No models downloaded
                   </Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              downloadedModels.map((model, index) => {
-                const isSelected = selectedGGUF === model;
-                const isCurrentlyLoading = isLoadingModel && loadingModelFile === model;
-                return (
                   <TouchableOpacity
-                    key={index}
-                    onPress={() => handleModelSwitch(model)}
-                    disabled={isLoadingModel || isSelected}
-                    style={[
-                      styles.modelButton,
-                      isSelected && styles.selectedButton,
-                      {
-                        marginVertical: 6,
-                        opacity: isLoadingModel && !isSelected && !isCurrentlyLoading ? 0.5 : 1,
-                      },
-                    ]}
+                    onPress={() => {
+                      closeModelSelector();
+                      onBackToModelSelection();
+                    }}
+                    style={{
+                      backgroundColor: theme.colors.primary,
+                      paddingVertical: 12,
+                      paddingHorizontal: 24,
+                      borderRadius: 12,
+                    }}
                   >
-                    <View style={styles.modelButtonContent}>
-                      <Text style={[
-                        styles.buttonText,
-                        isSelected && styles.selectedButtonText,
+                    <Text style={{
+                      fontSize: 16,
+                      fontFamily: 'Poppins',
+                      color: theme.colors.primaryText,
+                      fontWeight: '600',
+                    }}>
+                      Go to Model Selection
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                downloadedModels.map((model, index) => {
+                  const isSelected = selectedGGUF === model;
+                  const isCurrentlyLoading = isLoadingModel && loadingModelFile === model;
+                  return (
+                    <TouchableOpacity
+                      key={index}
+                      onPress={() => handleModelSwitch(model)}
+                      disabled={isLoadingModel || isSelected}
+                      style={[
+                        styles.modelButton,
+                        isSelected && styles.selectedButton,
+                        {
+                          marginVertical: 6,
+                          opacity: isLoadingModel && !isSelected && !isCurrentlyLoading ? 0.5 : 1,
+                        },
                       ]}
-                      numberOfLines={2}
-                      ellipsizeMode="tail"
-                      >
-                        {prettifyModelName(model)}
-                      </Text>
-                      {isSelected && (
-                        <Ionicons 
-                          name="checkmark-circle" 
-                          size={20} 
-                          color={theme.colors.primaryText} 
-                          style={{ marginLeft: 8 }}
-                        />
-                      )}
-                      {isCurrentlyLoading && (
-                        <ActivityIndicator 
-                          size="small" 
-                          color={theme.colors.accent} 
-                          style={{ marginLeft: 8 }}
-                        />
-                      )}
+                    >
+                      <View style={styles.modelButtonContent}>
+                        <Text style={[
+                          styles.buttonText,
+                          isSelected && styles.selectedButtonText,
+                        ]}
+                        numberOfLines={2}
+                        ellipsizeMode="tail"
+                        >
+                          {prettifyModelName(model)}
+                        </Text>
+                        {isSelected && (
+                          <Ionicons 
+                            name="checkmark-circle" 
+                            size={20} 
+                            color={theme.colors.primaryText} 
+                            style={{ marginLeft: 8 }}
+                          />
+                        )}
+                        {isCurrentlyLoading && (
+                          <ActivityIndicator 
+                            size="small" 
+                            color={theme.colors.accent} 
+                            style={{ marginLeft: 8 }}
+                          />
+                        )}
                     </View>
                   </TouchableOpacity>
                 );
               })
+              )
+            ) : (
+              // Personas tab
+              availablePersonas.length === 0 ? (
+                <View style={{
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingVertical: 40,
+                }}>
+                  <Text style={{
+                    fontSize: 16,
+                    fontFamily: 'Poppins',
+                    color: theme.colors.textSecondary,
+                    textAlign: 'center',
+                    marginBottom: 20,
+                  }}>
+                    No personas created
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      closeModelSelector();
+                      onOpenSettings();
+                    }}
+                    style={{
+                      backgroundColor: theme.colors.primary,
+                      paddingVertical: 12,
+                      paddingHorizontal: 24,
+                      borderRadius: 12,
+                    }}
+                  >
+                    <Text style={{
+                      fontSize: 16,
+                      fontFamily: 'Poppins',
+                      color: theme.colors.primaryText,
+                      fontWeight: '600',
+                    }}>
+                      Go to Personas
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                availablePersonas.map((persona, index) => {
+                  const isSelected = selectedPersona?.id === persona.id;
+                  return (
+                    <TouchableOpacity
+                      key={persona.id}
+                      onPress={() => {
+                        setSelectedPersona(persona);
+                        showToast(`Persona "${persona.name}" selected`);
+                        closeModelSelector();
+                      }}
+                      disabled={isSelected}
+                      style={[
+                        styles.modelButton,
+                        isSelected && styles.selectedButton,
+                        {
+                          marginVertical: 6,
+                        },
+                      ]}
+                    >
+                      <View style={styles.modelButtonContent}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[
+                            styles.buttonText,
+                            isSelected && styles.selectedButtonText,
+                          ]}
+                          numberOfLines={1}
+                          >
+                            {persona.name}
+                          </Text>
+                          {persona.tagline && (
+                            <Text style={{
+                              fontSize: 12,
+                              fontFamily: 'Poppins',
+                              color: isSelected ? theme.colors.primaryText : theme.colors.textSecondary,
+                              marginTop: 4,
+                            }}
+                            numberOfLines={1}
+                            >
+                              {persona.tagline}
+                            </Text>
+                          )}
+                        </View>
+                        {isSelected && (
+                          <Ionicons 
+                            name="checkmark-circle" 
+                            size={20} 
+                            color={theme.colors.primaryText} 
+                            style={{ marginLeft: 8 }}
+                          />
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              )
             )}
           </ScrollView>
         </BottomSheet>
