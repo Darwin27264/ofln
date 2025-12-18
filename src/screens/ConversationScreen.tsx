@@ -1564,7 +1564,7 @@ export default function ConversationScreen({
             contentContainerStyle={{
               flexGrow: 1,
               justifyContent: "flex-end",
-              paddingHorizontal: 16,
+              paddingHorizontal: Math.max(16, Dimensions.get("window").width * 0.04),
               paddingTop: 90,
               paddingBottom: 16,
             }}
@@ -1580,57 +1580,68 @@ export default function ConversationScreen({
                 containerStyle.push(styles.messageBubble, styles.userBubble);
               } else if (msg.role === "assistant" && !isAssistantDirect) {
                 containerStyle.push(styles.messageBubble, styles.llamaBubble);
+              } else if (isAssistantDirect) {
+                // Add width constraints for direct mode to prevent overflow
+                containerStyle.push(styles.messageDirect);
               }
               return (
                 <View key={index} style={styles.messageWrapper}>
                   <View style={containerStyle}>
-                    <Text
-                      style={[
-                        styles.messageText,
-                        msg.role === "user" && styles.userMessageText,
-                      ]}
-                    >
-                      {msg.thought && (
-                        <TouchableOpacity
-                          onPress={() => toggleThought(index + 1)}
-                          style={styles.toggleButton}
-                        >
-                          <Text style={styles.toggleText}>
-                            {msg.showThought ? "▼ Hide Thought" : "▶ Show Thought"}
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-                      {msg.showThought && msg.thought && (
-                        <View style={styles.thoughtContainer}>
-                          <Text style={styles.thoughtTitle}>
-                            Model's Reasoning:
-                          </Text>
-                          <Text style={styles.thoughtText}>{msg.thought}</Text>
-                        </View>
-                      )}
-                      {msg.role === "assistant" && msg.content.trim().length === 0 && isGenerating ? (
-                        <ThinkingIndicator theme={theme} />
-                      ) : (
+                    {msg.thought && (
+                      <TouchableOpacity
+                        onPress={() => toggleThought(index + 1)}
+                        style={styles.toggleButton}
+                      >
+                        <Text style={styles.toggleText}>
+                          {msg.showThought ? "▼ Hide Thought" : "▶ Show Thought"}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    {msg.showThought && msg.thought && (
+                      <View style={styles.thoughtContainer}>
+                        <Text style={styles.thoughtTitle}>
+                          Model's Reasoning:
+                        </Text>
+                        <Text style={styles.thoughtText}>{msg.thought}</Text>
+                      </View>
+                    )}
+                    {msg.role === "assistant" && msg.content.trim().length === 0 && isGenerating ? (
+                      <ThinkingIndicator theme={theme} />
+                    ) : (
+                      <View style={{ flexShrink: 1, width: "100%", justifyContent: "center" }}>
                         <Markdown
                           style={{ 
                             body: { 
                               fontSize: 18, 
                               fontFamily: "Poppins",
-                              color: msg.role === "user" ? theme.colors.primaryText : theme.colors.text 
-                            } 
+                              color: msg.role === "user" ? theme.colors.primaryText : theme.colors.text,
+                              margin: 0,
+                              padding: 0,
+                            },
+                            paragraph: {
+                              flexWrap: "wrap",
+                              marginTop: 0,
+                              marginBottom: 0,
+                              padding: 0,
+                            },
+                            text: {
+                              flexWrap: "wrap",
+                              margin: 0,
+                              padding: 0,
+                            },
                           }}
                         >
                           {msg.content}
                         </Markdown>
-                      )}
-                    </Text>
+                      </View>
+                    )}
                   </View>
                   {msg.role === "assistant" && msg.content.trim().length > 0 && (
                     <View style={{
                       flexDirection: "row",
                       alignItems: "center",
                       justifyContent: "space-between",
-                      marginTop: 8,
+                      marginTop: 12,
                       gap: 8,
                     }}>
                       <View style={{

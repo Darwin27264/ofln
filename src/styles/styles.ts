@@ -94,12 +94,29 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
 
   messageWrapper: {
     marginBottom: 16,
+    width: "100%",
+    alignItems: "flex-start",
   },
   messageBubble: {
     fontSize: 24,
-    paddingVertical: 1,
-    paddingHorizontal: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     maxWidth: "80%",
+    flexShrink: 1,
+    flexWrap: "wrap",
+    justifyContent: "center",
+    alignItems: "flex-start",
+  },
+  messageDirect: {
+    width: "100%",
+    maxWidth: "100%",
+    flexShrink: 1,
+    flexWrap: "wrap",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    justifyContent: "center",
+    alignItems: "flex-start",
+    minHeight: 44,
   },
   userBubble: {
     borderTopLeftRadius: 20,
@@ -108,6 +125,8 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderBottomLeftRadius: 20,
     alignSelf: "flex-end",
     backgroundColor: colors.primary,
+    minHeight: 44,
+    justifyContent: "center",
   },
   llamaBubble: {
     borderTopLeftRadius: 20,
@@ -119,15 +138,19 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     backdropFilter: "blur(10px)",
+    minHeight: 44,
+    justifyContent: "center",
   },
   messageText: {
     fontSize: 18,
     color: colors.textSecondary,
     fontFamily: "Poppins",
+    lineHeight: 24,
   },
   userMessageText: {
     color: colors.primaryText,
     fontFamily: "Poppins",
+    lineHeight: 24,
   },
   tokenInfo: {
     fontSize: 12,
@@ -203,6 +226,9 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
+    width: "100%",
+    flexShrink: 1,
+    flexWrap: "wrap",
   },
   thoughtTitle: {
     color: colors.textSecondary,
@@ -210,6 +236,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontWeight: "600",
     marginBottom: 4,
     fontFamily: "Poppins",
+    flexWrap: "wrap",
   },
   thoughtText: {
     color: colors.textSecondary,
@@ -217,6 +244,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontStyle: "italic",
     lineHeight: 16,
     fontFamily: "Poppins",
+    flexWrap: "wrap",
   },
 
   card: {
