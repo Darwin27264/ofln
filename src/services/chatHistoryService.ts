@@ -182,6 +182,25 @@ class ChatHistoryService {
     }
   }
 
+  async deleteMultipleChats(chatIds: string[]): Promise<boolean> {
+    await this.initialize();
+    
+    try {
+      const historyJson = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
+      if (!historyJson) return false;
+      
+      const history: ChatConversation[] = JSON.parse(historyJson);
+      const chatIdsSet = new Set(chatIds);
+      const filtered = history.filter(chat => !chatIdsSet.has(chat.id));
+      
+      await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(filtered));
+      return true;
+    } catch (error) {
+      console.error('Error deleting multiple chats:', error);
+      return false;
+    }
+  }
+
   async clearAllChats(): Promise<boolean> {
     await this.initialize();
     

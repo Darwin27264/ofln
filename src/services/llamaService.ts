@@ -345,14 +345,27 @@ export const handleSendMessageCompletion = async (
           currentThought += token;
         }
 
-        const visibleContent = currentAssistantMessage
-          .replace(/<think>.*?<\/think>/gs, "")
-          .trim();
+        // Remove thinking blocks but preserve content
+        // Use a more robust regex that handles incomplete blocks
+        let visibleContent = currentAssistantMessage
+          .replace(/<think>.*?<\/redacted_reasoning>/gs, "")
+          .replace(/<think>.*$/gs, ""); // Handle incomplete reasoning blocks
+        
+        // Only trim if content exists to prevent losing whitespace-only content during generation
+        if (visibleContent.length > 0) {
+          visibleContent = visibleContent.trim();
+        }
 
         setConversation((prev) => {
           const lastIndex = prev.length - 1;
+          if (lastIndex < 0) return prev; // Safety check
+          
           const updated = [...prev];
-          updated[lastIndex].content = visibleContent;
+          // Ensure we always preserve content, even if it's just whitespace during generation
+          updated[lastIndex] = {
+            ...updated[lastIndex],
+            content: visibleContent || updated[lastIndex].content || "",
+          };
           return updated;
         });
 
@@ -367,8 +380,10 @@ export const handleSendMessageCompletion = async (
     // Calculate metrics after completion
     const endTime = Date.now();
     const inferenceTime = endTime - startTime; // in milliseconds
+    // Remove thinking blocks from final content
     const finalVisibleContent = currentAssistantMessage
-      .replace(/<think>.*?<\/think>/gs, "")
+      .replace(/<think>.*?<\/redacted_reasoning>/gs, "")
+      .replace(/<think>.*$/gs, "") // Handle incomplete reasoning blocks
       .trim();
     const tokenCount = finalVisibleContent
       .split(" ")

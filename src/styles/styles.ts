@@ -96,6 +96,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     marginBottom: 16,
     width: "100%",
     alignItems: "flex-start",
+    overflow: "hidden",
   },
   messageBubble: {
     fontSize: 24,
@@ -104,8 +105,8 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     maxWidth: "80%",
     flexShrink: 1,
     flexWrap: "wrap",
-    justifyContent: "center",
     alignItems: "flex-start",
+    overflow: "hidden",
   },
   messageDirect: {
     width: "100%",
@@ -114,9 +115,9 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     flexWrap: "wrap",
     paddingVertical: 12,
     paddingHorizontal: 16,
-    justifyContent: "center",
     alignItems: "flex-start",
     minHeight: 44,
+    overflow: "hidden",
   },
   userBubble: {
     borderTopLeftRadius: 20,
@@ -126,7 +127,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     alignSelf: "flex-end",
     backgroundColor: colors.primary,
     minHeight: 44,
-    justifyContent: "center",
+    overflow: "hidden",
   },
   llamaBubble: {
     borderTopLeftRadius: 20,
@@ -139,7 +140,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: colors.border,
     backdropFilter: "blur(10px)",
     minHeight: 44,
-    justifyContent: "center",
+    overflow: "hidden",
   },
   messageText: {
     fontSize: 18,

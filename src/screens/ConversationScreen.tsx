@@ -186,6 +186,9 @@ interface ChatHistoryCardProps {
   onEditingTitleChange: (title: string) => void;
   onRenameSave: () => void;
   onRenameCancel: () => void;
+  isMultiselectMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }
 
 const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(({
@@ -199,8 +202,11 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(({
   onEditingTitleChange,
   onRenameSave,
   onRenameCancel,
+  isMultiselectMode = false,
+  isSelected = false,
+  onToggleSelect,
 }) => {
-  const isSelected = currentChatId === chat.id;
+  const isCurrentChat = currentChatId === chat.id;
   
   if (isEditing) {
     return (
@@ -230,6 +236,49 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(({
     );
   }
 
+  if (isMultiselectMode) {
+    return (
+      <Pressable
+        onPress={onToggleSelect}
+        style={{
+          paddingVertical: 8,
+          marginBottom: 4,
+          flexDirection: 'row',
+          alignItems: 'center',
+        }}
+      >
+        <View style={{
+          width: 24,
+          height: 24,
+          borderRadius: 12,
+          borderWidth: 2,
+          borderColor: isSelected ? theme.colors.primary : theme.colors.border,
+          backgroundColor: isSelected ? theme.colors.primary : 'transparent',
+          marginRight: 12,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          {isSelected && (
+            <Ionicons name="checkmark" size={16} color={theme.colors.primaryText} />
+          )}
+        </View>
+        <Text
+          style={{
+            color: isCurrentChat ? theme.colors.text : theme.colors.textSecondary,
+            fontSize: 18,
+            fontWeight: isCurrentChat ? "500" : "400",
+            fontFamily: "Poppins",
+            flex: 1,
+          }}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {chat.title}
+        </Text>
+      </Pressable>
+    );
+  }
+
   return (
     <Pressable
       onPress={onPress}
@@ -241,9 +290,9 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(({
     >
       <Text
         style={{
-          color: isSelected ? theme.colors.text : theme.colors.textSecondary,
+          color: isCurrentChat ? theme.colors.text : theme.colors.textSecondary,
           fontSize: 18,
-          fontWeight: isSelected ? "500" : "400",
+          fontWeight: isCurrentChat ? "500" : "400",
           fontFamily: "Poppins",
         }}
         numberOfLines={1}
@@ -260,7 +309,9 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(({
     prevProps.chat.title === nextProps.chat.title &&
     prevProps.currentChatId === nextProps.currentChatId &&
     prevProps.isEditing === nextProps.isEditing &&
-    prevProps.editingTitle === nextProps.editingTitle
+    prevProps.editingTitle === nextProps.editingTitle &&
+    prevProps.isMultiselectMode === nextProps.isMultiselectMode &&
+    prevProps.isSelected === nextProps.isSelected
   );
 });
 
@@ -359,6 +410,10 @@ export default function ConversationScreen({
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
+
+  // Multiselect state
+  const [isMultiselectMode, setIsMultiselectMode] = useState(false);
+  const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
   
   // Menu animation
   const menuOpacity = useRef(new Animated.Value(0)).current;
@@ -420,6 +475,9 @@ export default function ConversationScreen({
   const presetMessagesAnim = useRef(new Animated.Value(1)).current;
   const tempModeExplanationAnim = useRef(new Animated.Value(0)).current;
 
+  // Persona indicator animation
+  const personaIndicatorOpacity = useRef(new Animated.Value(selectedPersona ? 1 : 0)).current;
+
   // Preset messages
   const PRESET_MESSAGES = [
     "Give me a random fact",
@@ -459,6 +517,16 @@ export default function ConversationScreen({
       setHasStartedChat(false);
     }
   }, [noMessages, currentChatId]);
+
+  // Animate persona indicator fade in/out
+  useEffect(() => {
+    Animated.timing(personaIndicatorOpacity, {
+      toValue: selectedPersona ? 1 : 0,
+      duration: 200, // Subtle fade animation
+      easing: Easing.bezier(0.4, 0.0, 0.2, 1), // Material Design easing
+      useNativeDriver: true,
+    }).start();
+  }, [selectedPersona, personaIndicatorOpacity]);
 
   // Load chat history when panel opens or when conversation changes (if panel is open)
   useEffect(() => {
@@ -536,6 +604,14 @@ export default function ConversationScreen({
   }, [conversation, currentChatId, isGenerating, onChatIdChange, isPanelOpen, isTemporaryMode]);
 
   /**
+   * Exit multiselect mode
+   */
+  const exitMultiselectMode = useCallback(() => {
+    setIsMultiselectMode(false);
+    setSelectedChatIds(new Set());
+  }, []);
+
+  /**
    * Toggles the chat history side panel
    * Optimized: Faster animations and better state management for mobile performance
    * 
@@ -549,7 +625,13 @@ export default function ConversationScreen({
       Animated.timing(panelAnim, {
         toValue: -panelWidth,
         ...ANIMATION_CONFIG.panel,
-      }).start(() => setIsPanelOpen(false));
+      }).start(() => {
+        setIsPanelOpen(false);
+        // Exit multiselect mode when panel closes
+        if (isMultiselectMode) {
+          exitMultiselectMode();
+        }
+      });
     } else {
       // Set state before animation for smoother rendering
       setIsPanelOpen(true);
@@ -561,7 +643,7 @@ export default function ConversationScreen({
         }).start();
       });
     }
-  }, [isPanelOpen, panelAnim, panelWidth]);
+  }, [isPanelOpen, panelAnim, panelWidth, isMultiselectMode, exitMultiselectMode]);
 
   // Handle chat selection
   const handleChatSelect = useCallback(async (chat: ChatConversation) => {
@@ -688,33 +770,54 @@ export default function ConversationScreen({
   }, [currentChatId, onNewChat, dismissMenu, showToast]);
 
   /**
+   * Toggle selection of a chat in multiselect mode
+   */
+  const toggleChatSelection = useCallback((chatId: string) => {
+    setSelectedChatIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(chatId)) {
+        newSet.delete(chatId);
+      } else {
+        newSet.add(chatId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  /**
    * Handle long press on chat history item
-   * Shows context menu at press position
+   * Shows context menu at press position or enters multiselect mode
    * 
    * Edge cases handled:
    * - Validates event coordinates
    * - Positions menu within screen bounds
    */
   const handleLongPress = useCallback((chat: ChatConversation, event: any) => {
-    const { pageX, pageY } = event.nativeEvent;
-    setSelectedChatId(chat.id);
-    setMenuPosition({ x: pageX, y: pageY });
-    setMenuVisible(true);
-    
-    // Animate menu appearance with optimized config
-    menuOpacity.setValue(0);
-    menuScale.setValue(0.9);
-    Animated.parallel([
-      Animated.timing(menuOpacity, {
-        toValue: 1,
-        ...ANIMATION_CONFIG.menu,
-      }),
-      Animated.timing(menuScale, {
-        toValue: 1,
-        ...ANIMATION_CONFIG.menu,
-      }),
-    ]).start();
-  }, [menuOpacity, menuScale]);
+    if (isMultiselectMode) {
+      // In multiselect mode, toggle selection
+      toggleChatSelection(chat.id);
+    } else {
+      // Normal mode - show context menu
+      const { pageX, pageY } = event.nativeEvent;
+      setSelectedChatId(chat.id);
+      setMenuPosition({ x: pageX, y: pageY });
+      setMenuVisible(true);
+      
+      // Animate menu appearance with optimized config
+      menuOpacity.setValue(0);
+      menuScale.setValue(0.9);
+      Animated.parallel([
+        Animated.timing(menuOpacity, {
+          toValue: 1,
+          ...ANIMATION_CONFIG.menu,
+        }),
+        Animated.timing(menuScale, {
+          toValue: 1,
+          ...ANIMATION_CONFIG.menu,
+        }),
+      ]).start();
+    }
+  }, [isMultiselectMode, toggleChatSelection, menuOpacity, menuScale]);
 
   /**
    * Handle rename chat
@@ -773,6 +876,64 @@ export default function ConversationScreen({
       showToast('Failed to pin/unpin chat');
     }
   }, [dismissMenu, showToast]);
+
+  /**
+   * Enter multiselect mode
+   * Initializes with the first chat selected
+   */
+  const enterMultiselectMode = useCallback((initialChatId?: string) => {
+    setIsMultiselectMode(true);
+    if (initialChatId) {
+      setSelectedChatIds(new Set([initialChatId]));
+    } else {
+      setSelectedChatIds(new Set());
+    }
+    dismissMenu();
+  }, [dismissMenu]);
+
+  /**
+   * Select all chats
+   */
+  const selectAllChats = useCallback(() => {
+    const allChatIds = chatHistory.map(chat => chat.id);
+    setSelectedChatIds(new Set(allChatIds));
+  }, [chatHistory]);
+
+  /**
+   * Deselect all chats
+   */
+  const deselectAllChats = useCallback(() => {
+    setSelectedChatIds(new Set());
+  }, []);
+
+  /**
+   * Delete selected chats
+   */
+  const deleteSelectedChats = useCallback(async () => {
+    if (selectedChatIds.size === 0) return;
+
+    const chatIdsArray = Array.from(selectedChatIds);
+    
+    // If current chat is being deleted, switch to new chat
+    if (currentChatId && selectedChatIds.has(currentChatId)) {
+      onNewChat();
+    }
+
+    try {
+      const success = await chatHistoryService.deleteMultipleChats(chatIdsArray);
+      if (success) {
+        const chats = await chatHistoryService.getAllChats();
+        setChatHistory(chats);
+        showToast(`Deleted ${chatIdsArray.length} chat${chatIdsArray.length > 1 ? 's' : ''}`);
+        exitMultiselectMode();
+      } else {
+        showToast('Failed to delete chats');
+      }
+    } catch (error) {
+      console.error('Error deleting chats:', error);
+      showToast('Failed to delete chats');
+    }
+  }, [selectedChatIds, currentChatId, onNewChat, exitMultiselectMode, showToast]);
 
   useEffect(() => {
     if (noMessages) {
@@ -1205,7 +1366,7 @@ export default function ConversationScreen({
               <Ionicons name="reorder-two-outline" size={23} color={theme.colors.text} />
             </TouchableOpacity>
             <TouchableOpacity 
-              style={[styles.topLeftPill, { left: 73, maxWidth: screenWidth * 0.4, minHeight: 42, paddingRight: selectedPersona ? 8 : undefined }]} 
+              style={[styles.topLeftPill, { left: 73, maxWidth: screenWidth * 0.4, minHeight: 42, paddingRight: 8 }]} 
               onPress={openModelSelector}
             >
               <Ionicons name="cube-outline" size={20} color={theme.colors.text} style={{ marginRight: 6 }} />
@@ -1221,8 +1382,8 @@ export default function ConversationScreen({
               >
                 {selectedGGUF ? prettifyModelName(selectedGGUF) : "No model"}
               </Text>
-              {selectedPersona && (
-                <View style={{
+              <Animated.View 
+                style={{
                   width: 24,
                   height: 24,
                   borderRadius: 12,
@@ -1230,10 +1391,13 @@ export default function ConversationScreen({
                   alignItems: 'center',
                   justifyContent: 'center',
                   marginLeft: 8,
-                }}>
-                  <Ionicons name="person" size={14} color="#FFFFFF" />
-                </View>
-              )}
+                  opacity: personaIndicatorOpacity,
+                }}
+                pointerEvents={selectedPersona ? 'auto' : 'none'}
+                collapsable={false}
+              >
+                <Ionicons name="person" size={14} color="#FFFFFF" />
+              </Animated.View>
             </TouchableOpacity>
             {isTemporaryMode && hasStartedChat && (
               <Text style={{
@@ -1398,6 +1562,24 @@ export default function ConversationScreen({
                             {isPinned ? 'Unpin' : 'Pin'}
                           </Text>
                         </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => {
+                            if (selectedChatId) {
+                              enterMultiselectMode(selectedChatId);
+                            }
+                          }}
+                          style={{
+                            paddingVertical: 10,
+                            paddingHorizontal: 12,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Ionicons name="checkbox-outline" size={18} color={theme.colors.text} />
+                          <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
+                            Select Multiple
+                          </Text>
+                        </TouchableOpacity>
                         <View
                           style={{
                             height: 1,
@@ -1454,9 +1636,86 @@ export default function ConversationScreen({
             },
           ]}
         >
+          {/* Multiselect header */}
+          {isMultiselectMode && (
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              borderBottomWidth: 1,
+              borderBottomColor: theme.colors.border,
+              backgroundColor: theme.colors.card,
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                <Text style={{
+                  color: theme.colors.text,
+                  fontSize: 16,
+                  fontWeight: '600',
+                  fontFamily: 'Poppins',
+                  marginRight: 16,
+                }}>
+                  {selectedChatIds.size} selected
+                </Text>
+                <TouchableOpacity
+                  onPress={selectedChatIds.size === chatHistory.length ? deselectAllChats : selectAllChats}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: theme.colors.surface,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons 
+                    name={selectedChatIds.size === chatHistory.length ? "square-outline" : "checkbox"} 
+                    size={20} 
+                    color={theme.colors.text} 
+                  />
+                </TouchableOpacity>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                {selectedChatIds.size > 0 && (
+                  <TouchableOpacity
+                    onPress={deleteSelectedChats}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      backgroundColor: theme.colors.error,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: 12,
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="trash" size={20} color={theme.colors.primaryText} />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  onPress={exitMultiselectMode}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: theme.colors.surface,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={20} color={theme.colors.text} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
           {/* Chat history list */}
           <ScrollView
-            style={{ flex: 1, marginTop: 24, paddingHorizontal: 16 }}
+            style={{ flex: 1, marginTop: isMultiselectMode ? 0 : 24, paddingHorizontal: 16 }}
             contentContainerStyle={{ paddingBottom: 100 }}
             removeClippedSubviews={true}
           >
@@ -1492,7 +1751,7 @@ export default function ConversationScreen({
                         chat={chat}
                         currentChatId={currentChatId}
                         theme={theme}
-                        onPress={() => handleChatSelect(chat)}
+                        onPress={() => isMultiselectMode ? toggleChatSelection(chat.id) : handleChatSelect(chat)}
                         onLongPress={(e) => handleLongPress(chat, e)}
                         isEditing={editingChatId === chat.id}
                         editingTitle={editingTitle}
@@ -1502,6 +1761,9 @@ export default function ConversationScreen({
                           setEditingChatId(null);
                           setEditingTitle('');
                         }}
+                        isMultiselectMode={isMultiselectMode}
+                        isSelected={selectedChatIds.has(chat.id)}
+                        onToggleSelect={() => toggleChatSelection(chat.id)}
                       />
                     ))}
                   </View>
@@ -1526,7 +1788,7 @@ export default function ConversationScreen({
                         chat={chat}
                         currentChatId={currentChatId}
                         theme={theme}
-                        onPress={() => handleChatSelect(chat)}
+                        onPress={() => isMultiselectMode ? toggleChatSelection(chat.id) : handleChatSelect(chat)}
                         onLongPress={(e) => handleLongPress(chat, e)}
                         isEditing={editingChatId === chat.id}
                         editingTitle={editingTitle}
@@ -1536,6 +1798,9 @@ export default function ConversationScreen({
                           setEditingChatId(null);
                           setEditingTitle('');
                         }}
+                        isMultiselectMode={isMultiselectMode}
+                        isSelected={selectedChatIds.has(chat.id)}
+                        onToggleSelect={() => toggleChatSelection(chat.id)}
                       />
                     ))}
                   </View>
@@ -1613,7 +1878,7 @@ export default function ConversationScreen({
               }
               return (
                 <View key={index} style={styles.messageWrapper}>
-                  <View style={containerStyle}>
+                  <View style={[containerStyle, { maxWidth: "100%" }]}>
                     {msg.thought && (
                       <TouchableOpacity
                         onPress={() => toggleThought(index + 1)}
@@ -1632,10 +1897,15 @@ export default function ConversationScreen({
                         <Text style={styles.thoughtText}>{msg.thought}</Text>
                       </View>
                     )}
-                    {msg.role === "assistant" && msg.content.trim().length === 0 && isGenerating ? (
+                    {msg.role === "assistant" && (!msg.content || msg.content.trim().length === 0) && isGenerating && index === conversation.slice(1).length - 1 ? (
                       <ThinkingIndicator theme={theme} />
-                    ) : (
-                      <View style={{ flexShrink: 1, width: "100%", justifyContent: "center" }}>
+                    ) : msg.content ? (
+                      <View style={{ 
+                        flexShrink: 1, 
+                        width: "100%", 
+                        maxWidth: "100%",
+                        overflow: "hidden",
+                      }}>
                         <Markdown
                           style={{ 
                             body: { 
@@ -1644,15 +1914,26 @@ export default function ConversationScreen({
                               color: msg.role === "user" ? theme.colors.primaryText : theme.colors.text,
                               margin: 0,
                               padding: 0,
+                              flexWrap: "wrap",
+                              overflow: "hidden",
                             },
                             paragraph: {
                               flexWrap: "wrap",
                               marginTop: 0,
                               marginBottom: 0,
                               padding: 0,
+                              overflow: "hidden",
                             },
                             text: {
                               flexWrap: "wrap",
+                              margin: 0,
+                              padding: 0,
+                            },
+                            code_inline: {
+                              margin: 0,
+                              padding: 0,
+                            },
+                            code_block: {
                               margin: 0,
                               padding: 0,
                             },
@@ -1661,7 +1942,7 @@ export default function ConversationScreen({
                           {msg.content}
                         </Markdown>
                       </View>
-                    )}
+                    ) : null}
                   </View>
                   {msg.role === "assistant" && msg.content.trim().length > 0 && (
                     <View style={{

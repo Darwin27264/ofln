@@ -222,7 +222,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   // Error handling
   if (error) {
     return (
-      <View style={[shared.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.background }]}>
+      <View style={[{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.background }]}>
         <Text style={{ marginBottom: 20, color: theme.colors.text }}>Error: {error}</Text>
         <TouchableOpacity onPress={onBack} style={[stylesLocalWithTheme.btn, { backgroundColor: theme.colors.primary }]}>
           <Text style={stylesLocalWithTheme.btnText}>Go Back</Text>
@@ -233,7 +233,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
 
   if (isLoading) {
     return (
-      <View style={[shared.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.background }]}>
+      <View style={[{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.background }]}>
         <ActivityIndicator size="large" color={theme.colors.accent} />
       </View>
     );
@@ -309,7 +309,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   };
   
   return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.background }]}>
+    <View style={[{ flex: 1, backgroundColor: theme.colors.background }]}>
       <ScrollView
         style={[shared.container, stylesLocalWithTheme.scroll]}
         contentContainerStyle={stylesLocalWithTheme.scrollContent}
