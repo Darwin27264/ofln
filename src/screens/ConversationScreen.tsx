@@ -1,4 +1,23 @@
-/* ConversationScreen.tsx */
+/**
+ * ConversationScreen Component
+ * 
+ * Main chat interface for interacting with AI models.
+ * Handles message display, input, history management, and model/persona selection.
+ * 
+ * Key features:
+ * - Real-time message streaming with token-by-token updates
+ * - Chat history with pinning, renaming, and multiselect
+ * - Model and persona switching during conversations
+ * - Temporary mode for unsaved conversations
+ * - Optimized animations for smooth mobile performance
+ * 
+ * Performance optimizations:
+ * - Memoized components (ThinkingIndicator, ChatHistoryCard)
+ * - Optimized animations with native driver
+ * - Efficient scroll handling with throttling
+ * - Debounced chat history saves
+ */
+
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   View,
@@ -8,7 +27,6 @@ import {
   ScrollView,
   Platform,
   Animated,
-  Easing,
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
   Dimensions,
@@ -30,6 +48,7 @@ import { BottomSheet } from "../components/BottomSheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useKeyboardPadding } from "../hooks/useKeyboardPadding";
 import { Persona, getPersonas } from "../services/personaService";
+import { ANIMATION_CONFIG, EASING, ANIMATION_DURATIONS } from "../utils/animationConfig";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -42,12 +61,12 @@ type Message = {
  * ThinkingIndicator Component
  * 
  * Displays animated dots to indicate the model is thinking/processing.
- * Optimized for mobile with reduced animation durations and native driver.
+ * Uses optimized animations with native driver for smooth 60fps performance.
  * 
  * Performance optimizations:
- * - Uses native driver for 60fps animations
- * - Reduced animation durations for snappier feel
- * - Minimal re-renders with refs
+ * - Native driver for UI thread execution
+ * - Staggered animations for visual appeal
+ * - Memoized to prevent unnecessary re-renders
  */
 const ThinkingIndicator: React.FC<{ theme: any }> = React.memo(({ theme }) => {
   const dot1 = useRef(new Animated.Value(0)).current;
@@ -57,7 +76,7 @@ const ThinkingIndicator: React.FC<{ theme: any }> = React.memo(({ theme }) => {
   useEffect(() => {
     /**
      * Animate a single dot with optimized timing
-     * Reduced duration from 400ms to 300ms for better mobile performance
+     * Uses centralized animation configuration for consistency
      */
     const animateDot = (dot: Animated.Value, delay: number) => {
       return Animated.loop(
@@ -65,25 +84,25 @@ const ThinkingIndicator: React.FC<{ theme: any }> = React.memo(({ theme }) => {
           Animated.delay(delay),
           Animated.timing(dot, {
             toValue: 1,
-            duration: 300, // Reduced from 400ms
-            easing: Easing.bezier(0.4, 0.0, 0.2, 1), // Material Design easing
+            duration: ANIMATION_DURATIONS.SLOW,
+            easing: EASING.STANDARD,
             useNativeDriver: true,
           }),
           Animated.timing(dot, {
             toValue: 0,
-            duration: 300, // Reduced from 400ms
-            easing: Easing.bezier(0.4, 0.0, 0.2, 1),
+            duration: ANIMATION_DURATIONS.SLOW,
+            easing: EASING.STANDARD,
             useNativeDriver: true,
           }),
         ])
       );
     };
 
-    // Staggered animation with reduced delays for faster visual feedback
+    // Staggered animation with optimized delays for visual feedback
     const animations = [
       animateDot(dot1, 0),
-      animateDot(dot2, 100), // Reduced from 150ms
-      animateDot(dot3, 200), // Reduced from 300ms
+      animateDot(dot2, 100),
+      animateDot(dot3, 200),
     ];
 
     animations.forEach(anim => anim.start());
@@ -419,27 +438,8 @@ export default function ConversationScreen({
   const menuOpacity = useRef(new Animated.Value(0)).current;
   const menuScale = useRef(new Animated.Value(0.9)).current;
 
-  /**
-   * Standardized animation configuration for consistent, performant animations
-   * Optimized for mobile devices with reduced durations and native driver
-   */
-  const ANIMATION_CONFIG = {
-    panel: {
-      duration: 200, // Optimized for mobile responsiveness
-      useNativeDriver: true,
-      easing: Easing.bezier(0.4, 0.0, 0.2, 1), // Material Design easing
-    },
-    menu: {
-      duration: 150, // Fast menu animations
-      useNativeDriver: true,
-      easing: Easing.bezier(0.4, 0.0, 0.2, 1),
-    },
-    toast: {
-      duration: 200,
-      useNativeDriver: true,
-      easing: Easing.bezier(0.4, 0.0, 0.2, 1),
-    },
-  };
+  // Animation configurations are imported from centralized config
+  // This ensures consistency across the application
 
   // Temporary mode state
   const [isTemporaryMode, setIsTemporaryMode] = useState(false);
@@ -518,12 +518,15 @@ export default function ConversationScreen({
     }
   }, [noMessages, currentChatId]);
 
-  // Animate persona indicator fade in/out
+  /**
+   * Animate persona indicator fade in/out
+   * Provides visual feedback when persona is selected or cleared
+   */
   useEffect(() => {
     Animated.timing(personaIndicatorOpacity, {
       toValue: selectedPersona ? 1 : 0,
-      duration: 200, // Subtle fade animation
-      easing: Easing.bezier(0.4, 0.0, 0.2, 1), // Material Design easing
+      duration: ANIMATION_DURATIONS.STANDARD,
+      easing: EASING.STANDARD,
       useNativeDriver: true,
     }).start();
   }, [selectedPersona, personaIndicatorOpacity]);
@@ -681,14 +684,18 @@ export default function ConversationScreen({
   /**
    * Show toast notification with optimized animation
    * 
+   * Displays a temporary message overlay with fade in/out animation.
+   * Automatically dismisses after 2 seconds.
+   * 
    * @param message - Message to display in toast
    * 
    * Edge cases handled:
    * - Cancels previous toast if new one is shown
    * - Ensures toast doesn't overlap with UI elements
+   * - Handles animation completion properly
    */
   const showToast = useCallback((message: string) => {
-    // Cancel any ongoing toast animation
+    // Cancel any ongoing toast animation to prevent conflicts
     toastOpacity.stopAnimation();
     
     setToastMessage(message);
@@ -712,8 +719,10 @@ export default function ConversationScreen({
   }, [toastOpacity]);
 
   /**
-   * Dismiss menu with optimized animation
-   * Reusable function to prevent code duplication
+   * Dismiss context menu with optimized animation
+   * 
+   * Fades out and scales down the menu smoothly.
+   * Reusable function to prevent code duplication (DRY principle).
    */
   const dismissMenu = useCallback(() => {
     Animated.parallel([
@@ -935,33 +944,41 @@ export default function ConversationScreen({
     }
   }, [selectedChatIds, currentChatId, onNewChat, exitMultiselectMode, showToast]);
 
+  /**
+   * Animate greeting fade based on user input
+   * Hides greeting when user starts typing
+   */
   useEffect(() => {
     if (noMessages) {
       Animated.timing(greetingOpacity, {
         toValue: userInput.trim().length > 0 ? 0 : 1,
-        duration: 300,
+        duration: ANIMATION_DURATIONS.SLOW,
+        easing: EASING.STANDARD,
         useNativeDriver: true,
       }).start();
     }
-  }, [userInput, noMessages]);
+  }, [userInput, noMessages, greetingOpacity]);
 
-  // Animate temporary mode content transitions
+  /**
+   * Animate temporary mode content transitions
+   * Smoothly transitions between preset messages and temporary mode explanation
+   */
   useEffect(() => {
     Animated.parallel([
       Animated.timing(presetMessagesAnim, {
         toValue: isTemporaryMode ? 0 : 1,
-        duration: 250,
-        easing: Easing.out(Easing.cubic),
+        duration: ANIMATION_DURATIONS.PAGE,
+        easing: EASING.EASE_OUT,
         useNativeDriver: true,
       }),
       Animated.timing(tempModeExplanationAnim, {
         toValue: isTemporaryMode ? 1 : 0,
-        duration: 250,
-        easing: Easing.out(Easing.cubic),
+        duration: ANIMATION_DURATIONS.PAGE,
+        easing: EASING.EASE_OUT,
         useNativeDriver: true,
       }),
     ]).start();
-  }, [isTemporaryMode]);
+  }, [isTemporaryMode, presetMessagesAnim, tempModeExplanationAnim]);
 
   // Toggle temporary mode (only available before chat starts)
   const toggleTemporaryMode = useCallback(() => {
@@ -1003,15 +1020,15 @@ export default function ConversationScreen({
     Animated.sequence([
       Animated.timing(scaleAnim, {
         toValue: 1.15,
-        duration: 120, // Reduced from 150ms for snappier feel
+        duration: ANIMATION_DURATIONS.FAST,
         useNativeDriver: true,
-        easing: Easing.bezier(0.4, 0.0, 0.2, 1),
+        easing: EASING.STANDARD,
       }),
       Animated.timing(scaleAnim, {
         toValue: 1,
-        duration: 150, // Reduced from 200ms
+        duration: ANIMATION_DURATIONS.STANDARD,
         useNativeDriver: true,
-        easing: Easing.bezier(0.4, 0.0, 0.2, 1),
+        easing: EASING.STANDARD,
       }),
     ]).start(async () => {
       try {

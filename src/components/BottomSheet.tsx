@@ -19,11 +19,11 @@ import {
   Pressable,
   TouchableWithoutFeedback,
   Dimensions,
-  Easing,
   StyleSheet,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../context/ThemeContext';
+import { ANIMATION_CONFIG, EASING } from '../utils/animationConfig';
 
 interface BottomSheetProps {
   visible: boolean;
@@ -42,22 +42,22 @@ const DRAG_HANDLE_HEIGHT = 40; // Height of the drag handle area
 const VELOCITY_THRESHOLD = 0.5; // Minimum velocity to trigger dismiss
 const DRAG_THRESHOLD = 0.3; // Percentage of panel height to drag before dismissing
 
-// Standardized animation config - moved outside component for performance
-const ANIMATION_CONFIG = {
+// Bottom sheet specific animation configs
+// Uses centralized configs with slight variations for this component
+const BOTTOM_SHEET_ANIMATIONS = {
   open: {
-    duration: 300,
-    easing: Easing.bezier(0.25, 0.46, 0.45, 0.94), // Smooth ease-out
-    useNativeDriver: true,
+    ...ANIMATION_CONFIG.panel,
+    duration: 300, // Slightly longer for bottom sheet opening
+    easing: EASING.EASE_OUT,
   },
   close: {
+    ...ANIMATION_CONFIG.panel,
     duration: 250,
-    easing: Easing.bezier(0.55, 0.06, 0.68, 0.19), // Smooth ease-in
-    useNativeDriver: true,
+    easing: EASING.EASE_IN,
   },
   snapBack: {
-    duration: 200,
-    easing: Easing.out(Easing.cubic),
-    useNativeDriver: true,
+    ...ANIMATION_CONFIG.panel,
+    easing: EASING.EASE_OUT,
   },
 } as const;
 
@@ -147,7 +147,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
     
     const animation = Animated.timing(animatedValue, {
       toValue: 1,
-      ...ANIMATION_CONFIG.open,
+      ...BOTTOM_SHEET_ANIMATIONS.open,
     });
     
     currentAnimation.current = animation;
@@ -161,7 +161,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
     
     const animation = Animated.timing(animatedValue, {
       toValue: 0,
-      ...ANIMATION_CONFIG.close,
+      ...BOTTOM_SHEET_ANIMATIONS.close,
     });
     
     currentAnimation.current = animation;
@@ -221,7 +221,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
             // Snap back to open position
             const animation = Animated.timing(animatedValue, {
               toValue: 1,
-              ...ANIMATION_CONFIG.snapBack,
+              ...BOTTOM_SHEET_ANIMATIONS.snapBack,
             });
             
             currentAnimation.current = animation;
@@ -236,7 +236,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
           if (!disableDrag) {
             const animation = Animated.timing(animatedValue, {
               toValue: 1,
-              ...ANIMATION_CONFIG.snapBack,
+              ...BOTTOM_SHEET_ANIMATIONS.snapBack,
             });
             
             currentAnimation.current = animation;

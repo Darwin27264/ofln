@@ -1,6 +1,18 @@
-/* App.tsx */
+/**
+ * App Component
+ * 
+ * Root component of the application. Manages global state, navigation, and model context.
+ * Handles page transitions, model loading, and coordinates between screens.
+ * 
+ * Architecture:
+ * - Centralized state management for model context and navigation
+ * - Optimized page transitions with navigation stack tracking
+ * - Memory management for model loading/unloading
+ * - Theme and alert context providers
+ */
+
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { ScrollView, ActivityIndicator, Animated, Easing, StatusBar, Platform, InteractionManager } from "react-native";
+import { ScrollView, ActivityIndicator, Animated, StatusBar, Platform, InteractionManager } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { createStyles } from "./src/styles/styles";
@@ -12,6 +24,7 @@ import axios from "axios";
 // Theme
 import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
 import { applySystemBarTheme } from "./src/utils/systemBars";
+import { ANIMATION_CONFIG, EASING, ANIMATION_DURATIONS } from "./src/utils/animationConfig";
 
 // Components
 import { CustomAlertProvider } from "./src/components/CustomAlert";
@@ -169,9 +182,8 @@ function AppContent(): React.JSX.Element {
       stack.push(currentPage);
     }
     
-    // Platform-specific optimizations
-    // iOS typically handles animations better, Android may benefit from slightly longer duration
-    const animationDuration = Platform.OS === 'ios' ? 220 : 250;
+    // Use centralized animation configuration for consistency
+    const animationDuration = ANIMATION_DURATIONS.PAGE;
     
     // Use larger offset for back navigation to make it visually distinct
     // Forward: slides in from right (20px), Back: slides in from left (50px)
@@ -186,13 +198,13 @@ function AppContent(): React.JSX.Element {
       Animated.timing(pageOpacity, {
         toValue: 1,
         duration: animationDuration,
-        easing: Easing.bezier(0.4, 0.0, 0.2, 1), // Material Design easing
+        easing: EASING.STANDARD,
         useNativeDriver: true,
       }),
       Animated.timing(pageTranslateX, {
         toValue: 0,
         duration: animationDuration,
-        easing: Easing.bezier(0.4, 0.0, 0.2, 1),
+        easing: EASING.STANDARD,
         useNativeDriver: true,
       }),
     ]);

@@ -10,6 +10,19 @@
  * - Only animates on initial mount (controlled by parent)
  */
 
+/**
+ * ModelCard Component
+ * 
+ * Displays a single model card with download, delete, and settings actions.
+ * Handles animations on mount and expand/collapse interactions.
+ * 
+ * Performance optimizations:
+ * - Memoized to prevent unnecessary re-renders
+ * - Animation values are refs to avoid re-creation
+ * - Only animates on initial mount (controlled by parent)
+ * - Uses centralized animation configuration
+ */
+
 import React, { useRef, useEffect, useMemo } from "react";
 import {
   View,
@@ -17,11 +30,11 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Animated,
-  Easing,
 } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { useTheme } from "../context/ThemeContext";
 import ProgressBar from "./ProgressBar";
+import { ANIMATION_CONFIG, EASING, getStaggeredDelay } from "../utils/animationConfig";
 
 // Types
 export interface ModelInfo {
@@ -195,22 +208,18 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
       animatedModelIds.current.add(modelKey);
       
       // Start animation with index-based delay for staggered effect
-      // Optimized: Reduced duration and delay for better mobile performance
-      // Reduced delay multiplier from 40ms to 25ms to prevent long animation chains
+      // Uses centralized configuration for consistency
+      const delay = getStaggeredDelay(index);
       Animated.parallel([
         Animated.timing(cardOpacity, {
           toValue: 1,
-          duration: 200, // Reduced from 300ms for faster animations
-          delay: Math.min(index * 25, 200), // Reduced from 40ms, capped at 200ms max delay
-          easing: Easing.bezier(0.4, 0.0, 0.2, 1),
-          useNativeDriver: true,
+          delay,
+          ...ANIMATION_CONFIG.card,
         }),
         Animated.timing(cardTranslateY, {
           toValue: 0,
-          duration: 200, // Reduced from 300ms for faster animations
-          delay: Math.min(index * 25, 200), // Reduced from 40ms, capped at 200ms max delay
-          easing: Easing.bezier(0.4, 0.0, 0.2, 1),
-          useNativeDriver: true,
+          delay,
+          ...ANIMATION_CONFIG.card,
         }),
       ]).start();
     } else {
@@ -231,14 +240,12 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
       Animated.parallel([
         Animated.timing(dropdownTranslateY, {
           toValue: 0,
-          duration: 150, // Reduced from 200ms
-          easing: Easing.bezier(0.4, 0.0, 0.2, 1),
-          useNativeDriver: true,
+          ...ANIMATION_CONFIG.menu,
         }),
         Animated.timing(dropdownOpacity, {
           toValue: 1,
-          duration: 120, // Reduced from 180ms
-          easing: Easing.bezier(0.4, 0.0, 0.2, 1),
+          duration: ANIMATION_CONFIG.menu.duration - 30, // Slightly faster for opacity
+          easing: EASING.STANDARD,
           useNativeDriver: true,
         }),
       ]).start();
@@ -246,14 +253,14 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
       Animated.parallel([
         Animated.timing(dropdownTranslateY, {
           toValue: -20,
-          duration: 120, // Reduced from 150ms
-          easing: Easing.bezier(0.4, 0.0, 1, 1),
+          duration: ANIMATION_CONFIG.menu.duration - 30,
+          easing: EASING.ACCELERATE,
           useNativeDriver: true,
         }),
         Animated.timing(dropdownOpacity, {
           toValue: 0,
-          duration: 100, // Reduced from 120ms
-          easing: Easing.bezier(0.4, 0.0, 1, 1),
+          duration: ANIMATION_CONFIG.menu.duration - 50,
+          easing: EASING.ACCELERATE,
           useNativeDriver: true,
         }),
       ]).start();

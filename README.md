@@ -51,51 +51,74 @@ The application uses a combination of:
 The codebase follows these principles:
 
 - **Single Responsibility Principle (SRP)**: Each component/service has one clear purpose
+  - Components handle UI rendering and user interactions
+  - Services manage business logic and data operations
+  - Hooks encapsulate reusable stateful logic
+  - Utils provide pure utility functions
 - **Don't Repeat Yourself (DRY)**: Shared logic extracted to hooks and utilities
+  - Centralized animation configurations
+  - Reusable components (ModelCard, BottomSheet, CustomAlert)
+  - Common utilities for model name formatting, date parsing
 - **Keep It Simple Stupid (KISS)**: Simple, readable code over complex abstractions
+  - Clear function names and structure
+  - Minimal nesting and complexity
+  - Straightforward data flow
 - **Performance First**: Optimized for mobile devices with 60fps animations and efficient rendering
+  - Native driver for all animations
+  - Memoization for expensive computations
+  - Efficient re-render prevention
 
 ### Code Quality
 
 The codebase maintains high code quality through:
 
-- **Comprehensive Comments**: All functions and complex logic have clear documentation
-- **Type Safety**: Full TypeScript coverage with proper type definitions
-- **Error Handling**: Comprehensive try-catch blocks with graceful error recovery
-- **Edge Case Coverage**: Extensive validation and handling of edge cases
-- **Consistent Patterns**: Standardized animation configs, error handling, and component structure
-- **Maintainability**: Clear separation of concerns and modular architecture
+- **Comprehensive Documentation**: All functions, components, and complex logic have clear, professional documentation
+- **Type Safety**: Full TypeScript coverage with proper type definitions and interfaces
+- **Error Handling**: Comprehensive try-catch blocks with graceful error recovery and user feedback
+- **Edge Case Coverage**: Extensive validation and handling of edge cases throughout the application
+- **Consistent Patterns**: Standardized animation configurations, error handling, and component structure
+- **Maintainability**: Clear separation of concerns, modular architecture, and reusable components
+- **Performance Monitoring**: Built-in performance tracking and metrics collection
 
 ## Project Structure
 
 ```
 src/
-├── api/              # API client functions
-│   └── model.ts      # HuggingFace model download API
-├── components/       # Reusable UI components
+├── api/                    # API client functions
+│   └── model.ts           # HuggingFace model download API
+├── components/             # Reusable UI components
+│   ├── BottomSheet.tsx    # Unified bottom sheet component
 │   ├── CustomAlert.tsx    # Custom alert dialog component
 │   ├── ModelCard.tsx      # Model card with animations (memoized)
+│   ├── PersonaCard.tsx   # Persona card component
 │   └── ProgressBar.tsx    # Download progress indicator
-├── context/          # React Context providers
+├── context/               # React Context providers
 │   └── ThemeContext.tsx   # Theme management (light/dark mode)
-├── hooks/            # Custom React hooks
+├── hooks/                 # Custom React hooks
 │   ├── useHuggingFaceModels.ts  # HuggingFace API integration
+│   ├── useKeyboardPadding.ts    # Keyboard height tracking
 │   └── useModelFilter.ts        # Model filtering logic
-├── screens/          # Main screen components
+├── screens/               # Main screen components
 │   ├── ConversationScreen.tsx   # Chat interface with history
 │   ├── ModelSelectionScreen.tsx # Model browser and management
-│   ├── SettingsScreen.tsx       # App settings and navigation
+│   ├── ModelSettingsScreen.tsx  # Per-model configuration UI
+│   ├── PersonaEditorScreen.tsx # Persona creation/editing
+│   ├── PersonasLibraryScreen.tsx # Persona library management
+│   ├── SettingsScreen.tsx      # App settings and navigation
 │   └── StagesScreen.tsx         # Performance analytics
-├── services/         # Business logic services
+├── services/              # Business logic services
 │   ├── chatHistoryService.ts    # Chat persistence and management
 │   ├── llamaService.ts          # Model loading and inference
 │   ├── localModelService.ts     # Local model file management
-│   ├── modelSettingsService.ts  # Per-model configuration
+│   ├── modelSettingsService.ts   # Per-model configuration
+│   ├── personaService.ts        # Persona management
 │   └── usageTracker.ts          # Performance metrics tracking
-├── styles/           # Style definitions
-│   └── styles.ts     # Theme-aware style factory
-└── utils/            # Utility functions
-    └── modelUtils.ts # Model name formatting, quantization extraction
+├── styles/                # Style definitions
+│   └── styles.ts          # Theme-aware style factory
+└── utils/                 # Utility functions
+    ├── animationConfig.ts # Centralized animation configurations
+    ├── modelUtils.ts      # Model name formatting, quantization extraction
+    └── systemBars.ts      # System bar theme management
 ```
 
 ## Key Features
@@ -311,20 +334,30 @@ npm test -- --coverage
 - **Refs for Non-Reactive State**: Animation values and scroll tracking use refs to avoid re-renders
 - **Virtualization**: Consider using FlatList for long lists (future optimization)
 
+### Animation System
+
+The application uses a centralized animation configuration system for consistency and performance:
+
+- **Configuration Location**: `src/utils/animationConfig.ts` contains all animation settings
+- **Native Driver**: All animations use `useNativeDriver: true` for 60fps performance on UI thread
+- **Standardized Durations**: 
+  - Fast interactions (buttons, toggles): 120ms
+  - Standard interactions (panels, menus): 200ms
+  - Page transitions: 220-250ms (platform-specific)
+  - Complex animations: 300ms
+- **Material Design Easing**: Consistent bezier curves for smooth, natural-feeling animations
+- **Staggered Animations**: Card animations use capped delays (max 200ms) via `getStaggeredDelay()` utility
+- **Single Animation Phase**: Animations only play once on initial mount to prevent lag
+- **Animation Cancellation**: Proper cleanup prevents animation conflicts and memory leaks
+- **InteractionManager**: Heavy operations deferred until after animations complete
+
 ### Animation Optimizations
 
-- **Native Driver**: All animations use `useNativeDriver: true` for 60fps performance
-- **Reduced Durations**: Animation durations optimized for mobile (120-250ms instead of 300-400ms)
-  - Page transitions: 250ms (reduced from 300ms)
-  - Panel animations: 200ms (reduced from 250ms)
-  - Menu animations: 150ms (reduced from 200ms)
-  - Thinking indicator: 300ms (reduced from 400ms)
-- **Material Design Easing**: Consistent bezier curves for smooth, modern feel
-- **Standardized Configs**: Centralized animation configurations prevent duplication
-- **Single Animation Phase**: Animations only play once on initial mount (prevents lag)
-- **Staggered Animations**: Card animations are staggered with capped delays (max 200ms)
-- **InteractionManager**: Heavy operations deferred until after animations complete
+- **Centralized Configuration**: All animation configs imported from `animationConfig.ts`
+- **Consistent Patterns**: Same easing curves and durations across similar interactions
+- **Performance Monitoring**: Animations run on UI thread for smooth 60fps performance
 - **Memoized Components**: ThinkingIndicator and ChatHistoryCard are memoized to prevent unnecessary re-renders
+- **Ref-based State**: Animation values stored in refs to avoid triggering re-renders
 
 ### Memory Management
 
@@ -346,6 +379,60 @@ npm test -- --coverage
 - **Capped Animation Delays**: Staggered animations capped at 200ms max delay
 - **Faster Close Animations**: Panel close animations reduced to 150ms
 - **Optimized Spring Physics**: Model selector uses faster spring (friction: 7, tension: 50)
+
+## Architecture Details
+
+### Animation Architecture
+
+The animation system is built on React Native's Animated API with the following architecture:
+
+1. **Centralized Configuration** (`src/utils/animationConfig.ts`):
+   - Defines standard durations, easing curves, and animation configs
+   - Provides utility functions like `getStaggeredDelay()` for list animations
+   - Ensures consistency across all components
+
+2. **Component-Level Animations**:
+   - Each component imports animation configs from the centralized file
+   - Animation values stored in refs to prevent re-renders
+   - Proper cleanup on unmount to prevent memory leaks
+
+3. **Performance Optimizations**:
+   - All animations use native driver for UI thread execution
+   - Staggered animations capped to prevent long chains
+   - Animation cancellation prevents conflicts during rapid interactions
+
+### State Management Architecture
+
+The application uses a hybrid state management approach:
+
+1. **Global State** (React Context):
+   - Theme preferences (light/dark mode)
+   - Alert system for user notifications
+
+2. **Component State** (useState):
+   - UI state (panels open/closed, selections)
+   - Form inputs and temporary values
+
+3. **Refs** (useRef):
+   - Animation values that don't need to trigger re-renders
+   - Scroll position tracking
+   - Non-reactive state (e.g., animation phase tracking)
+
+4. **Persistent State** (AsyncStorage):
+   - Chat history
+   - Model settings
+   - Persona definitions
+   - Usage metrics
+
+### Error Handling Architecture
+
+Comprehensive error handling is implemented throughout:
+
+1. **Service Layer**: All service functions wrap operations in try-catch blocks
+2. **User Feedback**: Errors are displayed via toast notifications or alerts
+3. **Graceful Degradation**: UI remains functional even when operations fail
+4. **Error Recovery**: Failed operations can be retried without app restart
+5. **Edge Case Validation**: Input validation and null checks prevent runtime errors
 
 ## Special Considerations
 
