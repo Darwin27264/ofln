@@ -14,6 +14,7 @@ interface Props {
   onGoToModelSelection: () => void;
   onOpenStats: () => void; // NEW prop to open the stats (stages) page
   onGoToPersonas: () => void; // NEW prop to open the personas page
+  onGoToSkills: () => void; // NEW prop to open the skills page
 }
 
 export default function SettingsScreen({
@@ -23,6 +24,7 @@ export default function SettingsScreen({
   onGoToModelSelection,
   onOpenStats,
   onGoToPersonas,
+  onGoToSkills,
 }: Props) {
   const { theme, toggleTheme, isDark, isTransitioning } = useTheme();
   const styles = createStyles(theme.colors);
@@ -176,11 +178,11 @@ export default function SettingsScreen({
           </TouchableOpacity>
         </View>
         <View style={{ flexDirection: "row", height: 145 }}>
-          <TouchableOpacity style={{ flex: 1, marginRight: 5 }}>
+          <TouchableOpacity style={{ flex: 1, marginRight: 5 }} onPress={onGoToSkills}>
             <Animated.View style={styles.settingsBlock}>
-              <Ionicons name="code-slash-outline" size={22} color={theme.colors.text} style={styles.blockIcon}/>
+              <Ionicons name="sparkles-outline" size={22} color={theme.colors.text} style={styles.blockIcon}/>
               <View style={styles.blockTextContainer}>
-                <Text style={styles.blockText}>CodeLib</Text>
+                <Text style={styles.blockText}>Skills</Text>
               </View>
             </Animated.View>
           </TouchableOpacity>

@@ -30,6 +30,7 @@ interface PersonaCardProps {
   onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  onUse?: () => void; // Optional "Use" button handler
   // Animation control from parent
   isInitialAnimationPhase: boolean;
   animatedPersonaIds: React.MutableRefObject<Set<string>>;
@@ -67,6 +68,7 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
   onEdit,
   onDuplicate,
   onDelete,
+  onUse,
   isInitialAnimationPhase,
   animatedPersonaIds,
 }) => {
@@ -88,6 +90,8 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
 
   // Track if this specific card has been initialized (prevents re-triggering)
   const hasInitializedRef = useRef(false);
+  const cardAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const dropdownAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   
   /**
    * Initialize and trigger card animation only once per persona on initial mount
@@ -113,23 +117,36 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
       // Mark this persona as animated
       animatedPersonaIds.current.add(persona.id);
       
+      // Cancel any existing animation
+      if (cardAnimationRef.current) {
+        cardAnimationRef.current.stop();
+      }
+      
       // Start animation with index-based delay for staggered effect
-      Animated.parallel([
+      const animation = Animated.parallel([
         Animated.timing(cardOpacity, {
           toValue: 1,
-          duration: 200,
+          duration: 250,
           delay: Math.min(index * 25, 200), // Capped at 200ms max delay
           easing: Easing.bezier(0.4, 0.0, 0.2, 1),
           useNativeDriver: true,
         }),
         Animated.timing(cardTranslateY, {
           toValue: 0,
-          duration: 200,
+          duration: 250,
           delay: Math.min(index * 25, 200),
           easing: Easing.bezier(0.4, 0.0, 0.2, 1),
           useNativeDriver: true,
         }),
-      ]).start();
+      ]);
+      cardAnimationRef.current = animation;
+      animation.start((finished) => {
+        if (finished) {
+          cardOpacity.setValue(1);
+          cardTranslateY.setValue(0);
+        }
+        cardAnimationRef.current = null;
+      });
     } else {
       // Animation phase has passed - set final values immediately
       animatedPersonaIds.current.add(persona.id);
@@ -140,38 +157,65 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
 
   /**
    * Animate dropdown when expanded state changes
+   * Includes proper cleanup to prevent double animations
    */
   useEffect(() => {
+    // Cancel any ongoing dropdown animation
+    if (dropdownAnimationRef.current) {
+      dropdownAnimationRef.current.stop();
+      dropdownAnimationRef.current = null;
+    }
+
     if (isExpanded) {
-      Animated.parallel([
+      // Reset initial values before expanding
+      dropdownTranslateY.setValue(-20);
+      dropdownOpacity.setValue(0);
+      
+      const animation = Animated.parallel([
         Animated.timing(dropdownTranslateY, {
           toValue: 0,
-          duration: 150,
+          duration: 200,
           easing: Easing.bezier(0.4, 0.0, 0.2, 1),
           useNativeDriver: true,
         }),
         Animated.timing(dropdownOpacity, {
           toValue: 1,
-          duration: 120,
+          duration: 180,
           easing: Easing.bezier(0.4, 0.0, 0.2, 1),
           useNativeDriver: true,
         }),
-      ]).start();
+      ]);
+      dropdownAnimationRef.current = animation;
+      animation.start((finished) => {
+        if (finished) {
+          dropdownTranslateY.setValue(0);
+          dropdownOpacity.setValue(1);
+        }
+        dropdownAnimationRef.current = null;
+      });
     } else {
-      Animated.parallel([
+      const animation = Animated.parallel([
         Animated.timing(dropdownTranslateY, {
           toValue: -20,
-          duration: 120,
+          duration: 150,
           easing: Easing.bezier(0.4, 0.0, 1, 1),
           useNativeDriver: true,
         }),
         Animated.timing(dropdownOpacity, {
           toValue: 0,
-          duration: 100,
+          duration: 120,
           easing: Easing.bezier(0.4, 0.0, 1, 1),
           useNativeDriver: true,
         }),
-      ]).start();
+      ]);
+      dropdownAnimationRef.current = animation;
+      animation.start((finished) => {
+        if (finished) {
+          dropdownTranslateY.setValue(-20);
+          dropdownOpacity.setValue(0);
+        }
+        dropdownAnimationRef.current = null;
+      });
     }
   }, [isExpanded, dropdownTranslateY, dropdownOpacity]);
 
@@ -333,11 +377,41 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
             }}
           >
             {/* Action buttons */}
-            <View style={{ flexDirection: "row", gap: 8 }}>
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+              {onUse && (
+                <TouchableOpacity
+                  onPress={onUse}
+                  style={{
+                    flex: 1,
+                    minWidth: "45%",
+                    backgroundColor: theme.colors.accent,
+                    paddingVertical: 10,
+                    paddingHorizontal: 16,
+                    borderRadius: 8,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Icon name="check-circle" size={18} color="#fff" />
+                  <Text
+                    style={{
+                      color: "#fff",
+                      fontSize: 14,
+                      fontWeight: "600",
+                      fontFamily: "Poppins",
+                      marginLeft: 6,
+                    }}
+                  >
+                    Use
+                  </Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 onPress={onEdit}
                 style={{
                   flex: 1,
+                  minWidth: "45%",
                   backgroundColor: theme.colors.primary,
                   paddingVertical: 10,
                   paddingHorizontal: 16,
@@ -364,19 +438,22 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
                 onPress={onDuplicate}
                 style={{
                   flex: 1,
-                  backgroundColor: theme.colors.accent,
+                  minWidth: "45%",
+                  backgroundColor: theme.colors.surface,
                   paddingVertical: 10,
                   paddingHorizontal: 16,
                   borderRadius: 8,
                   flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "center",
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
                 }}
               >
-                <Icon name="content-copy" size={18} color="#fff" />
+                <Icon name="content-copy" size={18} color={theme.colors.text} />
                 <Text
                   style={{
-                    color: "#fff",
+                    color: theme.colors.text,
                     fontSize: 14,
                     fontWeight: "600",
                     fontFamily: "Poppins",
@@ -390,6 +467,7 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
                 onPress={onDelete}
                 style={{
                   flex: 1,
+                  minWidth: "45%",
                   backgroundColor: theme.colors.error + "20",
                   paddingVertical: 10,
                   paddingHorizontal: 16,

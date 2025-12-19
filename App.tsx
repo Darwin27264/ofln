@@ -37,8 +37,15 @@ import StagesScreen from "./src/screens/StagesScreen";
 import PersonasLibraryScreen from "./src/screens/PersonasLibraryScreen";
 import PersonaEditorScreen from "./src/screens/PersonaEditorScreen";
 import ModelSettingsScreen from "./src/screens/ModelSettingsScreen";
-import { Persona } from "./src/services/personaService";
+import SkillsLibraryScreen from "./src/screens/SkillsLibraryScreen";
+import SkillRunnerScreen from "./src/screens/SkillRunnerScreen";
+import SkillEditorScreen from "./src/screens/SkillEditorScreen";
+import CodeLibLibraryScreen from "./src/screens/CodeLibLibraryScreen";
+import CodeLibEditorScreen from "./src/screens/CodeLibEditorScreen";
+import { Persona, getPersonas } from "./src/services/personaService";
 import { ModelInfo } from "./src/components/ModelCard";
+import { Skill } from "./src/services/skillService";
+import { CodeLibFunction } from "./src/services/codelibService";
 
 // Services
 import {
@@ -86,10 +93,14 @@ function AppContent(): React.JSX.Element {
   const [userInput, setUserInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedGGUF, setSelectedGGUF] = useState<string | null>(null);
-  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings";
+  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "skills" | "skillRunner" | "skillEditor" | "codelib" | "codelibEditor";
   const [currentPage, setCurrentPage] = useState<PageType>("conversation");
   const [editingPersona, setEditingPersona] = useState<Persona | null | undefined>(undefined);
   const [selectedModelForSettings, setSelectedModelForSettings] = useState<ModelInfo | null>(null);
+  const [runningSkill, setRunningSkill] = useState<Skill | null>(null);
+  const [editingSkill, setEditingSkill] = useState<Skill | null | undefined>(undefined);
+  const [editingCodeLibFunction, setEditingCodeLibFunction] = useState<CodeLibFunction | null | undefined>(undefined);
+  const [testingCodeLibFunction, setTestingCodeLibFunction] = useState<CodeLibFunction | null>(null);
   const [tokensPerSecond, setTokensPerSecond] = useState<number[]>([]);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
@@ -101,6 +112,7 @@ function AppContent(): React.JSX.Element {
     "bubble"
   );
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
+  const [availablePersonas, setAvailablePersonas] = useState<Persona[]>([]);
 
   /**
    * Page transition animations
@@ -242,9 +254,29 @@ function AppContent(): React.JSX.Element {
   const scrollPositionRef = useRef(0);
   const contentHeightRef = useRef(0);
 
+  /**
+   * Load available personas
+   * 
+   * Fetches all personas from storage for use in dropdowns and selection.
+   * Wrapped in useCallback to ensure stable reference for dependency arrays.
+   */
+  const loadAvailablePersonas = useCallback(async () => {
+    try {
+      const personas = await getPersonas();
+      setAvailablePersonas(personas);
+    } catch (error) {
+      console.error("Error loading personas:", error);
+      setAvailablePersonas([]);
+    }
+  }, []);
+
   useEffect(() => {
     checkDownloadedModels();
-  }, [currentPage, checkDownloadedModels]);
+    // Load personas when navigating to relevant pages
+    if (currentPage === "skillRunner" || currentPage === "personas" || currentPage === "conversation") {
+      loadAvailablePersonas();
+    }
+  }, [currentPage, checkDownloadedModels, loadAvailablePersonas]);
 
   /**
    * Check and update list of downloaded models
@@ -516,6 +548,7 @@ function AppContent(): React.JSX.Element {
           onOpenStats={() => setCurrentPage("stages")}
           onGoToModelSelection={() => setCurrentPage("modelSelection")}
           onGoToPersonas={() => setCurrentPage("personas")}
+          onGoToSkills={() => setCurrentPage("skills")}
           />
         </Animated.View>
       )}
@@ -542,6 +575,10 @@ function AppContent(): React.JSX.Element {
             onEditPersona={(persona) => {
               setEditingPersona(persona);
               setCurrentPage("personaEditor");
+            }}
+            onUsePersona={(persona) => {
+              setSelectedPersona(persona);
+              setCurrentPage("settings");
             }}
           />
         </Animated.View>
@@ -576,6 +613,117 @@ function AppContent(): React.JSX.Element {
             onBack={() => {
               setSelectedModelForSettings(null);
               setCurrentPage("modelSelection");
+            }}
+          />
+        </Animated.View>
+      )}
+
+      {currentPage === "skills" && (
+        <Animated.View 
+          style={[{ flex: 1 }, pageTransitionStyle]}
+          collapsable={false}
+        >
+          <SkillsLibraryScreen
+            onBack={() => setCurrentPage("settings")}
+            onRunSkill={(skill) => {
+              setRunningSkill(skill);
+              setCurrentPage("skillRunner");
+            }}
+            onEditSkill={(skill) => {
+              setEditingSkill(skill);
+              setCurrentPage("skillEditor");
+            }}
+            onGoToCodeLib={() => setCurrentPage("codelib")}
+          />
+        </Animated.View>
+      )}
+
+      {currentPage === "skillRunner" && runningSkill && (
+        <Animated.View 
+          style={[{ flex: 1 }, pageTransitionStyle]}
+          collapsable={false}
+        >
+          <SkillRunnerScreen
+            skill={runningSkill}
+            onBack={() => {
+              setRunningSkill(null);
+              setCurrentPage("skills");
+            }}
+            selectedModelId={selectedGGUF || undefined}
+            selectedPersona={selectedPersona}
+            onModelSelect={() => setCurrentPage("modelSelection")}
+            onPersonaSelect={() => setCurrentPage("personas")}
+            context={context}
+            downloadedModels={downloadedModels}
+            loadModel={loadModel}
+            setSelectedGGUF={setSelectedGGUF}
+            setContext={setContext}
+            availablePersonas={availablePersonas}
+            setSelectedPersona={setSelectedPersona}
+          />
+        </Animated.View>
+      )}
+
+      {currentPage === "skillEditor" && editingSkill !== undefined && (
+        <Animated.View 
+          style={[{ flex: 1 }, pageTransitionStyle]}
+          collapsable={false}
+        >
+          <SkillEditorScreen
+            skill={editingSkill}
+            onSave={async (savedSkill) => {
+              const { saveSkill } = await import("./src/services/skillService");
+              await saveSkill(savedSkill);
+              setEditingSkill(undefined);
+              setCurrentPage("skills");
+            }}
+            onCancel={() => {
+              setEditingSkill(undefined);
+              setCurrentPage("skills");
+            }}
+            onTest={(testSkill) => {
+              setRunningSkill(testSkill);
+              setCurrentPage("skillRunner");
+            }}
+          />
+        </Animated.View>
+      )}
+
+      {currentPage === "codelib" && (
+        <Animated.View 
+          style={[{ flex: 1 }, pageTransitionStyle]}
+          collapsable={false}
+        >
+          <CodeLibLibraryScreen
+            onBack={() => setCurrentPage("skills")}
+            onEditFunction={(func) => {
+              setEditingCodeLibFunction(func);
+              setCurrentPage("codelibEditor");
+            }}
+            onTestFunction={(func) => {
+              setTestingCodeLibFunction(func);
+              // Could open a test modal or navigate to test screen
+            }}
+          />
+        </Animated.View>
+      )}
+
+      {currentPage === "codelibEditor" && editingCodeLibFunction !== undefined && (
+        <Animated.View 
+          style={[{ flex: 1 }, pageTransitionStyle]}
+          collapsable={false}
+        >
+          <CodeLibEditorScreen
+            function={editingCodeLibFunction}
+            onSave={async (savedFunction) => {
+              const { saveCodeLibFunction } = await import("./src/services/codelibService");
+              await saveCodeLibFunction(savedFunction);
+              setEditingCodeLibFunction(undefined);
+              setCurrentPage("codelib");
+            }}
+            onCancel={() => {
+              setEditingCodeLibFunction(undefined);
+              setCurrentPage("codelib");
             }}
           />
         </Animated.View>

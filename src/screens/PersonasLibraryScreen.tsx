@@ -37,11 +37,13 @@ import {
 interface PersonasLibraryScreenProps {
   onBack: () => void;
   onEditPersona?: (persona: Persona | null) => void; // null = create mode, Persona = edit mode
+  onUsePersona?: (persona: Persona) => void; // Handler for "Use" button
 }
 
 export default function PersonasLibraryScreen({
   onBack,
   onEditPersona,
+  onUsePersona,
 }: PersonasLibraryScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
@@ -328,6 +330,7 @@ export default function PersonasLibraryScreen({
           onEdit={() => handleEditPersona(persona)}
           onDuplicate={() => handleDuplicatePersona(persona)}
           onDelete={() => handleDeletePersona(persona)}
+          onUse={onUsePersona ? () => onUsePersona(persona) : undefined}
           isInitialAnimationPhase={isInitialAnimationPhase.current}
           animatedPersonaIds={animatedPersonaIds}
         />
