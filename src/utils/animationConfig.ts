@@ -78,7 +78,7 @@ export const ANIMATION_CONFIG = {
   card: {
     duration: ANIMATION_DURATIONS.STANDARD,
     useNativeDriver: true,
-    easing: EASING.STANDARD,
+    easing: EASING.EASE_OUT, // Better for entering animations - starts fast, ends smooth
   },
   /** Button press feedback */
   button: {

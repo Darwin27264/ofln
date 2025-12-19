@@ -30,6 +30,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Animated,
+  InteractionManager,
 } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { useTheme } from "../context/ThemeContext";
@@ -181,10 +182,17 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
   
   // Track if this specific card has been initialized (prevents re-triggering)
   const hasInitializedRef = useRef(false);
+  const cardAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   
   /**
    * Initialize and trigger card animation only once per model on initial mount
    * Only animates if still in initial animation phase (controlled by parent)
+   * 
+   * Improvements:
+   * - Explicit initial values set before animation
+   * - Proper animation cleanup to prevent conflicts
+   * - Uses InteractionManager to ensure layout is complete
+   * - Consistent with other card implementations
    */
   useEffect(() => {
     // Skip if this model has already animated (prevents re-animation)
@@ -204,24 +212,59 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
     // Only animate if we're still in the initial animation phase
     // This ensures animations only play once when entering the page
     if (isInitialAnimationPhase) {
-      // Mark this model as animated
+      // Mark this model as animated immediately to prevent race conditions
       animatedModelIds.current.add(modelKey);
       
-      // Start animation with index-based delay for staggered effect
-      // Uses centralized configuration for consistency
-      const delay = getStaggeredDelay(index);
-      Animated.parallel([
-        Animated.timing(cardOpacity, {
-          toValue: 1,
-          delay,
-          ...ANIMATION_CONFIG.card,
-        }),
-        Animated.timing(cardTranslateY, {
-          toValue: 0,
-          delay,
-          ...ANIMATION_CONFIG.card,
-        }),
-      ]).start();
+      // Cancel any existing animation to prevent conflicts
+      if (cardAnimationRef.current) {
+        cardAnimationRef.current.stop();
+        cardAnimationRef.current = null;
+      }
+      
+      // Ensure initial values are set explicitly before animation
+      cardOpacity.setValue(0);
+      cardTranslateY.setValue(20);
+      
+      // Use InteractionManager to ensure layout is complete before animating
+      // This prevents glitches from animating before layout measurement
+      const interaction = InteractionManager.runAfterInteractions(() => {
+        // Use requestAnimationFrame for one more frame to ensure smooth start
+        requestAnimationFrame(() => {
+          // Start animation with index-based delay for staggered effect
+          // Uses centralized configuration for consistency
+          const delay = getStaggeredDelay(index);
+          const animation = Animated.parallel([
+            Animated.timing(cardOpacity, {
+              toValue: 1,
+              delay,
+              ...ANIMATION_CONFIG.card,
+            }),
+            Animated.timing(cardTranslateY, {
+              toValue: 0,
+              delay,
+              ...ANIMATION_CONFIG.card,
+            }),
+          ]);
+          
+          cardAnimationRef.current = animation;
+          animation.start((finished) => {
+            if (finished) {
+              // Ensure final values are exactly correct after animation
+              cardOpacity.setValue(1);
+              cardTranslateY.setValue(0);
+            }
+            cardAnimationRef.current = null;
+          });
+        });
+      });
+      
+      return () => {
+        interaction.cancel();
+        if (cardAnimationRef.current) {
+          cardAnimationRef.current.stop();
+          cardAnimationRef.current = null;
+        }
+      };
     } else {
       // Animation phase has passed - set final values immediately
       animatedModelIds.current.add(modelKey);

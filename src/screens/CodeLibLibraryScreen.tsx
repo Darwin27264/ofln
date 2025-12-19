@@ -30,6 +30,7 @@ import {
   seedBuiltInCodeLibFunctions,
   CodeLibFunction,
 } from "../services/codelibService";
+import { ANIMATION_CONFIG, getStaggeredDelay } from "../utils/animationConfig";
 
 interface CodeLibLibraryScreenProps {
   onBack: () => void;
@@ -516,35 +517,58 @@ const CodeLibFunctionCard: React.FC<CodeLibFunctionCardProps> = React.memo(({
     hasInitializedRef.current = true;
 
     if (isInitialAnimationPhase) {
+      // Mark this function as animated immediately to prevent race conditions
       animatedFunctionIds.current.add(func.id);
-      // Start from initial values for animation
+      
+      // Cancel any existing animation
+      if (animationRef.current) {
+        animationRef.current.stop();
+        animationRef.current = null;
+      }
+      
+      // Ensure initial values are set explicitly before animation
       cardOpacity.setValue(0);
       cardTranslateY.setValue(20);
-      const animation = Animated.parallel([
-        Animated.timing(cardOpacity, {
-          toValue: 1,
-          duration: 250,
-          delay: Math.min(index * 25, 200),
-          easing: Easing.bezier(0.4, 0.0, 0.2, 1),
-          useNativeDriver: true,
-        }),
-        Animated.timing(cardTranslateY, {
-          toValue: 0,
-          duration: 250,
-          delay: Math.min(index * 25, 200),
-          easing: Easing.bezier(0.4, 0.0, 0.2, 1),
-          useNativeDriver: true,
-        }),
-      ]);
-      animationRef.current = animation;
-      animation.start((finished) => {
-        if (finished) {
-          // Ensure opacity is exactly 1 after animation completes
-          cardOpacity.setValue(1);
-          cardTranslateY.setValue(0);
-        }
-        animationRef.current = null;
+      
+      // Use InteractionManager to ensure layout is complete before animating
+      // This prevents glitches from animating before layout measurement
+      const interaction = InteractionManager.runAfterInteractions(() => {
+        // Use requestAnimationFrame for one more frame to ensure smooth start
+        requestAnimationFrame(() => {
+          // Start animation with index-based delay for staggered effect
+          // Uses centralized configuration for consistency
+          const delay = getStaggeredDelay(index);
+          const animation = Animated.parallel([
+            Animated.timing(cardOpacity, {
+              toValue: 1,
+              delay,
+              ...ANIMATION_CONFIG.card,
+            }),
+            Animated.timing(cardTranslateY, {
+              toValue: 0,
+              delay,
+              ...ANIMATION_CONFIG.card,
+            }),
+          ]);
+          animationRef.current = animation;
+          animation.start((finished) => {
+            if (finished) {
+              // Ensure final values are exactly correct after animation
+              cardOpacity.setValue(1);
+              cardTranslateY.setValue(0);
+            }
+            animationRef.current = null;
+          });
+        });
       });
+      
+      return () => {
+        interaction.cancel();
+        if (animationRef.current) {
+          animationRef.current.stop();
+          animationRef.current = null;
+        }
+      };
     } else {
       // Animation phase passed, just mark as animated
       animatedFunctionIds.current.add(func.id);

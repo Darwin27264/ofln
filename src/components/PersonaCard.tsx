@@ -17,10 +17,12 @@ import {
   TouchableOpacity,
   Animated,
   Easing,
+  InteractionManager,
 } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { useTheme } from "../context/ThemeContext";
 import { Persona } from "../services/personaService";
+import { ANIMATION_CONFIG, getStaggeredDelay } from "../utils/animationConfig";
 
 interface PersonaCardProps {
   persona: Persona;
@@ -96,6 +98,11 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
   /**
    * Initialize and trigger card animation only once per persona on initial mount
    * Only animates if still in initial animation phase (controlled by parent)
+   * 
+   * Improvements:
+   * - Uses InteractionManager to ensure layout is complete
+   * - Proper animation cleanup to prevent conflicts
+   * - Consistent with centralized animation config
    */
   useEffect(() => {
     // Skip if this persona has already animated (prevents re-animation)
@@ -114,39 +121,58 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
     
     // Only animate if we're still in the initial animation phase
     if (isInitialAnimationPhase) {
-      // Mark this persona as animated
+      // Mark this persona as animated immediately to prevent race conditions
       animatedPersonaIds.current.add(persona.id);
       
       // Cancel any existing animation
       if (cardAnimationRef.current) {
         cardAnimationRef.current.stop();
+        cardAnimationRef.current = null;
       }
       
-      // Start animation with index-based delay for staggered effect
-      const animation = Animated.parallel([
-        Animated.timing(cardOpacity, {
-          toValue: 1,
-          duration: 250,
-          delay: Math.min(index * 25, 200), // Capped at 200ms max delay
-          easing: Easing.bezier(0.4, 0.0, 0.2, 1),
-          useNativeDriver: true,
-        }),
-        Animated.timing(cardTranslateY, {
-          toValue: 0,
-          duration: 250,
-          delay: Math.min(index * 25, 200),
-          easing: Easing.bezier(0.4, 0.0, 0.2, 1),
-          useNativeDriver: true,
-        }),
-      ]);
-      cardAnimationRef.current = animation;
-      animation.start((finished) => {
-        if (finished) {
-          cardOpacity.setValue(1);
-          cardTranslateY.setValue(0);
-        }
-        cardAnimationRef.current = null;
+      // Ensure initial values are set explicitly before animation
+      cardOpacity.setValue(0);
+      cardTranslateY.setValue(20);
+      
+      // Use InteractionManager to ensure layout is complete before animating
+      // This prevents glitches from animating before layout measurement
+      const interaction = InteractionManager.runAfterInteractions(() => {
+        // Use requestAnimationFrame for one more frame to ensure smooth start
+        requestAnimationFrame(() => {
+          // Start animation with index-based delay for staggered effect
+          // Uses centralized configuration for consistency
+          const delay = getStaggeredDelay(index);
+          const animation = Animated.parallel([
+            Animated.timing(cardOpacity, {
+              toValue: 1,
+              delay,
+              ...ANIMATION_CONFIG.card,
+            }),
+            Animated.timing(cardTranslateY, {
+              toValue: 0,
+              delay,
+              ...ANIMATION_CONFIG.card,
+            }),
+          ]);
+          cardAnimationRef.current = animation;
+          animation.start((finished) => {
+            if (finished) {
+              // Ensure final values are exactly correct after animation
+              cardOpacity.setValue(1);
+              cardTranslateY.setValue(0);
+            }
+            cardAnimationRef.current = null;
+          });
+        });
       });
+      
+      return () => {
+        interaction.cancel();
+        if (cardAnimationRef.current) {
+          cardAnimationRef.current.stop();
+          cardAnimationRef.current = null;
+        }
+      };
     } else {
       // Animation phase has passed - set final values immediately
       animatedPersonaIds.current.add(persona.id);
