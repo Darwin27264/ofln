@@ -11,7 +11,7 @@
  * - Theme and alert context providers
  */
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { ScrollView, ActivityIndicator, Animated, StatusBar, Platform, InteractionManager } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
@@ -135,28 +135,12 @@ function AppContent(): React.JSX.Element {
   const navigationStack = useRef<PageType[]>([currentPage]);
   // Track ongoing animation to allow cancellation
   const ongoingAnimation = useRef<Animated.CompositeAnimation | null>(null);
+  // Track if we should animate (set by useLayoutEffect)
+  const shouldAnimateRef = useRef(false);
 
-  useEffect(() => {
-    /**
-     * Animate page transitions when currentPage changes
-     * Uses fade + slide animation for modern feel
-     * 
-     * Determines navigation direction using navigation history stack:
-     * - Forward: navigating to a new page (slides in from right: translateX: 20 to 0)
-     * - Backward: returning to a previously visited page (slides in from left: translateX: -50 to 0)
-     * 
-     * Navigation stack logic:
-     * - If target page is the previous page in stack → back navigation (pop from stack)
-     * - Otherwise → forward navigation (push to stack)
-     * 
-     * Performance optimizations:
-     * - Animation cancellation prevents conflicts when navigating quickly
-     * - InteractionManager defers heavy operations until after animation
-     * - Platform-specific duration adjustments for optimal performance
-     * - Reduced opacity animation for better performance on low-end devices
-     * - Native driver for 60fps performance on UI thread
-     */
-    
+  // Use useLayoutEffect to set initial animation values synchronously before paint
+  // This ensures the page starts with correct animation values before rendering
+  useLayoutEffect(() => {
     // Skip animation on initial mount
     if (previousPage.current === currentPage) {
       return;
@@ -194,16 +178,46 @@ function AppContent(): React.JSX.Element {
       stack.push(currentPage);
     }
     
-    // Use centralized animation configuration for consistency
-    const animationDuration = ANIMATION_DURATIONS.PAGE;
-    
     // Use larger offset for back navigation to make it visually distinct
     // Forward: slides in from right (20px), Back: slides in from left (50px)
     const initialTranslateX = isBackNavigation ? -50 : 20;
     
-    // Set initial values immediately for instant visual feedback
+    // Set initial values synchronously before render to ensure animation starts correctly
+    // This is critical - values must be set before React paints the new page
     pageOpacity.setValue(0);
     pageTranslateX.setValue(initialTranslateX);
+    
+    // Set flag to trigger animation in useEffect
+    shouldAnimateRef.current = true;
+    
+    // Update previous page immediately to prevent double-triggering
+    previousPage.current = currentPage;
+  }, [currentPage]);
+
+  // Use useEffect for the actual animation to ensure it runs after layout
+  useEffect(() => {
+    /**
+     * Animate page transitions when currentPage changes
+     * Uses fade + slide animation for modern feel
+     * 
+     * Performance optimizations:
+     * - Animation cancellation prevents conflicts when navigating quickly
+     * - InteractionManager defers heavy operations until after animation
+     * - Platform-specific duration adjustments for optimal performance
+     * - Reduced opacity animation for better performance on low-end devices
+     * - Native driver for 60fps performance on UI thread
+     */
+    
+    // Only animate if useLayoutEffect set the flag
+    if (!shouldAnimateRef.current) {
+      return;
+    }
+    
+    // Reset flag
+    shouldAnimateRef.current = false;
+    
+    // Use centralized animation configuration for consistency
+    const animationDuration = ANIMATION_DURATIONS.PAGE;
     
     // Create animation with optimized configuration
     const animation = Animated.parallel([
@@ -237,9 +251,6 @@ function AppContent(): React.JSX.Element {
         });
       }
     });
-    
-    // Update previous page after animation starts
-    previousPage.current = currentPage;
     
     // Cleanup function to cancel animation if component unmounts or page changes again
     return () => {

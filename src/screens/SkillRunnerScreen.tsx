@@ -35,6 +35,7 @@ import {
 import { Persona } from "../services/personaService";
 import { executeSkill } from "../services/skillExecutionService";
 import { prettifyModelName } from "../utils/modelUtils";
+import { ANIMATION_DURATIONS, EASING } from "../utils/animationConfig";
 
 interface SkillRunnerScreenProps {
   skill: Skill;
@@ -51,6 +52,49 @@ interface SkillRunnerScreenProps {
   availablePersonas?: Persona[]; // List of available personas
   setSelectedPersona?: (persona: Persona | null) => void;
 }
+
+/**
+ * AnimatedCheckmark Component
+ * 
+ * Displays a checkmark icon with fade-in animation.
+ * Always renders to maintain layout, but fades in/out based on visibility.
+ */
+const AnimatedCheckmark: React.FC<{
+  visible: boolean;
+  size?: number;
+  color: string;
+}> = React.memo(({ visible, size = 24, color }) => {
+  const opacity = useRef(new Animated.Value(visible ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(opacity, {
+      toValue: visible ? 1 : 0,
+      duration: ANIMATION_DURATIONS.STANDARD,
+      easing: EASING.STANDARD,
+      useNativeDriver: true,
+    }).start();
+  }, [visible, opacity]);
+
+  return (
+    <Animated.View 
+      style={{ 
+        opacity,
+        position: 'absolute',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+      pointerEvents="none"
+    >
+      <Icon 
+        name="check-circle" 
+        size={size} 
+        color={color}
+      />
+    </Animated.View>
+  );
+});
+
+AnimatedCheckmark.displayName = 'AnimatedCheckmark';
 
 export default function SkillRunnerScreen({
   skill,
@@ -983,21 +1027,33 @@ export default function SkillRunnerScreen({
                           {prettifyModelName(model)}
                         </Text>
                       </View>
-                      {isSelected && (
-                        <Icon
-                          name="check-circle"
+                      {/* Fixed-width container to prevent layout shift */}
+                      <View style={{ 
+                        width: 32, 
+                        height: 24, 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        marginLeft: 12,
+                        position: 'relative',
+                      }}>
+                        {isCurrentlyLoading && (
+                          <View style={{
+                            position: 'absolute',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}>
+                            <ActivityIndicator
+                              size="small"
+                              color={theme.colors.primary}
+                            />
+                          </View>
+                        )}
+                        <AnimatedCheckmark
+                          visible={isSelected && !isCurrentlyLoading}
                           size={24}
                           color={theme.colors.primary}
-                          style={{ marginLeft: 12 }}
                         />
-                      )}
-                      {isCurrentlyLoading && (
-                        <ActivityIndicator
-                          size="small"
-                          color={theme.colors.primary}
-                          style={{ marginLeft: 12 }}
-                        />
-                      )}
+                      </View>
                     </Pressable>
                   );
                 })}

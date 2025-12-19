@@ -336,6 +336,50 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(({
 
 ChatHistoryCard.displayName = 'ChatHistoryCard';
 
+/**
+ * AnimatedCheckmark Component
+ * 
+ * Displays a checkmark icon with fade-in animation.
+ * Always renders to maintain layout, but fades in/out based on visibility.
+ */
+const AnimatedCheckmark: React.FC<{
+  visible: boolean;
+  size?: number;
+  color: string;
+  containerStyle?: any;
+}> = React.memo(({ visible, size = 20, color, containerStyle }) => {
+  const opacity = useRef(new Animated.Value(visible ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(opacity, {
+      toValue: visible ? 1 : 0,
+      duration: ANIMATION_DURATIONS.STANDARD,
+      easing: EASING.STANDARD,
+      useNativeDriver: true,
+    }).start();
+  }, [visible, opacity]);
+
+  return (
+    <Animated.View 
+      style={{ 
+        opacity,
+        position: 'absolute',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+      pointerEvents="none"
+    >
+      <Ionicons 
+        name="checkmark-circle" 
+        size={size} 
+        color={color}
+      />
+    </Animated.View>
+  );
+});
+
+AnimatedCheckmark.displayName = 'AnimatedCheckmark';
+
 interface Props {
   conversation: Message[];
   setConversation: React.Dispatch<React.SetStateAction<Message[]>>;
@@ -2321,21 +2365,33 @@ export default function ConversationScreen({
                         >
                           {prettifyModelName(model)}
                         </Text>
-                        {isSelected && (
-                          <Ionicons 
-                            name="checkmark-circle" 
-                            size={20} 
-                            color={theme.colors.primaryText} 
-                            style={{ marginLeft: 8 }}
+                        {/* Fixed-width container to prevent layout shift */}
+                        <View style={{ 
+                          width: 28, 
+                          height: 20, 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          marginLeft: 8,
+                          position: 'relative',
+                        }}>
+                          {isCurrentlyLoading && (
+                            <View style={{
+                              position: 'absolute',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}>
+                              <ActivityIndicator 
+                                size="small" 
+                                color={theme.colors.accent}
+                              />
+                            </View>
+                          )}
+                          <AnimatedCheckmark
+                            visible={isSelected && !isCurrentlyLoading}
+                            size={20}
+                            color={theme.colors.primaryText}
                           />
-                        )}
-                        {isCurrentlyLoading && (
-                          <ActivityIndicator 
-                            size="small" 
-                            color={theme.colors.accent} 
-                            style={{ marginLeft: 8 }}
-                          />
-                        )}
+                        </View>
                     </View>
                   </TouchableOpacity>
                 );
@@ -2424,14 +2480,21 @@ export default function ConversationScreen({
                             </Text>
                           )}
                         </View>
-                        {isSelected && (
-                          <Ionicons 
-                            name="checkmark-circle" 
-                            size={20} 
-                            color={theme.colors.primaryText} 
-                            style={{ marginLeft: 8 }}
+                        {/* Fixed-width container to prevent layout shift */}
+                        <View style={{ 
+                          width: 28, 
+                          height: 20, 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          marginLeft: 8,
+                          position: 'relative',
+                        }}>
+                          <AnimatedCheckmark
+                            visible={isSelected}
+                            size={20}
+                            color={theme.colors.primaryText}
                           />
-                        )}
+                        </View>
                       </View>
                     </TouchableOpacity>
                   );
