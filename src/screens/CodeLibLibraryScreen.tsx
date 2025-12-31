@@ -574,6 +574,7 @@ const CodeLibFunctionCard: React.FC<CodeLibFunctionCardProps> = React.memo(({
       animatedFunctionIds.current.add(func.id);
       cardOpacity.setValue(1);
       cardTranslateY.setValue(0);
+      return undefined;
     }
   }, [func.id, index, isInitialAnimationPhase, animatedFunctionIds, cardOpacity, cardTranslateY]);
 

@@ -34,7 +34,7 @@ import {
 } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { useTheme } from "../context/ThemeContext";
-import ProgressBar from "./ProgressBar";
+import CircularProgress from "./CircularProgress";
 import { ANIMATION_CONFIG, EASING, getStaggeredDelay } from "../utils/animationConfig";
 
 // Types
@@ -483,17 +483,38 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
           {/* Action indicator */}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             {isDownloading ? (
-              <View style={{ alignItems: "center", width: 100 }}>
-                <ProgressBar progress={progress} />
-                <TouchableOpacity
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    onCancel();
+              <View style={{ alignItems: "center", justifyContent: "center" }}>
+                <View style={{ position: "relative", width: 42, height: 42 }}>
+                  <CircularProgress progress={progress} size={42} strokeWidth={4} />
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onCancel();
+                    }}
+                    style={{
+                      position: "absolute",
+                      width: 42,
+                      height: 42,
+                      justifyContent: "center",
+                      alignItems: "center",
+                      borderRadius: 21,
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Icon name="cancel" size={22} color={theme.colors.error} />
+                  </TouchableOpacity>
+                </View>
+                <Text
+                  style={{
+                    fontSize: 10,
+                    color: theme.colors.textSecondary,
+                    fontFamily: "Poppins",
+                    fontWeight: "600",
+                    marginTop: 4,
                   }}
-                  style={{ marginTop: 4, padding: 4 }}
                 >
-                  <Icon name="cancel" size={18} color={theme.colors.error} />
-                </TouchableOpacity>
+                  {progress}%
+                </Text>
               </View>
             ) : isLoading ? (
               <ActivityIndicator size="small" color={theme.colors.accent} />

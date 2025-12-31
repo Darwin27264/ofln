@@ -15,6 +15,7 @@ interface Props {
   onOpenStats: () => void; // NEW prop to open the stats (stages) page
   onGoToPersonas: () => void; // NEW prop to open the personas page
   onGoToSkills: () => void; // NEW prop to open the skills page
+  onGoToInfo: () => void; // NEW prop to open the info page
 }
 
 export default function SettingsScreen({
@@ -25,6 +26,7 @@ export default function SettingsScreen({
   onOpenStats,
   onGoToPersonas,
   onGoToSkills,
+  onGoToInfo,
 }: Props) {
   const { theme, toggleTheme, isDark, isTransitioning } = useTheme();
   const styles = createStyles(theme.colors);
@@ -219,7 +221,7 @@ export default function SettingsScreen({
           </Animated.View>
         </TouchableOpacity>
       </View>
-      <View style={{ position: "absolute", bottom: 20, left: 15, backgroundColor: "transparent" }}>
+      <View style={{ position: "absolute", bottom: 20, left: 15, right: 15, backgroundColor: "transparent", flexDirection: "row", justifyContent: "space-between" }}>
         <TouchableOpacity onPress={onBackToConversation} style={{
           flexDirection: "row",
           alignItems: "center",
@@ -236,6 +238,16 @@ export default function SettingsScreen({
             marginLeft: 8,
             marginBottom: 2,
           }}>Back</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onGoToInfo} style={{
+          backgroundColor: theme.colors.primary,
+          borderRadius: 30,
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          alignItems: "center",
+          justifyContent: "center",
+        }}>
+          <Ionicons name="information" size={24} color={theme.colors.primaryText} />
         </TouchableOpacity>
       </View>
     </Animated.View>

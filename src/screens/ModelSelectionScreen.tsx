@@ -40,6 +40,7 @@ import { saveLocalModel, removeLocalModel, LocalModelInfo } from "../services/lo
 import { ModelCard, ModelInfo } from "../components/ModelCard";
 import { useModelFilter } from "../hooks/useModelFilter";
 import { prettifyModelName } from "../utils/modelUtils";
+import { createCancellationToken, DownloadCancellationToken } from "../api/model";
 
 // Type for quantization options (used internally in this file)
 interface QuantizationOption {
@@ -52,7 +53,7 @@ interface ModelSelectionScreenProps {
   downloadedModels: string[];
   localModels: LocalModelInfo[];
   setLocalModels: (models: LocalModelInfo[]) => void;
-  handleDownloadModel: (file: string, repoId: string, onProgress: (progress: number) => void) => Promise<void>;
+  handleDownloadModel: (file: string, repoId: string, onProgress: (progress: number) => void, cancellationToken?: import("../api/model").DownloadCancellationToken) => Promise<void>;
   loadModel: (path: string, context: any, setContext: (context: any) => void) => Promise<boolean>;
   context: any;
   setContext: (context: any) => void;
@@ -99,6 +100,18 @@ const POPULAR_MODELS: ModelInfo[] = [
     publishedDate: "2024-12-10"
   },
   {
+    id: "gemma2-2b",
+    name: "Gemma 2 2B Instruct",
+    repoId: "bartowski/gemma-2-2b-it-GGUF",
+    fileName: "gemma-2-2b-it-Q4_K_M.gguf",
+    size: "1.4GB",
+    description: "Tiny 'smart' mini from Google. Efficient and capable despite small size.",
+    author: "bartowski",
+    downloads: 40000,
+    tags: ["instruct", "tiny", "efficient"],
+    publishedDate: "2024-05-27"
+  },
+  {
     id: "llama-32-3b",
     name: "Llama 3.2 3B Instruct",
     repoId: "bartowski/Llama-3.2-3B-Instruct-GGUF",
@@ -135,18 +148,6 @@ const POPULAR_MODELS: ModelInfo[] = [
     publishedDate: "2024-09-12"
   },
   {
-    id: "llama-31-8b",
-    name: "Llama 3.1 8B Instruct",
-    repoId: "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
-    fileName: "Meta-Llama-3.1-8B-Instruct-Q4_K_S.gguf",
-    size: "4.8GB",
-    description: "Top 8B general quality. High-quality responses for complex conversations.",
-    author: "bartowski",
-    downloads: 120000,
-    tags: ["instruct", "high-quality", "general"],
-    publishedDate: "2024-07-23"
-  },
-  {
     id: "qwen-25-7b",
     name: "Qwen2.5 7B Instruct",
     repoId: "Qwen/Qwen2.5-7B-Instruct-GGUF",
@@ -159,30 +160,6 @@ const POPULAR_MODELS: ModelInfo[] = [
     publishedDate: "2024-09-12"
   },
   {
-    id: "mistral-7b-v02",
-    name: "Mistral 7B Instruct v0.2",
-    repoId: "TheBloke/Mistral-7B-Instruct-v0.2-GGUF",
-    fileName: "mistral-7b-instruct-v0.2.Q4_K_M.gguf",
-    size: "4.1GB",
-    description: "Reliable 7B classic. Proven performance with consistent quality outputs.",
-    author: "TheBloke",
-    downloads: 150000,
-    tags: ["instruct", "reliable", "classic"],
-    publishedDate: "2023-12-11"
-  },
-  {
-    id: "gemma2-2b",
-    name: "Gemma 2 2B Instruct",
-    repoId: "bartowski/gemma-2-2b-it-GGUF",
-    fileName: "gemma-2-2b-it-Q4_K_M.gguf",
-    size: "1.4GB",
-    description: "Tiny 'smart' mini from Google. Efficient and capable despite small size.",
-    author: "bartowski",
-    downloads: 40000,
-    tags: ["instruct", "tiny", "efficient"],
-    publishedDate: "2024-05-27"
-  },
-  {
     id: "qwen-25-coder-3b",
     name: "Qwen2.5 Coder 3B Instruct",
     repoId: "Qwen/Qwen2.5-Coder-3B-Instruct-GGUF",
@@ -192,18 +169,6 @@ const POPULAR_MODELS: ModelInfo[] = [
     author: "Qwen",
     downloads: 55000,
     tags: ["coder", "programming", "small"],
-    publishedDate: "2024-09-12"
-  },
-  {
-    id: "qwen-25-coder-7b",
-    name: "Qwen2.5 Coder 7B Instruct",
-    repoId: "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
-    fileName: "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
-    size: "4.2GB",
-    description: "Bigger coder, still mobile-viable. Advanced code generation capabilities.",
-    author: "Qwen",
-    downloads: 70000,
-    tags: ["coder", "programming", "advanced"],
     publishedDate: "2024-09-12"
   },
   {
@@ -246,7 +211,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const [isFetchingHF, setIsFetchingHF] = useState<boolean>(false);
   const [hfModels, setHfModels] = useState<ModelInfo[]>([]);
   const [downloadProgress, setDownloadProgress] = useState<{ [key: string]: number }>({});
-  const [downloadCancellationTokens, setDownloadCancellationTokens] = useState<{ [key: string]: () => void }>({});
+  const [downloadCancellationTokens, setDownloadCancellationTokens] = useState<{ [key: string]: DownloadCancellationToken }>({});
   
   // Pagination state for HuggingFace models
   const [currentAuthorIndex, setCurrentAuthorIndex] = useState<number>(0);
@@ -837,21 +802,29 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     fetchHFModels(true, null);
   }, [fetchHFModels]);
 
-  const handleCancelDownload = useCallback((file: string) => {
-    const cancelDownload = downloadCancellationTokens[file];
-    if (cancelDownload) {
-      cancelDownload();
-      setDownloadProgress(prev => {
-        const newProgress = { ...prev };
-        delete newProgress[file];
-        return newProgress;
-      });
-      setDownloadCancellationTokens(prev => {
-        const newTokens = { ...prev };
-        delete newTokens[file];
-        return newTokens;
-      });
-      setSelectedGGUF(null);
+  const handleCancelDownload = useCallback(async (file: string) => {
+    const cancellationToken = downloadCancellationTokens[file];
+    if (cancellationToken) {
+      try {
+        // Cancel the download
+        await cancellationToken.cancel();
+        console.log(`Download cancelled for: ${file}`);
+      } catch (error) {
+        console.error("Error cancelling download:", error);
+      } finally {
+        // Always clean up state, even if cancel fails
+        setDownloadProgress(prev => {
+          const newProgress = { ...prev };
+          delete newProgress[file];
+          return newProgress;
+        });
+        setDownloadCancellationTokens(prev => {
+          const newTokens = { ...prev };
+          delete newTokens[file];
+          return newTokens;
+        });
+        setSelectedGGUF(null);
+      }
     }
   }, [downloadCancellationTokens, setSelectedGGUF]);
 
@@ -1097,31 +1070,45 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                 try {
                   setDownloadProgress(prev => ({ ...prev, [fileNameToDownload]: 0 }));
                   
-                  const controller = new AbortController();
+                  // Create cancellation token
+                  const cancellationToken = createCancellationToken(fileNameToDownload);
                   setDownloadCancellationTokens(prev => ({
                     ...prev,
-                    [fileNameToDownload]: () => controller.abort()
+                    [fileNameToDownload]: cancellationToken
                   }));
 
                   await handleDownloadModel(fileNameToDownload, model.repoId, (progress) => {
-                    setDownloadProgress(prev => ({ ...prev, [fileNameToDownload]: progress }));
-                  });
+                    // Check if cancelled before updating progress
+                    if (!cancellationToken.isCancelled()) {
+                      setDownloadProgress(prev => ({ ...prev, [fileNameToDownload]: progress }));
+                    }
+                  }, cancellationToken);
 
-                  setDownloadCancellationTokens(prev => {
-                    const newTokens = { ...prev };
-                    delete newTokens[fileNameToDownload];
-                    return newTokens;
-                  });
-
-                  await checkDownloadedModels();
+                  // Clean up cancellation token if download completed successfully
+                  if (!cancellationToken.isCancelled()) {
+                    setDownloadCancellationTokens(prev => {
+                      const newTokens = { ...prev };
+                      delete newTokens[fileNameToDownload];
+                      return newTokens;
+                    });
+                    await checkDownloadedModels();
+                  }
                 } catch (error) {
-                  if (error instanceof Error && error.name === 'AbortError') {
+                  // Check if it's a cancellation error
+                  if (error instanceof Error && error.message === "Download was cancelled") {
                     console.log(`Download cancelled for ${fileNameToDownload}`);
+                    // State cleanup is handled by handleCancelDownload
                   } else {
+                    // Clean up on error
                     setDownloadProgress(prev => {
                       const newProgress = { ...prev };
                       delete newProgress[fileNameToDownload];
                       return newProgress;
+                    });
+                    setDownloadCancellationTokens(prev => {
+                      const newTokens = { ...prev };
+                      delete newTokens[fileNameToDownload];
+                      return newTokens;
                     });
                     showAlert("Error", "Failed to download the model.", [{ text: "OK" }]);
                   }
@@ -1938,32 +1925,46 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                                     try {
                                       setDownloadProgress(prev => ({ ...prev, [fileNameToDownload]: 0 }));
                                       
-                                      const controller = new AbortController();
+                                      // Create cancellation token
+                                      const cancellationToken = createCancellationToken(fileNameToDownload);
                                       setDownloadCancellationTokens(prev => ({
                                         ...prev,
-                                        [fileNameToDownload]: () => controller.abort()
+                                        [fileNameToDownload]: cancellationToken
                                       }));
 
                                       await handleDownloadModel(fileNameToDownload, selectedModelForDownload.repoId, (progress) => {
-                                        setDownloadProgress(prev => ({ ...prev, [fileNameToDownload]: progress }));
-                                      });
+                                        // Check if cancelled before updating progress
+                                        if (!cancellationToken.isCancelled()) {
+                                          setDownloadProgress(prev => ({ ...prev, [fileNameToDownload]: progress }));
+                                        }
+                                      }, cancellationToken);
 
-                                      setDownloadCancellationTokens(prev => {
-                                        const newTokens = { ...prev };
-                                        delete newTokens[fileNameToDownload];
-                                        return newTokens;
-                                      });
-
-                                      await checkDownloadedModels();
-                                      setSelectedModelForDownload(null);
+                                      // Clean up cancellation token if download completed successfully
+                                      if (!cancellationToken.isCancelled()) {
+                                        setDownloadCancellationTokens(prev => {
+                                          const newTokens = { ...prev };
+                                          delete newTokens[fileNameToDownload];
+                                          return newTokens;
+                                        });
+                                        await checkDownloadedModels();
+                                        setSelectedModelForDownload(null);
+                                      }
                                     } catch (error) {
-                                      if (error instanceof Error && error.name === 'AbortError') {
+                                      // Check if it's a cancellation error
+                                      if (error instanceof Error && error.message === "Download was cancelled") {
                                         console.log(`Download cancelled for ${fileNameToDownload}`);
+                                        // State cleanup is handled by handleCancelDownload
                                       } else {
+                                        // Clean up on error
                                         setDownloadProgress(prev => {
                                           const newProgress = { ...prev };
                                           delete newProgress[fileNameToDownload];
                                           return newProgress;
+                                        });
+                                        setDownloadCancellationTokens(prev => {
+                                          const newTokens = { ...prev };
+                                          delete newTokens[fileNameToDownload];
+                                          return newTokens;
                                         });
                                         showAlert("Error", "Failed to download the model.", [{ text: "OK" }]);
                                       }

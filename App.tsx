@@ -16,7 +16,7 @@ import { ScrollView, ActivityIndicator, Animated, StatusBar, Platform, Interacti
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { createStyles } from "./src/styles/styles";
-import { downloadModel } from "./src/api/model";
+import { downloadModel, DownloadCancellationToken } from "./src/api/model";
 import { releaseAllLlama } from "llama.rn";
 import RNFS from "react-native-fs";
 import axios from "axios";
@@ -42,6 +42,7 @@ import SkillRunnerScreen from "./src/screens/SkillRunnerScreen";
 import SkillEditorScreen from "./src/screens/SkillEditorScreen";
 import CodeLibLibraryScreen from "./src/screens/CodeLibLibraryScreen";
 import CodeLibEditorScreen from "./src/screens/CodeLibEditorScreen";
+import InfoScreen from "./src/screens/InfoScreen";
 import { Persona, getPersonas } from "./src/services/personaService";
 import { ModelInfo } from "./src/components/ModelCard";
 import { Skill } from "./src/services/skillService";
@@ -93,7 +94,7 @@ function AppContent(): React.JSX.Element {
   const [userInput, setUserInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedGGUF, setSelectedGGUF] = useState<string | null>(null);
-  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "skills" | "skillRunner" | "skillEditor" | "codelib" | "codelibEditor";
+  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "skills" | "skillRunner" | "skillEditor" | "codelib" | "codelibEditor" | "info";
   const [currentPage, setCurrentPage] = useState<PageType>("conversation");
   const [editingPersona, setEditingPersona] = useState<Persona | null | undefined>(undefined);
   const [selectedModelForSettings, setSelectedModelForSettings] = useState<ModelInfo | null>(null);
@@ -402,9 +403,20 @@ function AppContent(): React.JSX.Element {
    * - Storage full (handled by downloadModel, user notified)
    * - Concurrent downloads (prevented by UI state)
    */
-  const handleDownloadModel = useCallback(async (file: string, repoId: string, onProgress: (progress: number) => void) => {
+  const handleDownloadModel = useCallback(async (
+    file: string, 
+    repoId: string, 
+    onProgress: (progress: number) => void,
+    cancellationToken?: DownloadCancellationToken
+  ) => {
     const downloadUrl = `https://huggingface.co/${repoId}/resolve/main/${file}`;
     const destPath = `${RNFS.DocumentDirectoryPath}/${file}`;
+    
+    // Check if already cancelled
+    if (cancellationToken?.isCancelled()) {
+      console.log("Download cancelled before starting");
+      return;
+    }
     
     // Check if model already exists locally
     if (await checkFileExists(destPath)) {
@@ -424,7 +436,14 @@ function AppContent(): React.JSX.Element {
     
     // Model doesn't exist - download it
     try {
-      await downloadModel(file, downloadUrl, onProgress);
+      await downloadModel(file, downloadUrl, onProgress, cancellationToken);
+      
+      // Check if cancelled after download
+      if (cancellationToken?.isCancelled()) {
+        console.log("Download was cancelled");
+        return;
+      }
+      
       await checkDownloadedModels(); // Refresh downloaded models list
       
       // Load model after successful download
@@ -437,6 +456,12 @@ function AppContent(): React.JSX.Element {
         setSelectedGGUF(null); // Reset selection on load failure
       }
     } catch (error) {
+      // Check if it's a cancellation error - don't show error for cancellations
+      if (error instanceof Error && error.message === "Download was cancelled") {
+        console.log("Download was cancelled by user");
+        return;
+      }
+      
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       console.error("Download failed:", errorMessage);
       setSelectedGGUF(null); // Reset selection on error
@@ -563,6 +588,7 @@ function AppContent(): React.JSX.Element {
           onGoToModelSelection={() => setCurrentPage("modelSelection")}
           onGoToPersonas={() => setCurrentPage("personas")}
           onGoToSkills={() => setCurrentPage("skills")}
+          onGoToInfo={() => setCurrentPage("info")}
           />
         </Animated.View>
       )}
@@ -739,6 +765,17 @@ function AppContent(): React.JSX.Element {
               setEditingCodeLibFunction(undefined);
               setCurrentPage("codelib");
             }}
+          />
+        </Animated.View>
+      )}
+
+      {currentPage === "info" && (
+        <Animated.View 
+          style={[{ flex: 1 }, pageTransitionStyle]}
+          collapsable={false}
+        >
+          <InfoScreen
+            onBack={() => setCurrentPage("settings")}
           />
         </Animated.View>
       )}
