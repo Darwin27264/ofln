@@ -17,7 +17,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
   /* Top-right container for both pills */
   topRightButtons: {
     position: "absolute",
-    top: 20,
+    top: 8,
     right: 16,
     zIndex: 10,
     flexDirection: "row",
@@ -44,7 +44,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
   /* Top-left pill for slide-out panel trigger */
   topLeftPill: {
     position: "absolute",
-    top: 20,
+    top: 8,
     left: 16,
     zIndex: 10,
     backgroundColor: colors.glass,
@@ -83,12 +83,12 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     transform: [{ translateY: -50 }],
   },
   greetingText: {
-    fontSize: 36,
+    fontSize: 32,
     fontWeight: "300",
     textAlign: "left",
     color: colors.textSecondary,
     marginRight: 80,
-    lineHeight: 40,
+    lineHeight: 36,
     fontFamily: "Poppins",
   },
 
@@ -173,7 +173,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderRadius: 30,
     paddingLeft: 16,
     paddingRight: 4,
-    paddingVertical: 4,
+    paddingVertical: 2,
     marginHorizontal: 16,
     marginBottom: 8,
     backgroundColor: colors.glass,
@@ -182,14 +182,14 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
   input: {
     flex: 1,
     backgroundColor: colors.transparent,
-    fontSize: 18,
+    fontSize: 16,
     color: colors.text,
-    paddingVertical: 2,
+    paddingVertical: 1,
     fontFamily: "Poppins",
   },
   sendIconButton: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     borderRadius: 30,
     alignItems: "center",
     justifyContent: "center",
@@ -202,8 +202,8 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontFamily: "Poppins",
   },
   stopButton: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     borderRadius: 30,
     alignItems: "center",
     justifyContent: "center",
@@ -409,11 +409,11 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     left: 15,
   },
   blockText: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "normal",
     textAlign: "left",
     color: colors.text,
-    lineHeight: 24,
+    lineHeight: 22,
   },
   blockInfoIcon: {
     position: "absolute",
@@ -424,7 +424,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     position: "absolute",
     bottom: 15,
     right: 15,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "normal",
   },
 

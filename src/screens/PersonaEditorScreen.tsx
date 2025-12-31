@@ -206,7 +206,7 @@ export default function PersonaEditorScreen({
           alignItems: "center",
           justifyContent: "space-between",
           paddingHorizontal: 20,
-          paddingTop: 20,
+          paddingTop: 8,
           paddingBottom: 12,
           borderBottomWidth: 1,
           borderBottomColor: theme.colors.border,

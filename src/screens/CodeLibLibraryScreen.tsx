@@ -262,7 +262,7 @@ export default function CodeLibLibraryScreen({
           backgroundColor: theme.colors.background,
           zIndex: 1,
           paddingHorizontal: 20,
-          paddingTop: 20,
+          paddingTop: 8,
           paddingBottom: 12,
           flexDirection: "row",
           justifyContent: "space-between",
@@ -301,7 +301,7 @@ export default function CodeLibLibraryScreen({
       {/* Scrollable content */}
       <ScrollView
         style={{
-          marginTop: 70,
+          marginTop: 55,
           flex: 1,
         }}
         showsVerticalScrollIndicator={false}

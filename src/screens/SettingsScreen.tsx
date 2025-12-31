@@ -162,7 +162,7 @@ export default function SettingsScreen({
         <View style={{ flexDirection: "row", marginBottom: 10, height: 145 }}>
           <TouchableOpacity style={{ flex: 1, marginRight: 5 }} onPress={onOpenStats}>
             <Animated.View style={styles.settingsBlock}>
-              <Ionicons name="speedometer-outline" size={22} color={theme.colors.text} style={styles.blockIcon}/>
+              <Ionicons name="speedometer-outline" size={21} color={theme.colors.text} style={styles.blockIcon}/>
               <View style={styles.blockTextContainer}>
                 <Text style={styles.blockText}>Performance</Text>
               </View>
@@ -170,7 +170,7 @@ export default function SettingsScreen({
           </TouchableOpacity>
           <TouchableOpacity style={{ flex: 1, marginLeft: 5 }} onPress={onGoToModelSelection}>
             <Animated.View style={styles.settingsBlock}>
-              <Ionicons name="grid-outline" size={22} color={theme.colors.text} style={styles.blockIcon}/>
+              <Ionicons name="grid-outline" size={21} color={theme.colors.text} style={styles.blockIcon}/>
               <View style={styles.blockTextContainer}>
                 <Text style={styles.blockText}>Models</Text>
               </View>
@@ -180,7 +180,7 @@ export default function SettingsScreen({
         <View style={{ flexDirection: "row", height: 145 }}>
           <TouchableOpacity style={{ flex: 1, marginRight: 5 }} onPress={onGoToSkills}>
             <Animated.View style={styles.settingsBlock}>
-              <Ionicons name="sparkles-outline" size={22} color={theme.colors.text} style={styles.blockIcon}/>
+              <Ionicons name="sparkles-outline" size={21} color={theme.colors.text} style={styles.blockIcon}/>
               <View style={styles.blockTextContainer}>
                 <Text style={styles.blockText}>Skills</Text>
               </View>
@@ -188,7 +188,7 @@ export default function SettingsScreen({
           </TouchableOpacity>
           <TouchableOpacity style={{ flex: 1, marginLeft: 5 }} onPress={onGoToPersonas}>
             <Animated.View style={styles.settingsBlock}>
-              <Ionicons name="person-circle-outline" size={22} color={theme.colors.text} style={styles.blockIcon}/>
+              <Ionicons name="person-circle-outline" size={21} color={theme.colors.text} style={styles.blockIcon}/>
               <View style={styles.blockTextContainer}>
                 <Text style={styles.blockText}>Personas</Text>
               </View>
@@ -200,18 +200,18 @@ export default function SettingsScreen({
       <View style={{ flexDirection: "row", height: 120, justifyContent: "space-between" }}>
         <TouchableOpacity style={{ flex: 1, maxWidth: "48.5%" }} onPress={toggleChatMode}>
           <Animated.View style={[styles.settingsBlock, { backgroundColor: chatModeBackground }]}>
-            <Ionicons name="chatbubble-outline" size={22} color={bubblesMode ? theme.colors.primaryText : theme.colors.text} style={styles.blockIcon}/>
+            <Ionicons name="chatbubble-outline" size={21} color={bubblesMode ? theme.colors.primaryText : theme.colors.text} style={styles.blockIcon}/>
             <View style={styles.blockTextContainer}>
               <Animated.Text style={[styles.blockText, { color: chatModeTextColor }]}>Chat Mode</Animated.Text>
             </View>
             <TouchableOpacity style={styles.blockInfoIcon} onPress={showChatModeInfo}>
-              <Ionicons name="information-circle-outline" size={20} color={bubblesMode ? theme.colors.primaryText : theme.colors.text}/>
+              <Ionicons name="information-circle-outline" size={19} color={bubblesMode ? theme.colors.primaryText : theme.colors.text}/>
             </TouchableOpacity>
           </Animated.View>
         </TouchableOpacity>
         <TouchableOpacity style={{ flex: 1, maxWidth: "48.5%" }} onPress={toggleTheme}>
           <Animated.View style={[styles.settingsBlock, { backgroundColor: darkModeBackground }]}>
-            <Ionicons name={isDark ? "moon" : "moon-outline"} size={22} color={isDark ? theme.colors.primaryText : theme.colors.text} style={styles.blockIcon}/>
+            <Ionicons name={isDark ? "moon" : "moon-outline"} size={21} color={isDark ? theme.colors.primaryText : theme.colors.text} style={styles.blockIcon}/>
             <View style={styles.blockTextContainer}>
               <Animated.Text style={[styles.blockText, { color: darkModeTextColor }]}>Dark Mode</Animated.Text>
             </View>

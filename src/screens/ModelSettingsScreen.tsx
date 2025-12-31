@@ -139,7 +139,7 @@ export default function ModelSettingsScreen({
           backgroundColor: theme.colors.background,
           zIndex: 1,
           paddingHorizontal: 20,
-          paddingTop: 20,
+          paddingTop: 8,
           paddingBottom: 12,
           flexDirection: "row",
           justifyContent: "space-between",
@@ -164,7 +164,7 @@ export default function ModelSettingsScreen({
       {/* Scrollable content */}
       <ScrollView
         style={{
-          marginTop: 90,
+          marginTop: 70,
           flex: 1,
         }}
         showsVerticalScrollIndicator={true}

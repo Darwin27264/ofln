@@ -1204,7 +1204,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         backgroundColor: theme.colors.background,
         zIndex: 1,
         paddingHorizontal: 20,
-        paddingTop: 20,
+        paddingTop: 8,
         paddingBottom: 0,
       }}>
         <Text style={styles.settingsTitle}>Models</Text>
@@ -1213,7 +1213,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       {/* Scrollable content */}
       <ScrollView 
         style={{ 
-          marginTop: 55,
+          marginTop: 45,
           flex: 1,
         }}
         showsVerticalScrollIndicator={false}

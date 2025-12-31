@@ -285,6 +285,11 @@ No environment variables are required. The app uses:
 - `npm run android:check-storage`: Check storage usage on connected device/emulator
 - `npm run android:install`: Install debug APK without building (faster if already built)
 
+## Build APK
+- `cd android`
+- `.\gradlew.bat clean`
+- `.\gradlew.bat assembleRelease`
+
 ### iOS Specific
 
 - `cd ios && pod install`: Reinstall CocoaPods dependencies

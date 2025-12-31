@@ -1366,25 +1366,25 @@ export default function ConversationScreen({
     let additionalPadding = 0;
     
     if (windowResizeInsufficient) {
-      // Window didn't resize enough (common on Samsung/OEM) - add gap + minimal safety margin
+      // Window didn't resize enough (common on Samsung/OEM) - add gap + safety margin
       const gap = keyboardH - heightLoss;
-      // Use the larger of: gap + 2px buffer, or 28% of keyboard height
+      // Use the larger of: gap + 10px buffer, or 20% of keyboard height
       additionalPadding = Math.max(
-        gap + 2, // Gap + 2px minimal buffer
-        keyboardH * 0.28 // Or at least 28% of keyboard height
+        gap + 10, // Gap + 10px buffer
+        keyboardH * 0.20 // Or at least 20% of keyboard height
       );
     } else if (hasLayoutMeasurements && heightLoss > 0) {
-      // Window resized properly - add minimal buffer for safety
-      // Use 2-4px adaptive buffer (3-4% of keyboard height)
-      additionalPadding = Math.max(2, Math.min(keyboardH * 0.04, 4));
+      // Window resized properly - add buffer for safety
+      // Use 10-12px adaptive buffer
+      additionalPadding = Math.max(10, Math.min(keyboardH * 0.06, 12));
     } else {
-      // No layout measurements yet or keyboard just appeared - use minimal fallback
-      // Use 32% of keyboard height + small buffer to prevent coverage during transitions
-      additionalPadding = keyboardH * 0.32 + 4; // 32% + 4px buffer
+      // No layout measurements yet or keyboard just appeared - use fallback
+      // Use 20% of keyboard height + buffer
+      additionalPadding = keyboardH * 0.20 + 10; // 20% + 10px buffer
     }
     
-    // Final safety check: ensure we always have at least 16% of keyboard height as padding
-    const minimumRequiredPadding = keyboardH * 0.16;
+    // Final safety check: ensure we always have at least 17% of keyboard height as padding
+    const minimumRequiredPadding = keyboardH * 0.17;
     additionalPadding = Math.max(additionalPadding, minimumRequiredPadding);
     
     return additionalPadding;
@@ -1463,7 +1463,7 @@ export default function ConversationScreen({
             {isTemporaryMode && hasStartedChat && (
               <Text style={{
                 position: 'absolute',
-                top: 20, // Same top position as button
+                top: 8, // Same top position as button
                 left: 73 + screenWidth * 0.4 + 8, // Position right of model selector
                 zIndex: 10,
                 color: theme.colors.textTertiary,
@@ -1836,7 +1836,7 @@ export default function ConversationScreen({
                     <Text style={{
                       color: theme.colors.textSecondary,
                       fontSize: 14,
-                      fontWeight: '600',
+                      fontWeight: 'bold',
                       marginBottom: 12,
                       textTransform: 'uppercase',
                       letterSpacing: 0.5,
@@ -1918,7 +1918,7 @@ export default function ConversationScreen({
               flexGrow: 1,
               justifyContent: "flex-end",
               paddingHorizontal: Math.max(16, Dimensions.get("window").width * 0.04),
-              paddingTop: 90,
+              paddingTop: 60,
               paddingBottom: 16,
             }}
             ref={scrollViewRef}
@@ -1970,7 +1970,7 @@ export default function ConversationScreen({
                         <Markdown
                           style={{ 
                             body: { 
-                              fontSize: 18, 
+                              fontSize: 16, 
                               fontFamily: "Poppins",
                               color: msg.role === "user" ? theme.colors.primaryText : theme.colors.text,
                               margin: 0,
@@ -2136,8 +2136,8 @@ export default function ConversationScreen({
                     style={{
                       backgroundColor: theme.colors.glass,
                       paddingHorizontal: 20,
-                      paddingVertical: 16,
-                      borderRadius: 16,
+                      paddingVertical: 12,
+                      borderRadius: 12,
                       borderWidth: 1,
                       borderColor: theme.colors.border,
                       width: '100%',
@@ -2149,7 +2149,7 @@ export default function ConversationScreen({
                   >
                     <Text style={{
                       color: theme.colors.text,
-                      fontSize: 18,
+                      fontSize: 16,
                       fontFamily: 'Poppins',
                       textAlign: 'left',
                       flex: 1,
@@ -2194,7 +2194,7 @@ export default function ConversationScreen({
                 <TouchableOpacity style={styles.stopButton} onPress={stopGeneration}>
                   <Ionicons
                     name="stop-circle"
-                    size={44}
+                    size={40}
                     color={theme.colors.error}
                   />
                 </TouchableOpacity>
@@ -2210,7 +2210,7 @@ export default function ConversationScreen({
                 >
                   <Ionicons
                     name="arrow-up-circle"
-                    size={44}
+                    size={40}
                     color={sendButtonDisabled ? theme.colors.textTertiary : theme.colors.text}
                   />
                 </TouchableOpacity>

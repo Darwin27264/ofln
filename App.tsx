@@ -459,7 +459,10 @@ function AppContent(): React.JSX.Element {
         barStyle={theme.mode === 'dark' ? 'light-content' : 'dark-content'}
         backgroundColor={statusBarColor}
       />
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <SafeAreaView 
+        style={[styles.container, { backgroundColor: theme.colors.background }]}
+        edges={['bottom', 'left', 'right']}
+      >
         {currentPage === "modelSelection" && (
         <Animated.View 
           style={[{ flex: 1 }, pageTransitionStyle]}
