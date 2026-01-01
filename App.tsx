@@ -514,7 +514,7 @@ function AppContent(): React.JSX.Element {
       />
       <SafeAreaView 
         style={[styles.container, { backgroundColor: theme.colors.background }]}
-        edges={['bottom', 'left', 'right']}
+        edges={['top', 'bottom', 'left', 'right']}
       >
         {currentPage === "modelSelection" && (
         <Animated.View 
