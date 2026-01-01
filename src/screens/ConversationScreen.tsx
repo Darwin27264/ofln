@@ -35,6 +35,7 @@ import {
   BackHandler,
   ActivityIndicator,
   LayoutChangeEvent,
+  NativeModules,
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import Markdown from "react-native-markdown-display";
@@ -458,6 +459,58 @@ export default function ConversationScreen({
   const { keyboardHeight: keyboardPadding, animatedHeight } = useKeyboardPadding();
   const [initialLayoutHeight, setInitialLayoutHeight] = useState<number | null>(null);
   const [currentLayoutHeight, setCurrentLayoutHeight] = useState<number | null>(null);
+  
+  // Detect Samsung devices for keyboard padding adjustments
+  // Samsung devices often have different keyboard behavior that requires extra padding
+  const [isSamsungDevice, setIsSamsungDevice] = useState<boolean>(false);
+  
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      try {
+        // Try to detect Samsung device via Platform constants
+        // React Native's Platform.constants may have device info on some versions
+        const platformConstants = Platform.constants || {};
+        const brand = (platformConstants.Brand || '').toLowerCase();
+        const manufacturer = (platformConstants.Manufacturer || '').toLowerCase();
+        const model = (platformConstants.Model || '').toLowerCase();
+        
+        // Also try NativeModules as fallback
+        let nativeBrand = '';
+        let nativeManufacturer = '';
+        let nativeModel = '';
+        try {
+          const deviceInfo = NativeModules.PlatformConstants || {};
+          nativeBrand = (deviceInfo.Brand || '').toLowerCase();
+          nativeManufacturer = (deviceInfo.Manufacturer || '').toLowerCase();
+          nativeModel = (deviceInfo.Model || '').toLowerCase();
+        } catch (e) {
+          // NativeModules might not be available, that's okay
+        }
+        
+        // Check if device is Samsung based on brand/manufacturer/model
+        // Samsung devices often have model numbers starting with "SM-"
+        const isSamsung = 
+          brand.includes('samsung') ||
+          manufacturer.includes('samsung') ||
+          model.includes('samsung') ||
+          model.includes('sm-') || // Samsung model prefix (e.g., SM-G998B)
+          nativeBrand.includes('samsung') ||
+          nativeManufacturer.includes('samsung') ||
+          nativeModel.includes('samsung') ||
+          nativeModel.includes('sm-');
+        
+        setIsSamsungDevice(isSamsung);
+        
+        if (isSamsung) {
+          console.log('Samsung device detected - applying extra keyboard padding');
+        }
+      } catch (error) {
+        // If detection fails, we'll use windowResizeInsufficient as fallback
+        // This is fine - the windowResizeInsufficient flag already catches Samsung-like behavior
+        console.warn('Could not detect device manufacturer, will use behavior-based detection:', error);
+      }
+    }
+  }, []);
   
   // Animated padding value for smooth transitions
   const animatedPadding = useRef(new Animated.Value(0)).current;
@@ -1387,13 +1440,29 @@ export default function ConversationScreen({
     const minimumRequiredPadding = keyboardH * 0.17;
     additionalPadding = Math.max(additionalPadding, minimumRequiredPadding);
     
-    // Add extra padding to move input bar lower when keyboard is active
-    // This provides more comfortable spacing between keyboard and input
-    const extraSpacing = 0; // Additional 100px to move input bar lower
+    // Adjust padding for Samsung devices - they need LESS padding to move input bar lower
+    // Samsung devices have different keyboard behavior that causes the input bar to sit too high
+    // By reducing padding, we bring the input bar closer to the keyboard (lower on screen)
+    let extraSpacing = 0;
+    if (Platform.OS === 'android') {
+      // Use Samsung detection OR windowResizeInsufficient as indicator
+      // windowResizeInsufficient is often true on Samsung devices due to their keyboard handling
+      if (isSamsungDevice || windowResizeInsufficient) {
+        // REDUCE padding for Samsung devices to bring input bar lower (closer to keyboard)
+        // Negative value means we subtract from the calculated padding
+        // Using a percentage of keyboard height ensures it scales appropriately
+        extraSpacing = -Math.max(20, keyboardH * 0.06); // Subtract at least 20px or 6% of keyboard height
+        console.log(`Applying Samsung-specific spacing reduction: ${Math.abs(extraSpacing).toFixed(1)}px`);
+      }
+    }
     additionalPadding += extraSpacing;
     
+    // Ensure padding doesn't go below a safe minimum (at least 10% of keyboard height)
+    const absoluteMinimum = keyboardH * 0.10;
+    additionalPadding = Math.max(additionalPadding, absoluteMinimum);
+    
     return additionalPadding;
-  }, [windowResizeInsufficient, heightLoss, hasLayoutMeasurements]);
+  }, [windowResizeInsufficient, heightLoss, hasLayoutMeasurements, isSamsungDevice]);
 
   // Update animated padding when keyboard height changes
   useEffect(() => {

@@ -6,6 +6,7 @@ import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import RNFS from "react-native-fs";
 import { showAlert } from "../components/CustomAlert";
+import { readErrorLog, getErrorLogPath, clearErrorLog } from "../utils/errorLogger";
 
 interface Props {
   assistantDisplayMode: "bubble" | "direct";

@@ -62,8 +62,9 @@ react {
 
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
+ * DISABLED: ProGuard can cause issues with native modules like llama.rn, especially on Samsung devices
  */
-def enableProguardInReleaseBuilds = true
+def enableProguardInReleaseBuilds = false
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -107,9 +108,12 @@ android {
     buildTypes {
         release {
             signingConfig signingConfigs.release
-            minifyEnabled enableProguardInReleaseBuilds
-            shrinkResources enableProguardInReleaseBuilds
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Disabled minification and ProGuard to prevent issues with native modules
+            // This is especially important for llama.rn and Samsung device compatibility
+            minifyEnabled false
+            shrinkResources false
+            // Keep proguard rules file for future use, but not applied
+            // proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 }

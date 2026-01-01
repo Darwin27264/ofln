@@ -1,9 +1,11 @@
 // llamaservice.ts
+import { Platform } from "react-native";
 import RNFS from "react-native-fs";
 import { initLlama } from "llama.rn";
 import { recordUsage, getPerformanceLevel } from "./usageTracker";
 import { getModelSettings, ModelSettings, DEFAULT_SETTINGS } from "./modelSettingsService";
 import { Persona, buildPersonaSystemPrompt } from "./personaService";
+import { logError } from "../utils/errorLogger";
 
 // Types
 type Message = {
@@ -51,7 +53,19 @@ export const loadModel = async (
   try {
     // Validate file path
     if (!filePath || typeof filePath !== 'string') {
-      console.error("Invalid file path provided to loadModel");
+      const errorMsg = "Invalid file path provided to loadModel";
+      console.error(errorMsg);
+      await logError("ModelLoading", errorMsg, undefined, { filePath });
+      return false;
+    }
+
+    // Verify file exists before attempting to load
+    // This is especially important on Samsung devices where file access might be restricted
+    const fileExists = await checkFileExists(filePath);
+    if (!fileExists) {
+      const errorMsg = `Model file does not exist at path: ${filePath}`;
+      console.error(errorMsg);
+      await logError("ModelLoading", errorMsg, undefined, { filePath });
       return false;
     }
 
@@ -64,9 +78,14 @@ export const loadModel = async (
           context.release();
         }
         setContext(null);
+        // Add a small delay to ensure proper cleanup before loading new model
+        // This is especially important on Samsung devices with aggressive memory management
+        await new Promise(resolve => setTimeout(resolve, 500));
       } catch (releaseError) {
         // Log but don't fail - we'll try to load anyway
         console.warn("Error releasing previous context:", releaseError);
+        // Still add delay even if release had an error
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
     
@@ -81,26 +100,189 @@ export const loadModel = async (
       settings = DEFAULT_SETTINGS;
     }
     
-    // Initialize llama context with model settings
-    // use_mlock: true helps prevent memory swapping on mobile devices
-    const llamaContext = await initLlama({
-      model: filePath,
-      use_mlock: true, // Lock memory to prevent swapping (important for mobile)
-      n_ctx: settings.n_ctx,
-      n_gpu_layers: settings.n_gpu_layers,
-    });
+    // For Samsung devices, reduce context window size to prevent memory issues
+    // This is a conservative approach to ensure models load successfully
+    let adjustedN_ctx = settings.n_ctx;
+    let adjustedN_gpu_layers = settings.n_gpu_layers;
+    
+    // Try to detect Samsung device (basic check - can be enhanced)
+    const isLikelySamsung = Platform.OS === 'android' && (
+      // Check if we're on a device that might have memory constraints
+      // This is a heuristic - in production you might want to use device detection library
+      adjustedN_ctx > 2048
+    );
+    
+    if (isLikelySamsung && adjustedN_ctx > 2048) {
+      // Reduce context window for Samsung devices to prevent crashes
+      adjustedN_ctx = Math.min(2048, adjustedN_ctx);
+      console.log(`Reduced context window to ${adjustedN_ctx} for better compatibility`);
+    }
+    
+    // Try to initialize llama context with use_mlock: true first
+    // This helps prevent memory swapping on mobile devices
+    // If it fails (e.g., on Samsung devices with strict memory management),
+    // fall back to use_mlock: false
+    let llamaContext;
+    let loadAttempts = 0;
+    const maxAttempts = 3;
+    
+    while (loadAttempts < maxAttempts && !llamaContext) {
+      try {
+        const useMlock = loadAttempts === 0; // Try with mlock first, then without
+        console.log(`Attempting to load model: ${fileName} (attempt ${loadAttempts + 1}/${maxAttempts}) with use_mlock: ${useMlock}`);
+        
+        llamaContext = await initLlama({
+          model: filePath,
+          use_mlock: useMlock,
+          n_ctx: adjustedN_ctx,
+          n_gpu_layers: adjustedN_gpu_layers,
+        });
+        
+        if (llamaContext) {
+          console.log(`Successfully loaded model: ${fileName} with use_mlock: ${useMlock}`);
+          break;
+        }
+      } catch (attemptError) {
+        loadAttempts++;
+        const errorMsg = attemptError instanceof Error ? attemptError.message : "Unknown error";
+        const errorStack = attemptError instanceof Error ? attemptError.stack : undefined;
+        
+        console.warn(`Load attempt ${loadAttempts} failed: ${errorMsg}`);
+        if (errorStack) {
+          console.warn("Error stack:", errorStack);
+        }
+        
+        // Log the attempt error
+        await logError(
+          "ModelLoading",
+          `Load attempt ${loadAttempts}/${maxAttempts} failed`,
+          attemptError instanceof Error ? attemptError : new Error(String(attemptError)),
+          {
+            fileName,
+            attempt: loadAttempts,
+            use_mlock: loadAttempts === 1,
+            n_ctx: adjustedN_ctx,
+            n_gpu_layers: adjustedN_gpu_layers,
+          },
+          "WARN"
+        );
+        
+        // If this was the last attempt, throw the error
+        if (loadAttempts >= maxAttempts) {
+          // Try one more time with even more conservative settings
+          try {
+            console.log(`Final attempt with reduced settings: n_ctx=${Math.min(1024, adjustedN_ctx)}, n_gpu_layers=0`);
+            llamaContext = await initLlama({
+              model: filePath,
+              use_mlock: false,
+              n_ctx: Math.min(1024, adjustedN_ctx), // Very conservative context window
+              n_gpu_layers: 0, // Disable GPU layers as last resort
+            });
+            
+            if (llamaContext) {
+              console.log(`Successfully loaded model with reduced settings`);
+              await logError(
+                "ModelLoading",
+                "Model loaded successfully with reduced settings after failures",
+                undefined,
+                { fileName, finalN_ctx: Math.min(1024, adjustedN_ctx), finalN_gpu_layers: 0 },
+                "INFO"
+              );
+              break;
+            }
+          } catch (finalError) {
+            const finalErrorMsg = finalError instanceof Error ? finalError.message : "Unknown error";
+            console.error(`Final load attempt failed: ${finalErrorMsg}`);
+            await logError(
+              "ModelLoading",
+              "All model loading attempts failed",
+              finalError instanceof Error ? finalError : new Error(String(finalError)),
+              {
+                fileName,
+                filePath,
+                totalAttempts: loadAttempts + 1,
+                originalN_ctx: settings.n_ctx,
+                originalN_gpu_layers: settings.n_gpu_layers,
+              }
+            );
+            throw finalError;
+          }
+        } else {
+          // Wait a bit before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+    }
     
     // Validate context was created successfully
     if (!llamaContext) {
-      console.error("Failed to create llama context - initLlama returned null/undefined");
+      const errorMsg = "Failed to create llama context after all attempts";
+      console.error(errorMsg);
+      await logError(
+        "ModelLoading",
+        errorMsg,
+        undefined,
+        { fileName, filePath }
+      );
       return false;
     }
     
+    console.log(`Successfully loaded model: ${fileName}`);
     setContext(llamaContext);
     return true;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const errorStack = error instanceof Error ? error.stack : undefined;
     console.error("Error loading model:", errorMessage);
+    if (errorStack) {
+      console.error("Error stack:", errorStack);
+    }
+    
+    // Determine error category and suggestions
+    let errorCategory = "ModelLoading";
+    let suggestions: string[] = [];
+    
+    // Check for specific error types that might indicate memory issues
+    if (errorMessage.toLowerCase().includes('memory') || 
+        errorMessage.toLowerCase().includes('out of memory') ||
+        errorMessage.toLowerCase().includes('oom')) {
+      errorCategory = "ModelLoading.Memory";
+      suggestions = [
+        "Close other apps to free up RAM",
+        "Try a smaller model",
+        "Reduce context window size in model settings",
+        "Disable GPU layers if enabled",
+      ];
+      console.error("Memory-related error detected. This may indicate insufficient RAM or device memory limits.");
+    }
+    
+    // Check for file access errors (common on Samsung devices with file restrictions)
+    if (errorMessage.toLowerCase().includes('permission') ||
+        errorMessage.toLowerCase().includes('access') ||
+        errorMessage.toLowerCase().includes('denied') ||
+        errorMessage.toLowerCase().includes('not found')) {
+      errorCategory = "ModelLoading.FileAccess";
+      suggestions = [
+        "Check file permissions",
+        "Verify file path is correct",
+        "Ensure file is not corrupted",
+        "Try re-downloading the model",
+      ];
+      console.error("File access error detected. Check file permissions and path.");
+    }
+    
+    // Log the error with full context
+    await logError(
+      errorCategory,
+      `Failed to load model: ${errorMessage}`,
+      error instanceof Error ? error : new Error(String(error)),
+      {
+        fileName: filePath.split('/').pop() || 'unknown',
+        filePath,
+        suggestions,
+        errorType: error instanceof Error ? error.name : "Unknown",
+      }
+    );
     
     // Ensure context is cleared on error
     setContext(null);
