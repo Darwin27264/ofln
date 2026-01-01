@@ -38,9 +38,10 @@ interface BottomSheetProps {
   subtitle?: string; // Optional subtitle text below the title
 }
 
-const DRAG_HANDLE_HEIGHT = 40; // Height of the drag handle area
+const DRAG_HANDLE_HEIGHT = 50; // Height of the drag handle area
 const VELOCITY_THRESHOLD = 0.5; // Minimum velocity to trigger dismiss
-const DRAG_THRESHOLD = 0.3; // Percentage of panel height to drag before dismissing
+const DRAG_THRESHOLD = 0.25; // Percentage of panel height to drag before dismissing
+const MIN_DRAG_DISTANCE = 10; // Minimum distance before recognizing drag
 
 // Bottom sheet specific animation configs
 // Uses centralized configs with slight variations for this component
@@ -138,12 +139,17 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
 
   const openSheet = useCallback(() => {
     cancelAnimation();
+    // Reset drag state
+    isDragging.current = false;
+    dragStartY.current = 0;
+    
     if (onOpenStart) {
       onOpenStart();
     }
     
-    // Ensure we start from 0
+    // Ensure we start from 0 and sync the ref
     animatedValue.setValue(0);
+    currentAnimatedValue.current = 0;
     
     const animation = Animated.timing(animatedValue, {
       toValue: 1,
@@ -151,13 +157,20 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
     });
     
     currentAnimation.current = animation;
-    animation.start(() => {
+    animation.start((finished) => {
       currentAnimation.current = null;
+      if (finished) {
+        // Ensure ref is synced when animation completes
+        currentAnimatedValue.current = 1;
+      }
     });
   }, [animatedValue, onOpenStart, cancelAnimation]);
 
   const closeSheet = useCallback(() => {
     cancelAnimation();
+    // Reset drag state
+    isDragging.current = false;
+    dragStartY.current = 0;
     
     const animation = Animated.timing(animatedValue, {
       toValue: 0,
@@ -165,8 +178,12 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
     });
     
     currentAnimation.current = animation;
-    animation.start(() => {
+    animation.start((finished) => {
       currentAnimation.current = null;
+      if (finished) {
+        // Ensure ref is synced when animation completes
+        currentAnimatedValue.current = 0;
+      }
       if (onCloseComplete) {
         onCloseComplete();
       }
@@ -180,26 +197,43 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => !disableDrag,
+        onStartShouldSetPanResponder: () => {
+          return !disableDrag;
+        },
         onMoveShouldSetPanResponder: (_, gestureState) => {
-          // Respond if dragging down
-          return !disableDrag && gestureState.dy > 5;
+          // Only respond to downward drags that are clearly intentional
+          if (disableDrag) return false;
+          // Check if dragging down and not scrolling horizontally
+          // Be more lenient with the threshold to catch drags earlier
+          const isDownwardDrag = gestureState.dy > 3;
+          const isVerticalDrag = Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 0.5;
+          return isDownwardDrag && isVerticalDrag;
         },
         onPanResponderGrant: () => {
+          if (disableDrag) return;
           cancelAnimation();
           isDragging.current = true;
-          // Use tracked value instead of private _value property
-          dragStartY.current = currentAnimatedValue.current;
+          // Use tracked value, but ensure it's synced (should be 1 when fully open)
+          // If there's a discrepancy, use the actual animated value
+          const currentValue = currentAnimatedValue.current;
+          dragStartY.current = Math.max(0, Math.min(1, currentValue));
         },
         onPanResponderMove: (_, gestureState) => {
           if (!disableDrag && isDragging.current && gestureState.dy > 0) {
             // Calculate new value based on drag distance
+            // When dragging down, we decrease the animated value (from 1 to 0)
             const dragProgress = gestureState.dy / panelHeight;
             const newValue = Math.max(0, Math.min(1, dragStartY.current - dragProgress));
+            animatedValue.setValue(newValue);
+          } else if (!disableDrag && isDragging.current && gestureState.dy < 0) {
+            // Allow slight upward drag to snap back (but not beyond 1)
+            const dragProgress = Math.abs(gestureState.dy) / panelHeight;
+            const newValue = Math.min(1, dragStartY.current + dragProgress * 0.5);
             animatedValue.setValue(newValue);
           }
         },
         onPanResponderRelease: (_, gestureState) => {
+          if (!isDragging.current) return;
           isDragging.current = false;
           
           if (disableDrag) {
@@ -208,29 +242,51 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
 
           const dragDistance = gestureState.dy;
           const dragProgress = dragDistance / panelHeight;
-          const velocity = gestureState.vy;
+          const velocity = gestureState.vy || 0;
           
           // Determine if we should dismiss based on drag distance or velocity
           const shouldDismiss = 
             dragProgress > DRAG_THRESHOLD || 
-            (dragProgress > 0.15 && velocity > VELOCITY_THRESHOLD);
+            (dragProgress > 0.1 && velocity > VELOCITY_THRESHOLD);
 
           if (shouldDismiss) {
-            closeSheet();
+            // Animate close smoothly
+            isDragging.current = false; // Reset drag state before closing
+            const animation = Animated.timing(animatedValue, {
+              toValue: 0,
+              ...BOTTOM_SHEET_ANIMATIONS.close,
+            });
+            
+            currentAnimation.current = animation;
+            animation.start((finished) => {
+              currentAnimation.current = null;
+              if (finished) {
+                currentAnimatedValue.current = 0;
+              }
+              if (onCloseComplete) {
+                onCloseComplete();
+              }
+              onClose();
+            });
           } else {
             // Snap back to open position
+            isDragging.current = false; // Reset drag state
             const animation = Animated.timing(animatedValue, {
               toValue: 1,
               ...BOTTOM_SHEET_ANIMATIONS.snapBack,
             });
             
             currentAnimation.current = animation;
-            animation.start(() => {
+            animation.start((finished) => {
               currentAnimation.current = null;
+              if (finished) {
+                currentAnimatedValue.current = 1;
+              }
             });
           }
         },
         onPanResponderTerminate: () => {
+          if (!isDragging.current) return;
           isDragging.current = false;
           // Snap back if gesture is interrupted
           if (!disableDrag) {
@@ -240,27 +296,36 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
             });
             
             currentAnimation.current = animation;
-            animation.start(() => {
+            animation.start((finished) => {
               currentAnimation.current = null;
+              if (finished) {
+                currentAnimatedValue.current = 1;
+              }
             });
           }
         },
       }),
-    [disableDrag, panelHeight, animatedValue, cancelAnimation, closeSheet]
+    [disableDrag, panelHeight, animatedValue, cancelAnimation, closeSheet, onCloseComplete, onClose]
   );
 
   useEffect(() => {
     if (visible) {
       setIsMounted(true);
+      // Reset all drag state before opening
+      isDragging.current = false;
+      dragStartY.current = 0;
       // Small delay to ensure mount before animation
       const timer = setTimeout(() => {
         openSheet();
       }, 10);
       return () => clearTimeout(timer);
     } else {
-      // Reset animation value when hidden
+      // Reset everything when hidden
       cancelAnimation();
+      isDragging.current = false;
+      dragStartY.current = 0;
       animatedValue.setValue(0);
+      currentAnimatedValue.current = 0;
       setIsMounted(false);
       return undefined;
     }
@@ -311,6 +376,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
         <View
           {...(disableDrag ? {} : panResponder.panHandlers)}
           style={styles.dragHandleArea}
+          collapsable={false}
         >
           <View style={styles.dragHandle} />
         </View>
@@ -318,6 +384,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
         <Pressable
           style={styles.inner}
           onPress={(e) => e.stopPropagation()}
+          collapsable={false}
         >
           {/* Header */}
           <View style={styles.header}>
@@ -380,8 +447,9 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingTop: 8,
-    paddingBottom: 0,
-    zIndex: 1,
+    paddingBottom: 8,
+    zIndex: 10,
+    position: 'relative',
   },
   dragHandle: {
     width: 40,

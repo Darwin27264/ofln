@@ -88,6 +88,18 @@ const REPUTABLE_AUTHORS = [
 // Popular models optimized for mobile (pre-selected quantization)
 const POPULAR_MODELS: ModelInfo[] = [
   {
+    id: "smollm2-1.7b",
+    name: "SmolLM2 1.7B Instruct",
+    repoId: "HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF",
+    fileName: "smollm2-1.7b-instruct-q4_k_m.gguf",
+    size: "1.1GB",
+    description: "Compact and efficient 1.7B model. Great balance of size and capability.",
+    author: "HuggingFaceTB",
+    downloads: 40000,
+    tags: ["instruct", "small", "compact"],
+    publishedDate: "2024-12-15"
+  },
+  {
     id: "llama-32-1b",
     name: "Llama 3.2 1B Instruct",
     repoId: "bartowski/Llama-3.2-1B-Instruct-GGUF",
@@ -121,6 +133,18 @@ const POPULAR_MODELS: ModelInfo[] = [
     author: "bartowski",
     downloads: 75000,
     tags: ["instruct", "balanced", "general"],
+    publishedDate: "2024-12-10"
+  },
+  {
+    id: "llama-32-3b-uncensored",
+    name: "Llama 3.2 3B Instruct (Uncensored)",
+    repoId: "bartowski/Llama-3.2-3B-Instruct-uncensored-GGUF",
+    fileName: "Llama-3.2-3B-Instruct-uncensored-Q4_K_M.gguf",
+    size: "2.2GB",
+    description: "Uncensored version of Llama 3.2 3B. Same great performance with fewer content restrictions.",
+    author: "bartowski",
+    downloads: 22097,
+    tags: ["instruct", "uncensored", "balanced"],
     publishedDate: "2024-12-10"
   },
   {
@@ -1482,7 +1506,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         visible={isHFPanelOpen}
         onClose={closeHFPanel}
         title="HuggingFace Models"
-        height={0.7}
+        height={0.8}
         headerRight={
           <TouchableOpacity
             onPress={() => {

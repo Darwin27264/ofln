@@ -1,5 +1,5 @@
 // StagesScreen.tsx
-import React, { useState, useEffect, useMemo, useRef, FC } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, FC } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Modal,
   Animated,
   StyleSheet,
+  PanResponder,
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -36,7 +37,7 @@ interface UsageRecord {
   inferenceTime: number;
   tokenCount: number;
   tokensPerSecond: number;
-  performanceLevel: 'High' | 'Medium' | 'Low';
+  performanceLevel: 'High' | 'Medium' | 'Low' | 'Very Low';
   model: string;
 }
 
@@ -44,7 +45,7 @@ interface ModelStats {
   total: number;
   avgTime: number;
   avgTps: number;
-  perf: 'High' | 'Medium' | 'Low';
+  perf: 'High' | 'Medium' | 'Low' | 'Very Low';
   tpsData: number[];
   timeData: number[];
 }
@@ -156,9 +157,17 @@ const validateUsageRecord = (record: any): record is UsageRecord => {
     typeof record.inferenceTime === 'number' &&
     typeof record.tokenCount === 'number' &&
     typeof record.tokensPerSecond === 'number' &&
-    ['High', 'Medium', 'Low'].includes(record.performanceLevel) &&
+    ['High', 'Medium', 'Low', 'Very Low'].includes(record.performanceLevel) &&
     typeof record.model === 'string'
   );
+};
+
+/* ───────────────────────────── utils ───────────────────────────── */
+// Remove file extensions from model names for display
+const stripFileExtension = (modelName: string): string => {
+  if (!modelName) return modelName;
+  // Remove common file extensions
+  return modelName.replace(/\.(gguf|bin|safetensors|pt|pth|onnx|h5)$/i, '').trim();
 };
 
 /* ──────────────────────────────────── component ──────────────────────────────────── */
@@ -189,6 +198,348 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
     }
   }, [sortedModels]);
 
+  // Calculate current model index and navigation availability
+  const currentModelIndex = useMemo(() => {
+    if (!selectedModel || sortedModels.length === 0) return -1;
+    return sortedModels.indexOf(selectedModel);
+  }, [selectedModel, sortedModels]);
+
+  const hasPreviousModel = useMemo(() => {
+    return currentModelIndex > 0;
+  }, [currentModelIndex]);
+
+  const hasNextModel = useMemo(() => {
+    return currentModelIndex >= 0 && currentModelIndex < sortedModels.length - 1;
+  }, [currentModelIndex, sortedModels.length]);
+
+  // Helper to stop current animation
+  const stopCurrentAnimation = useCallback(() => {
+    if (currentAnimation.current) {
+      currentAnimation.current.stop();
+      currentAnimation.current = null;
+    }
+    isAnimating.current = false;
+  }, []);
+
+  // Navigation functions with animation
+  const navigateToPrevious = useCallback(() => {
+    if (!hasPreviousModel || sortedModels.length === 0 || isAnimating.current || !isMountedRef.current) return;
+    
+    // Stop any ongoing animation
+    stopCurrentAnimation();
+    
+    const prevIndex = currentModelIndex - 1;
+    const prevModel = sortedModels[prevIndex];
+    if (prevIndex >= 0 && prevModel && prevModel !== selectedModel) {
+      isAnimating.current = true;
+      userTouchedRef.current = true;
+      
+      // Animate out to right
+      const outAnimation = Animated.parallel([
+        Animated.timing(pillTranslateX, {
+          toValue: SCREEN_WIDTH * 0.2,
+          duration: 120,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pillOpacity, {
+          toValue: 0.3,
+          duration: 120,
+          useNativeDriver: true,
+        }),
+      ]);
+      
+      currentAnimation.current = outAnimation;
+      outAnimation.start((finished) => {
+        if (!finished || !isMountedRef.current) {
+          isAnimating.current = false;
+          currentAnimation.current = null;
+          return;
+        }
+        
+        // Verify model is still valid before changing
+        const currentIndex = sortedModels.indexOf(selectedModel);
+        const newPrevIndex = currentIndex - 1;
+        const newPrevModel = newPrevIndex >= 0 ? sortedModels[newPrevIndex] : null;
+        
+        if (newPrevModel && newPrevModel !== selectedModel) {
+          // Change model
+          setSelectedModel(newPrevModel);
+          // Reset position from left
+          pillTranslateX.setValue(-SCREEN_WIDTH * 0.2);
+          
+          // Animate in from left
+          const inAnimation = Animated.parallel([
+            Animated.timing(pillTranslateX, {
+              toValue: 0,
+              duration: 220,
+              useNativeDriver: true,
+            }),
+            Animated.timing(pillOpacity, {
+              toValue: 1,
+              duration: 220,
+              useNativeDriver: true,
+            }),
+          ]);
+          
+          currentAnimation.current = inAnimation;
+          inAnimation.start((finished) => {
+            if (finished && isMountedRef.current) {
+              isAnimating.current = false;
+            }
+            currentAnimation.current = null;
+          });
+        } else {
+          // Model changed or invalid, reset animation state
+          pillTranslateX.setValue(0);
+          pillOpacity.setValue(1);
+          isAnimating.current = false;
+          currentAnimation.current = null;
+        }
+      });
+    }
+  }, [hasPreviousModel, currentModelIndex, sortedModels, selectedModel, stopCurrentAnimation]);
+
+  const navigateToNext = useCallback(() => {
+    if (!hasNextModel || sortedModels.length === 0 || isAnimating.current || !isMountedRef.current) return;
+    
+    // Stop any ongoing animation
+    stopCurrentAnimation();
+    
+    const nextIndex = currentModelIndex + 1;
+    const nextModel = sortedModels[nextIndex];
+    if (nextIndex < sortedModels.length && nextModel && nextModel !== selectedModel) {
+      isAnimating.current = true;
+      userTouchedRef.current = true;
+      
+      // Animate out to left
+      const outAnimation = Animated.parallel([
+        Animated.timing(pillTranslateX, {
+          toValue: -SCREEN_WIDTH * 0.2,
+          duration: 120,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pillOpacity, {
+          toValue: 0.3,
+          duration: 120,
+          useNativeDriver: true,
+        }),
+      ]);
+      
+      currentAnimation.current = outAnimation;
+      outAnimation.start((finished) => {
+        if (!finished || !isMountedRef.current) {
+          isAnimating.current = false;
+          currentAnimation.current = null;
+          return;
+        }
+        
+        // Verify model is still valid before changing
+        const currentIndex = sortedModels.indexOf(selectedModel);
+        const newNextIndex = currentIndex + 1;
+        const newNextModel = newNextIndex < sortedModels.length ? sortedModels[newNextIndex] : null;
+        
+        if (newNextModel && newNextModel !== selectedModel) {
+          // Change model
+          setSelectedModel(newNextModel);
+          // Reset position from right
+          pillTranslateX.setValue(SCREEN_WIDTH * 0.2);
+          
+          // Animate in from right
+          const inAnimation = Animated.parallel([
+            Animated.timing(pillTranslateX, {
+              toValue: 0,
+              duration: 220,
+              useNativeDriver: true,
+            }),
+            Animated.timing(pillOpacity, {
+              toValue: 1,
+              duration: 220,
+              useNativeDriver: true,
+            }),
+          ]);
+          
+          currentAnimation.current = inAnimation;
+          inAnimation.start((finished) => {
+            if (finished && isMountedRef.current) {
+              isAnimating.current = false;
+            }
+            currentAnimation.current = null;
+          });
+        } else {
+          // Model changed or invalid, reset animation state
+          pillTranslateX.setValue(0);
+          pillOpacity.setValue(1);
+          isAnimating.current = false;
+          currentAnimation.current = null;
+        }
+      });
+    }
+  }, [hasNextModel, currentModelIndex, sortedModels, selectedModel, stopCurrentAnimation]);
+
+  // Animation refs for pill swipe
+  const pillTranslateX = useRef(new Animated.Value(0)).current;
+  const pillOpacity = useRef(new Animated.Value(1)).current;
+  const isAnimating = useRef(false);
+  const currentAnimation = useRef<Animated.CompositeAnimation | null>(null);
+  const isMountedRef = useRef(true);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      // Stop any ongoing animations
+      if (currentAnimation.current) {
+        currentAnimation.current.stop();
+        currentAnimation.current = null;
+      }
+      isAnimating.current = false;
+    };
+  }, []);
+
+  // PanResponder for swipe gestures
+  const panResponder = useMemo(
+    () => PanResponder.create({
+      onStartShouldSetPanResponder: () => {
+        return sortedModels.length > 1 && !isAnimating.current;
+      },
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        if (sortedModels.length <= 1 || isAnimating.current) return false;
+        return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10;
+      },
+      onPanResponderGrant: () => {
+        if (isAnimating.current) return;
+        pillTranslateX.setValue(0);
+        pillOpacity.setValue(1);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (isAnimating.current) return;
+        const resistance = 0.5;
+        const maxDrag = 60;
+        const dragAmount = Math.max(-maxDrag, Math.min(maxDrag, gestureState.dx * resistance));
+        pillTranslateX.setValue(dragAmount);
+        const opacityChange = 1 - Math.abs(dragAmount) / maxDrag * 0.1;
+        pillOpacity.setValue(Math.max(0.9, opacityChange));
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (isAnimating.current || sortedModels.length <= 1 || !isMountedRef.current) {
+          return;
+        }
+
+        const swipeThreshold = 50;
+        const velocity = gestureState.vx || 0;
+        const dx = gestureState.dx || 0;
+
+        if (dx > swipeThreshold || velocity > 0.3) {
+          // Swipe right - go to previous
+          if (hasPreviousModel) {
+            navigateToPrevious();
+          } else {
+            // Snap back if no previous model
+            stopCurrentAnimation();
+            isAnimating.current = true;
+            const snapBack = Animated.parallel([
+              Animated.timing(pillTranslateX, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+              }),
+              Animated.timing(pillOpacity, {
+                toValue: 1,
+                duration: 200,
+                useNativeDriver: true,
+              }),
+            ]);
+            currentAnimation.current = snapBack;
+            snapBack.start((finished) => {
+              if (finished && isMountedRef.current) {
+                isAnimating.current = false;
+              }
+              currentAnimation.current = null;
+            });
+          }
+        } else if (dx < -swipeThreshold || velocity < -0.3) {
+          // Swipe left - go to next
+          if (hasNextModel) {
+            navigateToNext();
+          } else {
+            // Snap back if no next model
+            stopCurrentAnimation();
+            isAnimating.current = true;
+            const snapBack = Animated.parallel([
+              Animated.timing(pillTranslateX, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+              }),
+              Animated.timing(pillOpacity, {
+                toValue: 1,
+                duration: 200,
+                useNativeDriver: true,
+              }),
+            ]);
+            currentAnimation.current = snapBack;
+            snapBack.start((finished) => {
+              if (finished && isMountedRef.current) {
+                isAnimating.current = false;
+              }
+              currentAnimation.current = null;
+            });
+          }
+        } else {
+          // Snap back to center if swipe wasn't strong enough
+          stopCurrentAnimation();
+          isAnimating.current = true;
+          const snapBack = Animated.parallel([
+            Animated.timing(pillTranslateX, {
+              toValue: 0,
+              duration: 200,
+              useNativeDriver: true,
+            }),
+            Animated.timing(pillOpacity, {
+              toValue: 1,
+              duration: 200,
+              useNativeDriver: true,
+            }),
+          ]);
+          currentAnimation.current = snapBack;
+          snapBack.start((finished) => {
+            if (finished && isMountedRef.current) {
+              isAnimating.current = false;
+            }
+            currentAnimation.current = null;
+          });
+        }
+      },
+      onPanResponderTerminate: () => {
+        if (!isAnimating.current && isMountedRef.current) {
+          stopCurrentAnimation();
+          isAnimating.current = true;
+          const snapBack = Animated.parallel([
+            Animated.timing(pillTranslateX, {
+              toValue: 0,
+              duration: 200,
+              useNativeDriver: true,
+            }),
+            Animated.timing(pillOpacity, {
+              toValue: 1,
+              duration: 200,
+              useNativeDriver: true,
+            }),
+          ]);
+          currentAnimation.current = snapBack;
+          snapBack.start((finished) => {
+            if (finished && isMountedRef.current) {
+              isAnimating.current = false;
+            }
+            currentAnimation.current = null;
+          });
+        }
+      },
+    }),
+    [sortedModels.length, hasPreviousModel, hasNextModel, navigateToPrevious, navigateToNext, stopCurrentAnimation]
+  );
+
   // Stats calculation
   const stats = useModelStats(usageRecords, selectedModel);
 
@@ -210,13 +561,15 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
 
   const stylesLocalWithTheme = createStylesLocal(theme.colors);
   
-  const perfColor = (p?: 'High' | 'Medium' | 'Low') =>
+  const perfColor = (p?: 'High' | 'Medium' | 'Low' | 'Very Low') =>
     p === 'High'
       ? theme.colors.success
       : p === 'Medium'
       ? theme.colors.warning
       : p === 'Low'
       ? theme.colors.error
+      : p === 'Very Low'
+      ? theme.colors.error // Use error color for very low, maybe with different opacity
       : theme.colors.secondary;
 
   // Error handling
@@ -301,9 +654,21 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
     
     const suggestions: string[] = [];
     if (stats.avgTime > 100) suggestions.push('Average inference time is high—consider optimising.');
-    if (stats.avgTps < 20) suggestions.push('Tokens‑per‑second is low—try another model.');
+    if (stats.avgTps < 12) {
+      if (stats.avgTps < 6) {
+        suggestions.push('Performance is very low (< 6 tokens/s)—consider a smaller model or better device.');
+      } else {
+        suggestions.push('Performance is below good threshold (< 12 tokens/s)—try a smaller model.');
+      }
+    }
     if (stats.total < 5) suggestions.push('Generate more inferences for deeper insight.');
-    if (!suggestions.length) suggestions.push('Great performance—keep going!');
+    if (!suggestions.length) {
+      if (stats.avgTps >= 18) {
+        suggestions.push('Great performance—keep going!');
+      } else {
+        suggestions.push('Good performance—consider optimizing for even better results.');
+      }
+    }
     
     return suggestions;
   };
@@ -329,10 +694,10 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
 
               <View style={[stylesLocalWithTheme.statCard, { backgroundColor: perfColor(stats.perf) }]}>
                 <View style={stylesLocalWithTheme.statInner}>
-                  <Text style={[stylesLocalWithTheme.perfValue, { color: stats.perf === 'High' ? theme.colors.primaryText : theme.colors.text }]}>
+                  <Text style={[stylesLocalWithTheme.perfValue, { color: (stats.perf === 'High' || stats.perf === 'Medium') ? theme.colors.primaryText : theme.colors.text }]}>
                     {stats.perf}
                   </Text>
-                  <Text style={[stylesLocalWithTheme.statCaption, { color: stats.perf === 'High' ? theme.colors.primaryText : theme.colors.text }]}>
+                  <Text style={[stylesLocalWithTheme.statCaption, { color: (stats.perf === 'High' || stats.perf === 'Medium') ? theme.colors.primaryText : theme.colors.text }]}>
                     Performance level
                   </Text>
                 </View>
@@ -385,28 +750,52 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
         </View>
       </ScrollView>
 
-      {/* Model selector */}
+      {/* Model selector - centered pill with swipe and arrow buttons */}
       <View style={stylesLocalWithTheme.modelBar}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={stylesLocalWithTheme.modelList}
-        >
-          {sortedModels.map(m => (
+        <View style={stylesLocalWithTheme.modelContainer}>
+          {/* Left arrow button - absolutely positioned */}
+          {hasPreviousModel && (
             <TouchableOpacity
-              key={m}
-              onPress={() => {
-                userTouchedRef.current = true;
-                setSelectedModel(m);
-              }}
-              style={[stylesLocalWithTheme.modelChip, {
-                backgroundColor: selectedModel === m ? theme.colors.accent : theme.colors.secondary
-              }]}
+              onPress={navigateToPrevious}
+              style={[stylesLocalWithTheme.arrowButton, stylesLocalWithTheme.arrowButtonLeft, { backgroundColor: theme.colors.primary }]}
+              activeOpacity={0.7}
             >
-              <Text style={[stylesLocalWithTheme.modelText, { color: selectedModel === m ? theme.colors.primaryText : theme.colors.text }]}>{m}</Text>
+              <Ionicons name="chevron-back" size={20} color={theme.colors.primaryText} />
             </TouchableOpacity>
-          ))}
-        </ScrollView>
+          )}
+          
+          {/* Centered pill with swipe gesture */}
+          <Animated.View
+            {...panResponder.panHandlers}
+            style={[
+              stylesLocalWithTheme.modelChip,
+              {
+                backgroundColor: theme.colors.primary,
+                transform: [{ translateX: pillTranslateX }],
+                opacity: pillOpacity,
+              },
+            ]}
+          >
+            <Text
+              style={[stylesLocalWithTheme.modelText, { color: theme.colors.primaryText }]}
+              numberOfLines={2}
+              ellipsizeMode="tail"
+            >
+              {selectedModel ? stripFileExtension(selectedModel) : 'No model selected'}
+            </Text>
+          </Animated.View>
+
+          {/* Right arrow button - absolutely positioned */}
+          {hasNextModel && (
+            <TouchableOpacity
+              onPress={navigateToNext}
+              style={[stylesLocalWithTheme.arrowButton, stylesLocalWithTheme.arrowButtonRight, { backgroundColor: theme.colors.primary }]}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.primaryText} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Detail modal */}
@@ -541,17 +930,44 @@ const createStylesLocal = (colors: any) => StyleSheet.create({
     bottom: 80,
     paddingHorizontal: 20,
   },
-  modelList: { alignItems: 'center' },
+  modelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    width: '100%',
+  },
   modelChip: {
-    paddingVertical: 12,
-    paddingHorizontal: 22,
-    borderRadius: 20,
-    marginRight: 10,
-    minWidth: 60,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 24,
+    minWidth: 120,
+    maxWidth: SCREEN_WIDTH - 140,
+    minHeight: 56,
     justifyContent: 'center',
     alignItems: 'center',
+    alignSelf: 'center',
   },
-  modelText: { fontSize: 16 },
+  modelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  arrowButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'absolute',
+  },
+  arrowButtonLeft: {
+    left: 0,
+  },
+  arrowButtonRight: {
+    right: 0,
+  },
 
   modalOverlay: {
     flex: 1,

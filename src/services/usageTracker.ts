@@ -8,18 +8,23 @@ export interface UsageMetrics {
   inferenceTime: number;     // In milliseconds
   tokenCount: number;
   tokensPerSecond: number;
-  performanceLevel: "High" | "Medium" | "Low";
+  performanceLevel: "High" | "Medium" | "Low" | "Very Low";
   model: string;             // NEW: identifies the model for the record
 }
 
 /**
  * Derive a performance level based on tokens per second.
- * Adjust thresholds as needed.
+ * Thresholds:
+ * - High: >= 18 tokens/s (great performance)
+ * - Medium: >= 12 tokens/s (good performance)
+ * - Low: >= 6 tokens/s (below good)
+ * - Very Low: < 6 tokens/s (poor performance)
  */
-export const getPerformanceLevel = (tps: number): "High" | "Medium" | "Low" => {
-  if (tps >= 50) return "High";
-  if (tps >= 30) return "Medium";
-  return "Low";
+export const getPerformanceLevel = (tps: number): "High" | "Medium" | "Low" | "Very Low" => {
+  if (tps >= 18) return "High";
+  if (tps >= 12) return "Medium";
+  if (tps >= 6) return "Low";
+  return "Very Low";
 };
 
 /**
