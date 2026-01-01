@@ -23,11 +23,10 @@ import {
   savePersona,
   generatePersonaId,
   Persona,
-  updatePersonaLastUsed,
 } from "../services/personaService";
 
 interface PersonaEditorScreenProps {
-  persona?: Persona | null; // If provided, edit mode; otherwise, create mode
+  persona?: Persona | null;
   onSave: (persona: Persona) => void;
   onCancel: () => void;
 }
@@ -42,29 +41,19 @@ export default function PersonaEditorScreen({
 
   const isEditMode = !!persona;
 
-  // Form state
   const [name, setName] = useState<string>("");
   const [tagline, setTagline] = useState<string>("");
   const [tags, setTags] = useState<string>("");
   const [avatar, setAvatar] = useState<string>("");
-  
-  // Roleplay Definition
   const [identity, setIdentity] = useState<string>("");
   const [backstory, setBackstory] = useState<string>("");
   const [speakingStyle, setSpeakingStyle] = useState<string>("");
-  
-  // Boundaries
   const [boundaries, setBoundaries] = useState<string>("");
   const [breakCharacterEnabled, setBreakCharacterEnabled] = useState<boolean>(false);
   const [breakCharacterWhen, setBreakCharacterWhen] = useState<string>("");
-  
-  // Examples
   const [examples, setExamples] = useState<Array<{ user: string; persona: string }>>([]);
-  
-  // Model settings
   const [personaStrength, setPersonaStrength] = useState<"low" | "medium" | "high">("medium");
 
-  // Load persona data if editing
   useEffect(() => {
     if (persona) {
       setName(persona.name || "");
@@ -103,19 +92,16 @@ export default function PersonaEditorScreen({
   );
 
   const handleSave = useCallback(() => {
-    // Validation
     if (!name.trim()) {
       showAlert("Validation Error", "Name is required.", [{ text: "OK" }]);
       return;
     }
 
-    // Parse tags
     const parsedTags = tags
       .split(",")
       .map((tag) => tag.trim())
       .filter((tag) => tag.length > 0);
 
-    // Create persona object
     const personaData: Persona = {
       id: persona?.id || generatePersonaId(),
       name: name.trim(),
@@ -135,14 +121,31 @@ export default function PersonaEditorScreen({
       lastUsed: persona?.lastUsed,
     };
 
-    // Save to storage
     savePersona(personaData)
-      .then(() => {
-        onSave(personaData);
+      .then(async () => {
+        try {
+          const { getPersonas } = await import("../services/personaService");
+          const allPersonas = await getPersonas();
+          const savedPersona = allPersonas.find(p => p.id === personaData.id);
+          
+          if (!savedPersona) {
+            throw new Error("Persona was not found after saving");
+          }
+          
+          onSave(personaData);
+        } catch (verifyError) {
+          console.error("Error verifying saved persona:", verifyError);
+          onSave(personaData);
+        }
       })
       .catch((error) => {
         console.error("Error saving persona:", error);
-        showAlert("Error", "Failed to save persona.", [{ text: "OK" }]);
+        const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+        showAlert(
+          "Save Failed", 
+          `Failed to save persona: ${errorMessage}. Please try again.`, 
+          [{ text: "OK" }]
+        );
       });
   }, [
     name,
@@ -161,19 +164,53 @@ export default function PersonaEditorScreen({
     onSave,
   ]);
 
+  const sectionContainerStyle = { marginBottom: 24 };
+  const sectionHeaderStyle = {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    marginBottom: 12,
+  };
+  const sectionTitleStyle = {
+    fontSize: 18,
+    fontWeight: "600" as const,
+    color: theme.colors.text,
+    fontFamily: "Poppins",
+  };
+  const fieldLabelStyle = {
+    fontSize: 14,
+    fontWeight: "500" as const,
+    color: theme.colors.text,
+    fontFamily: "Poppins",
+    marginBottom: 8,
+  };
+  const inputBaseStyle = {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 12,
+    padding: 12,
+    color: theme.colors.text,
+    fontFamily: "Poppins",
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  };
+  const multilineInputStyle = {
+    ...inputBaseStyle,
+    minHeight: 80,
+    textAlignVertical: "top" as const,
+  };
+  const largeMultilineInputStyle = {
+    ...inputBaseStyle,
+    minHeight: 100,
+    textAlignVertical: "top" as const,
+  };
+
   const renderSection = (
     title: string,
     children: React.ReactNode,
     icon?: string
   ) => (
-    <View style={{ marginBottom: 24 }}>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          marginBottom: 12,
-        }}
-      >
+    <View style={sectionContainerStyle}>
+      <View style={sectionHeaderStyle}>
         {icon && (
           <Icon
             name={icon}
@@ -182,16 +219,7 @@ export default function PersonaEditorScreen({
             style={{ marginRight: 8 }}
           />
         )}
-        <Text
-          style={{
-            fontSize: 18,
-            fontWeight: "600",
-            color: theme.colors.text,
-            fontFamily: "Poppins",
-          }}
-        >
-          {title}
-        </Text>
+        <Text style={sectionTitleStyle}>{title}</Text>
       </View>
       {children}
     </View>
@@ -199,7 +227,6 @@ export default function PersonaEditorScreen({
 
   return (
     <View style={[styles.container, { flex: 1, backgroundColor: theme.colors.background }]}>
-      {/* Header */}
       <View
         style={{
           flexDirection: "row",
@@ -247,38 +274,19 @@ export default function PersonaEditorScreen({
         </TouchableOpacity>
       </View>
 
-      {/* Content */}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
         showsVerticalScrollIndicator={true}
       >
-        {/* Basics Section */}
         {renderSection("Basics", (
           <>
             <View style={{ marginBottom: 16 }}>
-              <Text
-                style={{
-                  fontSize: 14,
-                  fontWeight: "500",
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  marginBottom: 8,
-                }}
-              >
+              <Text style={fieldLabelStyle}>
                 Name <Text style={{ color: theme.colors.error }}>*</Text>
               </Text>
               <TextInput
-                style={{
-                  backgroundColor: theme.colors.surface,
-                  borderRadius: 12,
-                  padding: 12,
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  fontSize: 16,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                }}
+                style={inputBaseStyle}
                 value={name}
                 onChangeText={setName}
                 placeholder="Enter persona name..."
@@ -287,28 +295,9 @@ export default function PersonaEditorScreen({
             </View>
 
             <View style={{ marginBottom: 16 }}>
-              <Text
-                style={{
-                  fontSize: 14,
-                  fontWeight: "500",
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  marginBottom: 8,
-                }}
-              >
-                Tagline
-              </Text>
+              <Text style={fieldLabelStyle}>Tagline</Text>
               <TextInput
-                style={{
-                  backgroundColor: theme.colors.surface,
-                  borderRadius: 12,
-                  padding: 12,
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  fontSize: 16,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                }}
+                style={inputBaseStyle}
                 value={tagline}
                 onChangeText={setTagline}
                 placeholder="Short one-liner description..."
@@ -317,28 +306,9 @@ export default function PersonaEditorScreen({
             </View>
 
             <View style={{ marginBottom: 16 }}>
-              <Text
-                style={{
-                  fontSize: 14,
-                  fontWeight: "500",
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  marginBottom: 8,
-                }}
-              >
-                Tags
-              </Text>
+              <Text style={fieldLabelStyle}>Tags</Text>
               <TextInput
-                style={{
-                  backgroundColor: theme.colors.surface,
-                  borderRadius: 12,
-                  padding: 12,
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  fontSize: 16,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                }}
+                style={inputBaseStyle}
                 value={tags}
                 onChangeText={setTags}
                 placeholder="Comma-separated tags (e.g., Cozy, RPG, Formal)"
@@ -347,28 +317,9 @@ export default function PersonaEditorScreen({
             </View>
 
             <View style={{ marginBottom: 16 }}>
-              <Text
-                style={{
-                  fontSize: 14,
-                  fontWeight: "500",
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  marginBottom: 8,
-                }}
-              >
-                Avatar (Icon name)
-              </Text>
+              <Text style={fieldLabelStyle}>Avatar (Icon name)</Text>
               <TextInput
-                style={{
-                  backgroundColor: theme.colors.surface,
-                  borderRadius: 12,
-                  padding: 12,
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  fontSize: 16,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                }}
+                style={inputBaseStyle}
                 value={avatar}
                 onChangeText={setAvatar}
                 placeholder="Optional: icon name (e.g., person, star)"
@@ -378,34 +329,12 @@ export default function PersonaEditorScreen({
           </>
         ), "info")}
 
-        {/* Roleplay Definition Section */}
         {renderSection("Roleplay Definition", (
           <>
             <View style={{ marginBottom: 16 }}>
-              <Text
-                style={{
-                  fontSize: 14,
-                  fontWeight: "500",
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  marginBottom: 8,
-                }}
-              >
-                Identity / Role
-              </Text>
+              <Text style={fieldLabelStyle}>Identity / Role</Text>
               <TextInput
-                style={{
-                  backgroundColor: theme.colors.surface,
-                  borderRadius: 12,
-                  padding: 12,
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  fontSize: 16,
-                  minHeight: 80,
-                  textAlignVertical: "top",
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                }}
+                style={multilineInputStyle}
                 value={identity}
                 onChangeText={setIdentity}
                 placeholder="Who is this persona? What is their role?"
@@ -415,30 +344,9 @@ export default function PersonaEditorScreen({
             </View>
 
             <View style={{ marginBottom: 16 }}>
-              <Text
-                style={{
-                  fontSize: 14,
-                  fontWeight: "500",
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  marginBottom: 8,
-                }}
-              >
-                Backstory / Context
-              </Text>
+              <Text style={fieldLabelStyle}>Backstory / Context</Text>
               <TextInput
-                style={{
-                  backgroundColor: theme.colors.surface,
-                  borderRadius: 12,
-                  padding: 12,
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  fontSize: 16,
-                  minHeight: 100,
-                  textAlignVertical: "top",
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                }}
+                style={largeMultilineInputStyle}
                 value={backstory}
                 onChangeText={setBackstory}
                 placeholder="Background information, history, context..."
@@ -448,30 +356,9 @@ export default function PersonaEditorScreen({
             </View>
 
             <View style={{ marginBottom: 16 }}>
-              <Text
-                style={{
-                  fontSize: 14,
-                  fontWeight: "500",
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  marginBottom: 8,
-                }}
-              >
-                Speaking Style
-              </Text>
+              <Text style={fieldLabelStyle}>Speaking Style</Text>
               <TextInput
-                style={{
-                  backgroundColor: theme.colors.surface,
-                  borderRadius: 12,
-                  padding: 12,
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  fontSize: 16,
-                  minHeight: 100,
-                  textAlignVertical: "top",
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                }}
+                style={largeMultilineInputStyle}
                 value={speakingStyle}
                 onChangeText={setSpeakingStyle}
                 placeholder="How does this persona speak? Tone, vocabulary, style..."
@@ -482,34 +369,12 @@ export default function PersonaEditorScreen({
           </>
         ), "face")}
 
-        {/* Boundaries Section */}
         {renderSection("Boundaries", (
           <>
             <View style={{ marginBottom: 16 }}>
-              <Text
-                style={{
-                  fontSize: 14,
-                  fontWeight: "500",
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  marginBottom: 8,
-                }}
-              >
-                Won't Do
-              </Text>
+              <Text style={fieldLabelStyle}>Won't Do</Text>
               <TextInput
-                style={{
-                  backgroundColor: theme.colors.surface,
-                  borderRadius: 12,
-                  padding: 12,
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  fontSize: 16,
-                  minHeight: 80,
-                  textAlignVertical: "top",
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                }}
+                style={multilineInputStyle}
                 value={boundaries}
                 onChangeText={setBoundaries}
                 placeholder="What this persona won't do or discuss..."
@@ -521,22 +386,13 @@ export default function PersonaEditorScreen({
             <View style={{ marginBottom: 16 }}>
               <View
                 style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
+                  flexDirection: "row" as const,
+                  alignItems: "center" as const,
+                  justifyContent: "space-between" as const,
                   marginBottom: 8,
                 }}
               >
-                <Text
-                  style={{
-                    fontSize: 14,
-                    fontWeight: "500",
-                    color: theme.colors.text,
-                    fontFamily: "Poppins",
-                  }}
-                >
-                  Break Character When...
-                </Text>
+                <Text style={fieldLabelStyle}>Break Character When...</Text>
                 <Switch
                   value={breakCharacterEnabled}
                   onValueChange={setBreakCharacterEnabled}
@@ -549,16 +405,7 @@ export default function PersonaEditorScreen({
               </View>
               {breakCharacterEnabled && (
                 <TextInput
-                  style={{
-                    backgroundColor: theme.colors.surface,
-                    borderRadius: 12,
-                    padding: 12,
-                    color: theme.colors.text,
-                    fontFamily: "Poppins",
-                    fontSize: 16,
-                    borderWidth: 1,
-                    borderColor: theme.colors.border,
-                  }}
+                  style={inputBaseStyle}
                   value={breakCharacterWhen}
                   onChangeText={setBreakCharacterWhen}
                   placeholder="When should the persona break character?"
@@ -569,7 +416,6 @@ export default function PersonaEditorScreen({
           </>
         ), "block")}
 
-        {/* Examples Section */}
         {renderSection("Examples (Few-shot)", (
           <>
             <Text
@@ -683,20 +529,9 @@ export default function PersonaEditorScreen({
           </>
         ), "format-list-bulleted")}
 
-        {/* Model Settings Section */}
         {renderSection("Model Settings", (
           <View style={{ marginBottom: 16 }}>
-            <Text
-              style={{
-                fontSize: 14,
-                fontWeight: "500",
-                color: theme.colors.text,
-                fontFamily: "Poppins",
-                marginBottom: 12,
-              }}
-            >
-              Persona Strength
-            </Text>
+            <Text style={fieldLabelStyle}>Persona Strength</Text>
             <View style={{ flexDirection: "row", gap: 8 }}>
               {(["low", "medium", "high"] as const).map((strength) => (
                 <TouchableOpacity

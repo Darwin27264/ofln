@@ -86,6 +86,9 @@ async function executeLLMBlock(
     "<|end▁of▁sentence|>",
     "<|end_of_text|>",
     "<｜end▁of▁sentence｜>",
+    "<end_of_turn>",
+    "<eos>",
+    "</eos>",
   ];
 
   let output = "";
@@ -112,10 +115,12 @@ async function executeLLMBlock(
         const token = data.token;
         output += token;
 
-        // Remove thinking blocks for cleaner output (matching llamaService format)
+        // Remove thinking blocks and end tokens for cleaner output (matching llamaService format)
         const visibleContent = output
           .replace(/<think>.*?<\/redacted_reasoning>/gs, "")
           .replace(/<think>.*$/gs, "")
+          .replace(/<end_of_turn>/g, "") // Remove end of turn tokens
+          .replace(/<\/?eos>/g, "") // Remove eos tokens (both <eos> and </eos>)
           .trim();
 
         // Call progress callback if provided
@@ -134,6 +139,8 @@ async function executeLLMBlock(
     output = output
       .replace(/<think>.*?<\/redacted_reasoning>/gs, "")
       .replace(/<think>.*$/gs, "")
+      .replace(/<end_of_turn>/g, "") // Remove end of turn tokens
+      .replace(/<\/?eos>/g, "") // Remove eos tokens (both <eos> and </eos>)
       .trim();
 
     return output;

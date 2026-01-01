@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import { Animated, Easing } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type ThemeMode = 'light' | 'dark';
@@ -113,6 +114,10 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [themeMode, setThemeMode] = useState<ThemeMode>('light');
   const [isInitialized, setIsInitialized] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  
+  // Animation value for smooth theme transition
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const previousThemeMode = useRef<ThemeMode>('light');
 
   useEffect(() => {
     const loadTheme = async () => {
@@ -120,6 +125,7 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const savedTheme = await AsyncStorage.getItem(THEME_STORAGE_KEY);
         if (savedTheme === 'dark' || savedTheme === 'light') {
           setThemeMode(savedTheme);
+          previousThemeMode.current = savedTheme;
         }
       } catch (error) {
         console.error('Error loading theme:', error);
@@ -133,22 +139,34 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const toggleTheme = async () => {
     setIsTransitioning(true);
     
-    // Smooth fade transition
-    await new Promise(resolve => setTimeout(resolve, 200));
-    
     const newMode = themeMode === 'light' ? 'dark' : 'light';
-    setThemeMode(newMode);
     
-    try {
-      await AsyncStorage.setItem(THEME_STORAGE_KEY, newMode);
-    } catch (error) {
-      console.error('Error saving theme:', error);
-    }
-    
-    // Complete transition after color change
-    setTimeout(() => {
-      setIsTransitioning(false);
-    }, 300);
+    // Animate fade out
+    Animated.timing(fadeAnim, {
+      toValue: 0.3,
+      duration: 150,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: true,
+    }).start(() => {
+      // Change theme at the midpoint of the transition
+      setThemeMode(newMode);
+      previousThemeMode.current = newMode;
+      
+      // Save to storage
+      AsyncStorage.setItem(THEME_STORAGE_KEY, newMode).catch((error) => {
+        console.error('Error saving theme:', error);
+      });
+      
+      // Animate fade in
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 200,
+        easing: Easing.in(Easing.ease),
+        useNativeDriver: true,
+      }).start(() => {
+        setIsTransitioning(false);
+      });
+    });
   };
 
   const theme = themeMode === 'dark' ? darkTheme : lightTheme;
@@ -166,7 +184,14 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         isTransitioning,
       }}
     >
-      {children}
+      <Animated.View
+        style={{
+          flex: 1,
+          opacity: fadeAnim,
+        }}
+      >
+        {children}
+      </Animated.View>
     </ThemeContext.Provider>
   );
 };

@@ -88,6 +88,30 @@ const REPUTABLE_AUTHORS = [
 // Popular models optimized for mobile (pre-selected quantization)
 const POPULAR_MODELS: ModelInfo[] = [
   {
+    id: "qwen3-1.7b",
+    name: "Qwen3 1.7B Instruct",
+    repoId: "lm-kit/qwen-3-1.7b-instruct-gguf",
+    fileName: "Qwen3-1.7B-Q4_K_M.gguf",
+    size: "1.1GB",
+    description: "Latest Qwen3 model. Efficient 1.7B model with strong performance.",
+    author: "lm-kit",
+    downloads: 45000,
+    tags: ["instruct", "small", "latest"],
+    publishedDate: "2024-12-20"
+  },
+  {
+    id: "smollm2-1.7b",
+    name: "SmolLM2 1.7B Instruct",
+    repoId: "HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF",
+    fileName: "smollm2-1.7b-instruct-q4_k_m.gguf",
+    size: "1.1GB",
+    description: "Compact and efficient. Great balance of size and capability.",
+    author: "HuggingFaceTB",
+    downloads: 40000,
+    tags: ["instruct", "small", "efficient"],
+    publishedDate: "2024-12-15"
+  },
+  {
     id: "llama-32-1b",
     name: "Llama 3.2 1B Instruct",
     repoId: "bartowski/Llama-3.2-1B-Instruct-GGUF",

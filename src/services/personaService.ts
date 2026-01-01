@@ -7,9 +7,8 @@ export interface Persona {
   name: string;
   tagline: string;
   tags?: string[];
-  lastUsed?: number; // timestamp
-  createdAt: number; // timestamp
-  // Fields for Step 2 (editor) - placeholder structure
+  lastUsed?: number;
+  createdAt: number;
   identity?: string;
   backstory?: string;
   speakingStyle?: string;
@@ -17,45 +16,101 @@ export interface Persona {
   breakCharacterWhen?: string;
   examples?: Array<{ user: string; persona: string }>;
   personaStrength?: "low" | "medium" | "high";
-  avatar?: string; // icon name or color
+  avatar?: string;
 }
 
 /**
- * Get all saved personas
+ * Get all saved personas with validation
  */
 export const getPersonas = async (): Promise<Persona[]> => {
   try {
     const personasJson = await AsyncStorage.getItem(PERSONAS_KEY);
     if (personasJson) {
-      return JSON.parse(personasJson);
+      const parsed = JSON.parse(personasJson);
+      if (!Array.isArray(parsed)) {
+        console.error("Invalid personas data format, expected array");
+        return [];
+      }
+      const validPersonas = parsed.filter((p: any) => 
+        p && 
+        typeof p.id === 'string' && 
+        p.id.trim().length > 0 &&
+        typeof p.name === 'string' && 
+        p.name.trim().length > 0 &&
+        typeof p.createdAt === 'number'
+      );
+      if (validPersonas.length !== parsed.length) {
+        console.warn(`Filtered out ${parsed.length - validPersonas.length} invalid personas`);
+        try {
+          await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(validPersonas));
+        } catch (saveError) {
+          console.error("Error saving cleaned personas:", saveError);
+        }
+      }
+      return validPersonas;
     }
     return [];
   } catch (error) {
     console.error("Error loading personas:", error);
+    try {
+      await AsyncStorage.removeItem(PERSONAS_KEY);
+      console.warn("Cleared corrupted personas data");
+    } catch (clearError) {
+      console.error("Error clearing corrupted personas:", clearError);
+    }
     return [];
   }
 };
 
 /**
- * Save a persona to storage
+ * Save a persona to storage with retry mechanism
  */
 export const savePersona = async (persona: Persona): Promise<void> => {
-  try {
-    const personas = await getPersonas();
-    // Check if persona already exists (by id)
-    const existingIndex = personas.findIndex((p) => p.id === persona.id);
-    if (existingIndex >= 0) {
-      // Update existing persona
-      personas[existingIndex] = persona;
-    } else {
-      // Add new persona
-      personas.push(persona);
-    }
-    await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(personas));
-  } catch (error) {
-    console.error("Error saving persona:", error);
-    throw error;
+  if (!persona || !persona.id || !persona.name || !persona.createdAt) {
+    throw new Error("Invalid persona data: missing required fields (id, name, createdAt)");
   }
+
+  const maxRetries = 3;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const personas = await getPersonas();
+      const existingIndex = personas.findIndex((p) => p.id === persona.id);
+      
+      if (existingIndex >= 0) {
+        personas[existingIndex] = {
+          ...persona,
+          lastUsed: persona.lastUsed || personas[existingIndex].lastUsed,
+        };
+      } else {
+        const duplicateName = personas.find((p) => p.name.trim().toLowerCase() === persona.name.trim().toLowerCase() && p.id !== persona.id);
+        if (duplicateName) {
+          console.warn(`Warning: Persona with name "${persona.name}" already exists with different ID`);
+        }
+        personas.push(persona);
+      }
+      
+      await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(personas));
+      const verifyPersonas = await getPersonas();
+      const savedPersona = verifyPersonas.find((p) => p.id === persona.id);
+      if (!savedPersona) {
+        throw new Error("Persona was not saved correctly");
+      }
+      
+      return;
+    } catch (error) {
+      lastError = error as Error;
+      console.error(`Error saving persona (attempt ${attempt + 1}/${maxRetries}):`, error);
+      
+      if (attempt < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, attempt)));
+      }
+    }
+  }
+
+  console.error("Failed to save persona after all retries");
+  throw lastError || new Error("Failed to save persona");
 };
 
 /**
@@ -92,13 +147,11 @@ export const updatePersonaLastUsed = async (personaId: string): Promise<void> =>
  * Generate a unique ID for a new persona
  */
 export const generatePersonaId = (): string => {
-  return `persona_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  return `persona_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 };
 
 /**
  * Build a system prompt from persona settings
- * Combines persona identity, backstory, speaking style, boundaries, and examples
- * into a comprehensive system prompt for the model.
  * 
  * @param persona - The persona to build the prompt from
  * @param baseSystemPrompt - The base system prompt from model settings
@@ -108,43 +161,35 @@ export const buildPersonaSystemPrompt = (
   persona: Persona | null,
   baseSystemPrompt: string
 ): string => {
-  // If no persona is selected, return the base prompt
   if (!persona) {
     return baseSystemPrompt;
   }
 
-  // Start building the persona-specific parts
   const personaParts: string[] = [];
 
-  // Add persona identity
   if (persona.identity && persona.identity.trim()) {
     personaParts.push(persona.identity.trim());
   }
 
-  // Add backstory
   if (persona.backstory && persona.backstory.trim()) {
     personaParts.push(persona.backstory.trim());
   }
 
-  // Add speaking style
   if (persona.speakingStyle && persona.speakingStyle.trim()) {
     personaParts.push(persona.speakingStyle.trim());
   }
 
-  // Add boundaries
   if (persona.boundaries && persona.boundaries.trim()) {
     personaParts.push(persona.boundaries.trim());
   }
 
-  // Add break character condition
   if (persona.breakCharacterWhen && persona.breakCharacterWhen.trim()) {
     personaParts.push(`You should break character when: ${persona.breakCharacterWhen.trim()}`);
   }
 
-  // Add examples if available
   if (persona.examples && persona.examples.length > 0) {
     const validExamples = persona.examples.filter(
-      (ex) => ex.user.trim() && ex.persona.trim()
+      (ex) => ex && ex.user && ex.persona && ex.user.trim() && ex.persona.trim()
     );
     if (validExamples.length > 0) {
       const exampleTexts = validExamples.map((example, idx) => {
@@ -154,23 +199,17 @@ export const buildPersonaSystemPrompt = (
     }
   }
 
-  // Combine persona parts
   const personaContent = personaParts.join("\n\n");
-
-  // Check if base prompt is the default
   const defaultPrompt = "This is a conversation between user and assistant, a friendly chatbot.";
   const isDefaultPrompt = !baseSystemPrompt || baseSystemPrompt.trim() === defaultPrompt;
 
-  // Build final prompt
   if (isDefaultPrompt) {
-    // If using default prompt, create a persona-focused prompt
     if (personaContent) {
       return `You are ${persona.name}. ${personaContent}`;
     } else {
       return `You are ${persona.name}.`;
     }
   } else {
-    // If there's a custom base prompt, combine it with persona content
     if (personaContent) {
       return `${baseSystemPrompt}\n\nYou are roleplaying as ${persona.name}.\n\n${personaContent}`;
     } else {

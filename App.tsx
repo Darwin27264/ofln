@@ -14,6 +14,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { ScrollView, ActivityIndicator, Animated, StatusBar, Platform, InteractionManager } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { createStyles } from "./src/styles/styles";
 import { downloadModel, DownloadCancellationToken } from "./src/api/model";
@@ -109,11 +110,38 @@ function AppContent(): React.JSX.Element {
   const [localModels, setLocalModels] = useState<LocalModelInfo[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 
-  const [assistantDisplayMode, setAssistantDisplayMode] = useState<"bubble" | "direct">(
+  const [assistantDisplayMode, setAssistantDisplayModeState] = useState<"bubble" | "direct">(
     "bubble"
   );
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
   const [availablePersonas, setAvailablePersonas] = useState<Persona[]>([]);
+
+  // Load saved chat mode preference on app startup
+  useEffect(() => {
+    const loadChatMode = async () => {
+      try {
+        const savedChatMode = await AsyncStorage.getItem('@app_chat_mode');
+        if (savedChatMode === 'bubble' || savedChatMode === 'direct') {
+          setAssistantDisplayModeState(savedChatMode);
+        }
+      } catch (error) {
+        console.error('Error loading chat mode:', error);
+      }
+    };
+    loadChatMode();
+  }, []);
+
+  // Wrapper function to save chat mode preference whenever it changes
+  const setAssistantDisplayMode = useCallback((mode: "bubble" | "direct" | ((prev: "bubble" | "direct") => "bubble" | "direct")) => {
+    setAssistantDisplayModeState((prevMode) => {
+      const newMode = typeof mode === 'function' ? mode(prevMode) : mode;
+      // Save to AsyncStorage asynchronously
+      AsyncStorage.setItem('@app_chat_mode', newMode).catch((error) => {
+        console.error('Error saving chat mode:', error);
+      });
+      return newMode;
+    });
+  }, []);
 
   /**
    * Page transition animations

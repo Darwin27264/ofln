@@ -1,13 +1,6 @@
 /**
  * PersonaCard Component
- * 
- * Displays a single persona card with edit, duplicate, and delete actions.
- * Handles animations on mount and expand/collapse interactions.
- * 
- * Performance optimizations:
- * - Memoized to prevent unnecessary re-renders
- * - Animation values are refs to avoid re-creation
- * - Only animates on initial mount (controlled by parent)
+ * Displays a persona card with expandable actions and animations.
  */
 
 import React, { useRef, useEffect, useMemo } from "react";
@@ -32,15 +25,11 @@ interface PersonaCardProps {
   onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
-  onUse?: () => void; // Optional "Use" button handler
-  // Animation control from parent
+  onUse?: () => void;
   isInitialAnimationPhase: boolean;
   animatedPersonaIds: React.MutableRefObject<Set<string>>;
 }
 
-/**
- * Format last used timestamp to readable string
- */
 function formatLastUsed(timestamp?: number): string | null {
   if (!timestamp) return null;
   
@@ -56,12 +45,6 @@ function formatLastUsed(timestamp?: number): string | null {
   return `${Math.floor(days / 365)} years ago`;
 }
 
-/**
- * PersonaCard Component
- * 
- * Displays persona information with expandable details and action buttons.
- * Handles animations on initial mount and expand/collapse interactions.
- */
 export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({ 
   persona, 
   index,
@@ -76,71 +59,41 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
 }) => {
   const { theme } = useTheme();
   
-  // Helper function to convert hex to rgba for better cross-platform support
-  const hexToRgba = (hex: string, alpha: number): string => {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  };
-  
-  // Animation values - use refs to avoid re-creation on re-renders
   const cardOpacity = useRef(new Animated.Value(0)).current;
   const cardTranslateY = useRef(new Animated.Value(20)).current;
   const dropdownTranslateY = useRef(new Animated.Value(-20)).current;
   const dropdownOpacity = useRef(new Animated.Value(0)).current;
 
-  // Track if this specific card has been initialized (prevents re-triggering)
   const hasInitializedRef = useRef(false);
   const cardAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const dropdownAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   
-  /**
-   * Initialize and trigger card animation only once per persona on initial mount
-   * Only animates if still in initial animation phase (controlled by parent)
-   * 
-   * Improvements:
-   * - Uses InteractionManager to ensure layout is complete
-   * - Proper animation cleanup to prevent conflicts
-   * - Consistent with centralized animation config
-   */
   useEffect(() => {
-    // Skip if this persona has already animated (prevents re-animation)
     if (animatedPersonaIds.current.has(persona.id)) {
       cardOpacity.setValue(1);
       cardTranslateY.setValue(0);
       return;
     }
     
-    // Skip if this card instance has already been initialized
     if (hasInitializedRef.current) {
       return;
     }
     
     hasInitializedRef.current = true;
     
-    // Only animate if we're still in the initial animation phase
     if (isInitialAnimationPhase) {
-      // Mark this persona as animated immediately to prevent race conditions
       animatedPersonaIds.current.add(persona.id);
       
-      // Cancel any existing animation
       if (cardAnimationRef.current) {
         cardAnimationRef.current.stop();
         cardAnimationRef.current = null;
       }
       
-      // Ensure initial values are set explicitly before animation
       cardOpacity.setValue(0);
       cardTranslateY.setValue(20);
       
-      // Use InteractionManager to ensure layout is complete before animating
-      // This prevents glitches from animating before layout measurement
       const interaction = InteractionManager.runAfterInteractions(() => {
-        // Use requestAnimationFrame for one more frame to ensure smooth start
         requestAnimationFrame(() => {
-          // Start animation with index-based delay for staggered effect
-          // Uses centralized configuration for consistency
           const delay = getStaggeredDelay(index);
           const animation = Animated.parallel([
             Animated.timing(cardOpacity, {
@@ -157,7 +110,6 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
           cardAnimationRef.current = animation;
           animation.start((finished) => {
             if (finished) {
-              // Ensure final values are exactly correct after animation
               cardOpacity.setValue(1);
               cardTranslateY.setValue(0);
             }
@@ -174,26 +126,19 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
         }
       };
     } else {
-      // Animation phase has passed - set final values immediately
       animatedPersonaIds.current.add(persona.id);
       cardOpacity.setValue(1);
       cardTranslateY.setValue(0);
     }
   }, [persona.id, index, isInitialAnimationPhase, animatedPersonaIds, cardOpacity, cardTranslateY]);
 
-  /**
-   * Animate dropdown when expanded state changes
-   * Includes proper cleanup to prevent double animations
-   */
   useEffect(() => {
-    // Cancel any ongoing dropdown animation
     if (dropdownAnimationRef.current) {
       dropdownAnimationRef.current.stop();
       dropdownAnimationRef.current = null;
     }
 
     if (isExpanded) {
-      // Reset initial values before expanding
       dropdownTranslateY.setValue(-20);
       dropdownOpacity.setValue(0);
       
@@ -245,7 +190,6 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
     }
   }, [isExpanded, dropdownTranslateY, dropdownOpacity]);
 
-  // Memoize last used formatting
   const formattedLastUsed = useMemo(() => formatLastUsed(persona.lastUsed), [persona.lastUsed]);
 
   return (
@@ -268,9 +212,8 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
           shadowRadius: 4,
           elevation: 2,
           overflow: "hidden",
-        }}
-      >
-        {/* Main card content */}
+      }}
+    >
         <TouchableOpacity
           style={{
             padding: 16,
@@ -280,7 +223,6 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
           onPress={onToggleExpand}
           activeOpacity={0.7}
         >
-          {/* Persona icon */}
           <View
             style={{
               width: 60,
@@ -299,7 +241,6 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
             />
           </View>
 
-          {/* Persona info */}
           <View style={{ flex: 1 }}>
             <Text
               style={{
@@ -378,7 +319,6 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
             </View>
           </View>
 
-          {/* Expand indicator */}
           <Icon 
             name={isExpanded ? "expand-less" : "expand-more"} 
             size={24} 
@@ -386,7 +326,6 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
           />
         </TouchableOpacity>
 
-        {/* Dropdown menu */}
         {isExpanded && (
           <Animated.View
             style={{
@@ -402,7 +341,6 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
               ],
             }}
           >
-            {/* Action buttons */}
             <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
               {onUse && (
                 <TouchableOpacity
@@ -523,12 +461,16 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
     </Animated.View>
   );
 }, (prevProps, nextProps) => {
-  // Custom comparison function for better memoization
   return (
     prevProps.persona.id === nextProps.persona.id &&
+    prevProps.persona.name === nextProps.persona.name &&
+    prevProps.persona.tagline === nextProps.persona.tagline &&
+    prevProps.persona.tags?.join(',') === nextProps.persona.tags?.join(',') &&
+    prevProps.persona.lastUsed === nextProps.persona.lastUsed &&
     prevProps.isExpanded === nextProps.isExpanded &&
     prevProps.index === nextProps.index &&
-    prevProps.isInitialAnimationPhase === nextProps.isInitialAnimationPhase
+    prevProps.isInitialAnimationPhase === nextProps.isInitialAnimationPhase &&
+    !!prevProps.onUse === !!nextProps.onUse
   );
 });
 

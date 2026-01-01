@@ -1,13 +1,6 @@
 /**
  * PersonasLibraryScreen Component
- * 
- * Main screen for managing personas.
- * Handles persona listing, creation, editing, duplication, and deletion.
- * 
- * Performance optimizations:
- * - Memoized components and callbacks
- * - Efficient filtering with useMemo
- * - Optimized animations
+ * Main screen for managing personas with listing, creation, editing, duplication, and deletion.
  */
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
@@ -17,7 +10,6 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  Animated,
   InteractionManager,
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
@@ -53,16 +45,13 @@ export default function PersonasLibraryScreen({
   const [expandedPersonaId, setExpandedPersonaId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Animation state - tracks whether we're in the initial animation phase
   const isInitialAnimationPhase = useRef(true);
   const animatedPersonaIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    // Reset animation state when component mounts
     isInitialAnimationPhase.current = true;
     animatedPersonaIds.current.clear();
 
-    // Use InteractionManager to ensure animations start after initial render
     const interaction = InteractionManager.runAfterInteractions(() => {
       setTimeout(() => {
         isInitialAnimationPhase.current = false;
@@ -76,34 +65,47 @@ export default function PersonasLibraryScreen({
     };
   }, []);
 
-  // Load personas on mount and seed with sample data if empty or incomplete
-  useEffect(() => {
-    const initializePersonas = async () => {
-      await loadPersonas();
-      // Seed with sample personas if none exist or if they're incomplete
-      // This will run every time the screen opens to ensure personas are populated
-      await seedSamplePersonas();
-    };
-    initializePersonas();
-  }, [seedSamplePersonas]);
+  const SAMPLE_PERSONA_NAMES = [
+    "Noir Detective",
+    "Cozy Librarian", 
+    "Socratic Tutor",
+    "Flirty Friend"
+  ];
+
+  const loadPersonas = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const loadedPersonas = await getPersonas();
+      setPersonas(loadedPersonas);
+    } catch (error) {
+      console.error("Error loading personas:", error);
+      showAlert("Error", "Failed to load personas.", [{ text: "OK" }]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   const seedSamplePersonas = useCallback(async () => {
     try {
-      const existingPersonas = await getPersonas();
+      let existingPersonas = await getPersonas();
       
-      // Check if we already have the sample personas by name and if they have complete data
+      const oldFlirtyGirlfriend = existingPersonas.find(p => p.name === "Flirty Girlfriend");
+      if (oldFlirtyGirlfriend) {
+        await removePersona(oldFlirtyGirlfriend.id);
+        existingPersonas = await getPersonas();
+      }
+      
       const noirDetective = existingPersonas.find(p => p.name === "Noir Detective");
       const cozyLibrarian = existingPersonas.find(p => p.name === "Cozy Librarian");
       const socraticTutor = existingPersonas.find(p => p.name === "Socratic Tutor");
+      const flirtyFriend = existingPersonas.find(p => p.name === "Flirty Friend");
       
-      // Check if any are missing or incomplete (missing identity or examples)
-      // Also check for empty strings, not just undefined
       const needsSeeding = 
         !noirDetective || !noirDetective.identity || !noirDetective.identity.trim() || !noirDetective.examples || !noirDetective.examples.length ||
         !cozyLibrarian || !cozyLibrarian.identity || !cozyLibrarian.identity.trim() || !cozyLibrarian.examples || !cozyLibrarian.examples.length ||
-        !socraticTutor || !socraticTutor.identity || !socraticTutor.identity.trim() || !socraticTutor.examples || !socraticTutor.examples.length;
+        !socraticTutor || !socraticTutor.identity || !socraticTutor.identity.trim() || !socraticTutor.examples || !socraticTutor.examples.length ||
+        !flirtyFriend || !flirtyFriend.identity || !flirtyFriend.identity.trim() || !flirtyFriend.examples || !flirtyFriend.examples.length;
       
-      // Only seed if we don't have all three sample personas or they're incomplete
       if (needsSeeding) {
         const samplePersonas: Persona[] = [
           {
@@ -111,8 +113,7 @@ export default function PersonasLibraryScreen({
             name: "Noir Detective",
             tagline: "A hard-boiled detective from the 1940s",
             tags: ["Mystery", "Noir", "Detective"],
-            createdAt: Date.now() - 86400000 * 2, // 2 days ago
-            lastUsed: Date.now() - 3600000, // 1 hour ago
+            createdAt: Date.now() - 86400000 * 2,
             identity: "You are a hard-boiled private detective working in 1940s Los Angeles. You've seen it all—corruption, betrayal, and the dark underbelly of the city. You speak in clipped, cynical sentences and have a dry sense of humor.",
             backstory: "You've been a PI for 15 years, working the mean streets. You've got a small office above a diner, a .38 in your desk drawer, and a reputation for getting results—even if your methods aren't always by the book. You've lost friends, made enemies, but you always find the truth.",
             speakingStyle: "Speak in short, punchy sentences. Use noir slang and metaphors. Be cynical but not cruel. Reference the city, the rain, the shadows. Use phrases like 'dame', 'gumshoe', 'the long goodbye'. Keep it atmospheric and moody.",
@@ -136,8 +137,7 @@ export default function PersonasLibraryScreen({
             name: "Cozy Librarian",
             tagline: "A warm, book-loving librarian",
             tags: ["Cozy", "Friendly", "Books"],
-            createdAt: Date.now() - 86400000, // 1 day ago
-            lastUsed: Date.now() - 7200000, // 2 hours ago
+            createdAt: Date.now() - 86400000,
             identity: "You are a friendly, knowledgeable librarian who loves books and helping people discover new stories. You work in a cozy neighborhood library and have read thousands of books across all genres.",
             backstory: "You've been a librarian for 20 years at the same community library. You know every book on the shelves, remember every patron's reading preferences, and have a talent for recommending the perfect book. You love quiet mornings with a cup of tea and a good novel.",
             speakingStyle: "Speak warmly and enthusiastically about books. Use gentle, encouraging language. Reference book titles, authors, and literary themes naturally. Be helpful and patient. Use phrases like 'Oh, you'd love...', 'That reminds me of...', 'Have you tried...'",
@@ -180,49 +180,69 @@ export default function PersonasLibraryScreen({
             personaStrength: "high",
             avatar: "school",
           },
+          {
+            id: generatePersonaId(),
+            name: "Flirty Friend",
+            tagline: "A playful and affectionate friend",
+            tags: ["Friendly", "Flirty", "Playful"],
+            createdAt: Date.now(),
+            identity: "You are a fun, flirty, and affectionate friend who loves to tease, compliment, and show affection. You're playful, confident, and enjoy friendly banter. You make your friends feel special and appreciated.",
+            backstory: "You're a warm and outgoing person who loves expressing your feelings with friends. You enjoy flirting playfully, sending sweet messages, and making your friends smile. You're confident in yourself and comfortable showing your friendly and playful side.",
+            speakingStyle: "Be playful, flirty, and affectionate. Use emojis sparingly in your tone (but don't literally use emojis). Compliment your friends, tease them gently, and show interest in them. Be warm, confident, and friendly. Use phrases like 'hey babe', 'honey', 'you're so cute', 'I miss you', 'you make me smile'. Keep it fun and lighthearted.",
+            boundaries: "Keep things respectful and appropriate. Won't engage in explicit content. Maintain boundaries around personal safety and respect.",
+            breakCharacterWhen: "If the conversation becomes inappropriate, harmful, or if the user explicitly asks to break character.",
+            examples: [
+              {
+                user: "Hey, how was your day?",
+                persona: "Hey babe! It was good, but it's so much better now that I'm talking to you 😊 What about you? I've been thinking about you all day."
+              },
+              {
+                user: "I'm feeling a bit down today.",
+                persona: "Aww, honey, I'm sorry to hear that. You know I'm here for you, right? You're amazing and you're going to get through this. Want to tell me what's going on? I'm all ears, babe."
+              }
+            ],
+            personaStrength: "high",
+            avatar: "heart",
+          },
         ];
 
-        // Save all sample personas (this will update existing ones or create new ones)
+        const samplePersonaNames = new Set(SAMPLE_PERSONA_NAMES);
+        
         for (const personaTemplate of samplePersonas) {
-          // Check if this persona already exists
           const existing = existingPersonas.find(p => p.name === personaTemplate.name);
           if (existing) {
-            // Update existing persona with complete data, preserving ID and timestamps
             const updatedPersona: Persona = {
+              ...existing,
               ...personaTemplate,
               id: existing.id,
               createdAt: existing.createdAt,
-              lastUsed: existing.lastUsed || personaTemplate.lastUsed,
+              lastUsed: existing.lastUsed,
             };
             await savePersona(updatedPersona);
           } else {
-            // Create new persona
             await savePersona(personaTemplate);
           }
         }
-
-        // Reload to show the new/updated personas
-        await loadPersonas();
+        
+        const userPersonas = existingPersonas.filter(p => !samplePersonaNames.has(p.name));
+        for (const userPersona of userPersonas) {
+          await savePersona(userPersona);
+        }
       }
     } catch (error) {
       console.error("Error seeding sample personas:", error);
     }
-  }, [loadPersonas]);
-
-  const loadPersonas = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const loadedPersonas = await getPersonas();
-      setPersonas(loadedPersonas);
-    } catch (error) {
-      console.error("Error loading personas:", error);
-      showAlert("Error", "Failed to load personas.", [{ text: "OK" }]);
-    } finally {
-      setIsLoading(false);
-    }
   }, []);
 
-  // Filter personas based on search query
+  useEffect(() => {
+    const initializePersonas = async () => {
+      await loadPersonas();
+      await seedSamplePersonas();
+      await loadPersonas();
+    };
+    initializePersonas();
+  }, [loadPersonas, seedSamplePersonas]);
+
   const filteredPersonas = useMemo(() => {
     if (!searchQuery.trim()) {
       return personas;
@@ -236,7 +256,6 @@ export default function PersonasLibraryScreen({
     );
   }, [personas, searchQuery]);
 
-  // Sort personas: recently used first, then by creation date
   const sortedPersonas = useMemo(() => {
     return [...filteredPersonas].sort((a, b) => {
       if (a.lastUsed && b.lastUsed) {
@@ -249,7 +268,6 @@ export default function PersonasLibraryScreen({
   }, [filteredPersonas]);
 
   const handleAddPersona = useCallback(() => {
-    // Navigate to editor in create mode
     if (onEditPersona) {
       onEditPersona(null);
     }
@@ -316,6 +334,10 @@ export default function PersonasLibraryScreen({
     [loadPersonas, expandedPersonaId]
   );
 
+  const handleToggleExpand = useCallback((personaId: string) => {
+    setExpandedPersonaId((current) => (current === personaId ? null : personaId));
+  }, []);
+
   const renderPersonaCard = useCallback(
     (persona: Persona, index: number) => {
       const isExpanded = expandedPersonaId === persona.id;
@@ -326,7 +348,7 @@ export default function PersonasLibraryScreen({
           persona={persona}
           index={index}
           isExpanded={isExpanded}
-          onToggleExpand={() => setExpandedPersonaId(isExpanded ? null : persona.id)}
+          onToggleExpand={() => handleToggleExpand(persona.id)}
           onEdit={() => handleEditPersona(persona)}
           onDuplicate={() => handleDuplicatePersona(persona)}
           onDelete={() => handleDeletePersona(persona)}
@@ -336,56 +358,133 @@ export default function PersonasLibraryScreen({
         />
       );
     },
-    [expandedPersonaId, handleEditPersona, handleDuplicatePersona, handleDeletePersona]
+    [expandedPersonaId, handleEditPersona, handleDuplicatePersona, handleDeletePersona, handleToggleExpand, onUsePersona]
   );
 
+  const headerStyle = {
+    position: "absolute" as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: theme.colors.background,
+    zIndex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 12,
+    flexDirection: "row" as const,
+    justifyContent: "space-between" as const,
+    alignItems: "center" as const,
+  };
+
+  const addButtonStyle = {
+    backgroundColor: theme.colors.primary,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+  };
+
+  const addButtonTextStyle = {
+    color: theme.colors.primaryText,
+    fontSize: 16,
+    fontWeight: "600" as const,
+    fontFamily: "Poppins",
+    marginLeft: 6,
+  };
+
+  const searchContainerStyle = {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  };
+
+  const searchInputStyle = {
+    flex: 1,
+    marginLeft: 8,
+    color: theme.colors.text,
+    fontFamily: "Poppins",
+    fontSize: 16,
+  };
+
+  const emptyStateContainerStyle = {
+    flex: 1,
+    justifyContent: "center" as const,
+    alignItems: "center" as const,
+    paddingVertical: 60,
+  };
+
+  const emptyStateTitleStyle = {
+    fontSize: 20,
+    fontWeight: "600" as const,
+    color: theme.colors.text,
+    fontFamily: "Poppins",
+    marginTop: 16,
+    marginBottom: 8,
+  };
+
+  const emptyStateTextStyle = {
+    fontSize: 14,
+    color: theme.colors.textSecondary,
+    fontFamily: "Poppins",
+    textAlign: "center" as const,
+    marginBottom: 24,
+    paddingHorizontal: 40,
+  };
+
+  const emptyStateButtonStyle = {
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 20,
+  };
+
+  const emptyStateButtonTextStyle = {
+    color: theme.colors.primaryText,
+    fontSize: 16,
+    fontWeight: "600" as const,
+    fontFamily: "Poppins",
+  };
+
+  const backButtonStyle = {
+    position: "absolute" as const,
+    bottom: 20,
+    left: 15,
+    backgroundColor: "transparent" as const,
+  };
+
+  const backButtonContainerStyle = {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 24,
+  };
+
+  const backButtonTextStyle = {
+    color: theme.colors.primaryText,
+    fontSize: 20,
+    fontFamily: "Poppins",
+    marginLeft: 8,
+    marginBottom: 2,
+  };
+
   return (
-    <View style={[styles.container, { padding: 20, flex: 1, backgroundColor: theme.colors.background }]}>
-      {/* Header */}
-      <View
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          backgroundColor: theme.colors.background,
-          zIndex: 1,
-          paddingHorizontal: 20,
-          paddingTop: 8,
-          paddingBottom: 12,
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
+      <View style={[styles.container, { padding: 20, flex: 1, backgroundColor: theme.colors.background }]}>
+      <View style={headerStyle}>
         <Text style={styles.settingsTitle}>Personas</Text>
-        <TouchableOpacity
-          onPress={handleAddPersona}
-          style={{
-            backgroundColor: theme.colors.primary,
-            borderRadius: 20,
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            flexDirection: "row",
-            alignItems: "center",
-          }}
-        >
+        <TouchableOpacity onPress={handleAddPersona} style={addButtonStyle}>
           <Icon name="add" size={20} color={theme.colors.primaryText} />
-          <Text
-            style={{
-              color: theme.colors.primaryText,
-              fontSize: 16,
-              fontWeight: "600",
-              fontFamily: "Poppins",
-              marginLeft: 6,
-            }}
-          >
-            Add
-          </Text>
+          <Text style={addButtonTextStyle}>Add</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Scrollable content */}
       <ScrollView
         style={{
           marginTop: 55,
@@ -394,30 +493,12 @@ export default function PersonasLibraryScreen({
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 60 }}
       >
-        {/* Search input */}
         {personas.length > 0 && (
           <View style={{ marginBottom: 16 }}>
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                backgroundColor: theme.colors.surface,
-                borderRadius: 20,
-                paddingHorizontal: 16,
-                paddingVertical: 10,
-                borderWidth: 1,
-                borderColor: theme.colors.border,
-              }}
-            >
+            <View style={searchContainerStyle}>
               <Icon name="search" size={20} color={theme.colors.textSecondary} />
               <TextInput
-                style={{
-                  flex: 1,
-                  marginLeft: 8,
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  fontSize: 16,
-                }}
+                style={searchInputStyle}
                 placeholder="Search personas..."
                 placeholderTextColor={theme.colors.textTertiary}
                 value={searchQuery}
@@ -432,69 +513,25 @@ export default function PersonasLibraryScreen({
           </View>
         )}
 
-        {/* Empty state */}
         {!isLoading && sortedPersonas.length === 0 && (
-          <View
-            style={{
-              flex: 1,
-              justifyContent: "center",
-              alignItems: "center",
-              paddingVertical: 60,
-            }}
-          >
+          <View style={emptyStateContainerStyle}>
             <Icon name="person-outline" size={64} color={theme.colors.textTertiary} />
-            <Text
-              style={{
-                fontSize: 20,
-                fontWeight: "600",
-                color: theme.colors.text,
-                fontFamily: "Poppins",
-                marginTop: 16,
-                marginBottom: 8,
-              }}
-            >
+            <Text style={emptyStateTitleStyle}>
               {searchQuery ? "No personas found" : "No personas yet"}
             </Text>
-            <Text
-              style={{
-                fontSize: 14,
-                color: theme.colors.textSecondary,
-                fontFamily: "Poppins",
-                textAlign: "center",
-                marginBottom: 24,
-                paddingHorizontal: 40,
-              }}
-            >
+            <Text style={emptyStateTextStyle}>
               {searchQuery
                 ? "Try adjusting your search query."
                 : "Personas change how the model roleplays in chat."}
             </Text>
             {!searchQuery && (
-              <TouchableOpacity
-                onPress={handleAddPersona}
-                style={{
-                  backgroundColor: theme.colors.primary,
-                  paddingHorizontal: 24,
-                  paddingVertical: 12,
-                  borderRadius: 20,
-                }}
-              >
-                <Text
-                  style={{
-                    color: theme.colors.primaryText,
-                    fontSize: 16,
-                    fontWeight: "600",
-                    fontFamily: "Poppins",
-                  }}
-                >
-                  Create a persona
-                </Text>
+              <TouchableOpacity onPress={handleAddPersona} style={emptyStateButtonStyle}>
+                <Text style={emptyStateButtonTextStyle}>Create a persona</Text>
               </TouchableOpacity>
             )}
           </View>
         )}
 
-        {/* Personas list */}
         {sortedPersonas.length > 0 && (
           <View>
             {sortedPersonas.map((persona, index) => renderPersonaCard(persona, index))}
@@ -502,31 +539,10 @@ export default function PersonasLibraryScreen({
         )}
       </ScrollView>
 
-      {/* Back button */}
-      <View style={{ position: "absolute", bottom: 20, left: 15, backgroundColor: "transparent" }}>
-        <TouchableOpacity
-          onPress={onBack}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            backgroundColor: theme.colors.primary,
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 24,
-          }}
-        >
+      <View style={backButtonStyle}>
+        <TouchableOpacity onPress={onBack} style={backButtonContainerStyle}>
           <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
-          <Text
-            style={{
-              color: theme.colors.primaryText,
-              fontSize: 20,
-              fontFamily: "Poppins",
-              marginLeft: 8,
-              marginBottom: 2,
-            }}
-          >
-            Back
-          </Text>
+          <Text style={backButtonTextStyle}>Back</Text>
         </TouchableOpacity>
       </View>
     </View>

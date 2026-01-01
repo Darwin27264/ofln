@@ -256,6 +256,9 @@ export const handleSendMessageCompletion = async (
       "<|end▁of▁sentence|>",
       "<|end_of_text|>",
       "<｜end▁of▁sentence｜>",
+      "<end_of_turn>",
+      "<eos>",
+      "</eos>",
     ];
 
     // Placeholder for assistant's response
@@ -349,7 +352,9 @@ export const handleSendMessageCompletion = async (
         // Use a more robust regex that handles incomplete blocks
         let visibleContent = currentAssistantMessage
           .replace(/<think>.*?<\/redacted_reasoning>/gs, "")
-          .replace(/<think>.*$/gs, ""); // Handle incomplete reasoning blocks
+          .replace(/<think>.*$/gs, "") // Handle incomplete reasoning blocks
+          .replace(/<end_of_turn>/g, "") // Remove end of turn tokens
+          .replace(/<\/?eos>/g, ""); // Remove eos tokens (both <eos> and </eos>)
         
         // Only trim if content exists to prevent losing whitespace-only content during generation
         if (visibleContent.length > 0) {
@@ -380,10 +385,12 @@ export const handleSendMessageCompletion = async (
     // Calculate metrics after completion
     const endTime = Date.now();
     const inferenceTime = endTime - startTime; // in milliseconds
-    // Remove thinking blocks from final content
+    // Remove thinking blocks and end tokens from final content
     const finalVisibleContent = currentAssistantMessage
       .replace(/<think>.*?<\/redacted_reasoning>/gs, "")
       .replace(/<think>.*$/gs, "") // Handle incomplete reasoning blocks
+      .replace(/<end_of_turn>/g, "") // Remove end of turn tokens
+      .replace(/<\/?eos>/g, "") // Remove eos tokens (both <eos> and </eos>)
       .trim();
     const tokenCount = finalVisibleContent
       .split(" ")
