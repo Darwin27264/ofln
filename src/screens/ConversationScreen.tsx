@@ -1387,6 +1387,11 @@ export default function ConversationScreen({
     const minimumRequiredPadding = keyboardH * 0.17;
     additionalPadding = Math.max(additionalPadding, minimumRequiredPadding);
     
+    // Add extra padding to move input bar lower when keyboard is active
+    // This provides more comfortable spacing between keyboard and input
+    const extraSpacing = 0; // Additional 100px to move input bar lower
+    additionalPadding += extraSpacing;
+    
     return additionalPadding;
   }, [windowResizeInsufficient, heightLoss, hasLayoutMeasurements]);
 
