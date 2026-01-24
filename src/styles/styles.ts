@@ -67,7 +67,6 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     width: 250,
     backgroundColor: colors.card,
     zIndex: 5,
-    elevation: 5,
     borderRightWidth: 1,
     borderRightColor: colors.border,
   },

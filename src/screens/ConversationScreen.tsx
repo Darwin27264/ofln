@@ -263,9 +263,12 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(({
         onPress={onToggleSelect}
         style={{
           paddingVertical: 8,
+          paddingHorizontal: 12,
           marginBottom: 4,
           flexDirection: 'row',
           alignItems: 'center',
+          borderRadius: 8,
+          backgroundColor: isCurrentChat ? (theme.colors.primary + '15') : 'transparent',
         }}
       >
         <View style={{
@@ -306,7 +309,10 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(({
       onLongPress={onLongPress}
       style={{
         paddingVertical: 8,
+        paddingHorizontal: 12,
         marginBottom: 4,
+        borderRadius: 8,
+        backgroundColor: isCurrentChat ? (theme.colors.primary + '15') : 'transparent',
       }}
     >
       <Text
@@ -381,6 +387,59 @@ const AnimatedCheckmark: React.FC<{
 });
 
 AnimatedCheckmark.displayName = 'AnimatedCheckmark';
+
+/**
+ * AnimatedHistoryItemWrapper Component
+ * 
+ * Wraps history items with fade-in and slide animations for fluid appearance.
+ * Uses staggered delays for a cascading effect when panel opens.
+ */
+const AnimatedHistoryItemWrapper: React.FC<{
+  children: React.ReactNode;
+  index: number;
+  isVisible: boolean;
+}> = React.memo(({ children, index, isVisible }) => {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(10)).current;
+
+  useEffect(() => {
+    if (isVisible) {
+      const delay = Math.min(index * 20, 200); // Staggered delay, max 200ms
+      Animated.parallel([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: ANIMATION_DURATIONS.STANDARD,
+          delay,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateY, {
+          toValue: 0,
+          duration: ANIMATION_DURATIONS.STANDARD,
+          delay,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      opacity.setValue(0);
+      translateY.setValue(10);
+    }
+  }, [isVisible, index, opacity, translateY]);
+
+  return (
+    <Animated.View
+      style={{
+        opacity,
+        transform: [{ translateY }],
+      }}
+    >
+      {children}
+    </Animated.View>
+  );
+});
+
+AnimatedHistoryItemWrapper.displayName = 'AnimatedHistoryItemWrapper';
 
 interface Props {
   conversation: Message[];
@@ -533,6 +592,10 @@ export default function ConversationScreen({
   const [isMultiselectMode, setIsMultiselectMode] = useState(false);
   const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
   
+  // Multiselect header animation
+  const multiselectHeaderHeight = useRef(new Animated.Value(0)).current;
+  const multiselectHeaderOpacity = useRef(new Animated.Value(0)).current;
+  
   // Menu animation
   const menuOpacity = useRef(new Animated.Value(0)).current;
   const menuScale = useRef(new Animated.Value(0.9)).current;
@@ -564,7 +627,17 @@ export default function ConversationScreen({
   const screenWidth = Dimensions.get('window').width;
   const panelWidth = screenWidth * 0.80;
   const panelAnim = useRef(new Animated.Value(-panelWidth)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const panelAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  
+  // Reset multiselect header animation when panel closes
+  useEffect(() => {
+    if (!isPanelOpen && isMultiselectMode) {
+      multiselectHeaderHeight.setValue(0);
+      multiselectHeaderOpacity.setValue(0);
+    }
+  }, [isPanelOpen, isMultiselectMode, multiselectHeaderHeight, multiselectHeaderOpacity]);
 
   // Manage greeting fade animation.
   const noMessages = conversation.slice(1).length === 0;
@@ -632,28 +705,24 @@ export default function ConversationScreen({
 
   // Load chat history when panel opens or when conversation changes (if panel is open)
   useEffect(() => {
-    let delayTimer: NodeJS.Timeout | null = null;
     let isMounted = true;
     
     const loadChatHistory = async () => {
       if (isPanelOpen) {
-        // Small delay to avoid blocking animation
-        delayTimer = setTimeout(async () => {
-          if (!isMounted) return;
-          setIsLoadingHistory(true);
-          try {
-            const chats = await chatHistoryService.getAllChats();
-            if (isMounted) {
-              setChatHistory(chats);
-            }
-          } catch (error) {
-            console.error('Error loading chat history:', error);
-          } finally {
-            if (isMounted) {
-              setIsLoadingHistory(false);
-            }
+        // Load immediately without delay for instant responsiveness
+        setIsLoadingHistory(true);
+        try {
+          const chats = await chatHistoryService.getAllChats();
+          if (isMounted) {
+            setChatHistory(chats);
           }
-        }, 50); // Small delay to let animation start smoothly
+        } catch (error) {
+          console.error('Error loading chat history:', error);
+        } finally {
+          if (isMounted) {
+            setIsLoadingHistory(false);
+          }
+        }
       } else {
         // Clear history when panel closes to prevent stale data
         setChatHistory([]);
@@ -664,9 +733,6 @@ export default function ConversationScreen({
     
     return () => {
       isMounted = false;
-      if (delayTimer) {
-        clearTimeout(delayTimer);
-      }
     };
   }, [isPanelOpen, currentChatId]); // Also reload when chatId changes
 
@@ -709,43 +775,123 @@ export default function ConversationScreen({
    * Exit multiselect mode
    */
   const exitMultiselectMode = useCallback(() => {
-    setIsMultiselectMode(false);
-    setSelectedChatIds(new Set());
-  }, []);
+    Animated.parallel([
+      Animated.timing(multiselectHeaderHeight, {
+        toValue: 0,
+        duration: ANIMATION_DURATIONS.STANDARD,
+        easing: EASING.STANDARD,
+        useNativeDriver: false,
+      }),
+      Animated.timing(multiselectHeaderOpacity, {
+        toValue: 0,
+        duration: ANIMATION_DURATIONS.STANDARD,
+        easing: EASING.STANDARD,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setIsMultiselectMode(false);
+      setSelectedChatIds(new Set());
+    });
+  }, [multiselectHeaderHeight, multiselectHeaderOpacity]);
+  
+  // Animate multiselect header when entering multiselect mode
+  useEffect(() => {
+    if (isMultiselectMode) {
+      Animated.parallel([
+        Animated.spring(multiselectHeaderHeight, {
+          toValue: 1,
+          useNativeDriver: false,
+          tension: 65,
+          friction: 11,
+        }),
+        Animated.timing(multiselectHeaderOpacity, {
+          toValue: 1,
+          duration: ANIMATION_DURATIONS.STANDARD,
+          easing: EASING.STANDARD,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [isMultiselectMode, multiselectHeaderHeight, multiselectHeaderOpacity]);
 
   /**
    * Toggles the chat history side panel
-   * Optimized: Faster animations and better state management for mobile performance
+   * Optimized: Fast animations with immediate state updates for rapid toggling
+   * Enhanced with animation cancellation to prevent conflicts
    * 
    * Edge cases handled:
-   * - Prevents animation conflicts with state updates
-   * - Ensures smooth transitions on all devices
+   * - Cancels ongoing animations and sets final value directly
+   * - Immediate state updates for instant responsiveness
+   * - Ensures panel fully closes by setting value directly if animation interrupted
    */
   const togglePanel = useCallback(() => {
+    // Cancel any ongoing animation and ensure correct final position
+    if (panelAnimationRef.current) {
+      panelAnimationRef.current.stop();
+      panelAnimationRef.current = null;
+    }
+
     if (isPanelOpen) {
-      // Close panel with optimized animation
-      Animated.timing(panelAnim, {
-        toValue: -panelWidth,
-        ...ANIMATION_CONFIG.panel,
-      }).start(() => {
+      // Close panel with fast slide animation
+      // Keep panel visible during animation by not updating state yet
+      panelAnimationRef.current = Animated.parallel([
+        Animated.timing(panelAnim, {
+          toValue: -panelWidth,
+          duration: 200,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 0,
+          duration: 200,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+      ]);
+      
+      panelAnimationRef.current.start(({ finished }) => {
+        // Update state after animation completes to keep panel visible during slide
         setIsPanelOpen(false);
+        // Always ensure panel is fully closed
+        panelAnim.setValue(-panelWidth);
+        backdropOpacity.setValue(0);
+        panelAnimationRef.current = null;
         // Exit multiselect mode when panel closes
         if (isMultiselectMode) {
           exitMultiselectMode();
         }
       });
     } else {
-      // Set state before animation for smoother rendering
+      // Update state immediately for instant responsiveness
       setIsPanelOpen(true);
-      // Use requestAnimationFrame to ensure state is set before animation
-      requestAnimationFrame(() => {
-        Animated.timing(panelAnim, {
+      
+      // Open panel with fast animation
+      panelAnimationRef.current = Animated.parallel([
+        Animated.spring(panelAnim, {
           toValue: 0,
-          ...ANIMATION_CONFIG.panel,
-        }).start();
+          useNativeDriver: true,
+          tension: 100,
+          friction: 14,
+          overshootClamping: true,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 1,
+          duration: 100,
+          easing: EASING.STANDARD,
+          useNativeDriver: true,
+        }),
+      ]);
+      
+      panelAnimationRef.current.start(({ finished }) => {
+        // Always ensure panel is fully open
+        if (finished) {
+          panelAnim.setValue(0);
+          backdropOpacity.setValue(1);
+        }
+        panelAnimationRef.current = null;
       });
     }
-  }, [isPanelOpen, panelAnim, panelWidth, isMultiselectMode, exitMultiselectMode]);
+  }, [isPanelOpen, panelAnim, panelWidth, backdropOpacity, isMultiselectMode, exitMultiselectMode]);
 
   // Handle chat selection
   const handleChatSelect = useCallback(async (chat: ChatConversation) => {
@@ -1579,66 +1725,66 @@ export default function ConversationScreen({
       keyboardVerticalOffset={0}
       enabled={Platform.OS === "ios"}
     >
-      <View style={{ flex: 1 }} onLayout={handleLayout}>
+      <View style={{ flex: 1, overflow: 'hidden' }} onLayout={handleLayout}>
         {/* Top-left pills for slide-out panel and model selector */}
-        {!isPanelOpen && (
-          <>
-            <TouchableOpacity style={styles.topLeftPill} onPress={togglePanel}>
-              <Ionicons name="reorder-two-outline" size={23} color={theme.colors.text} />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.topLeftPill, { left: 73, maxWidth: screenWidth * 0.4, minHeight: 42, paddingRight: 8 }]} 
-              onPress={openModelSelector}
-            >
-              <Ionicons name="cube-outline" size={20} color={theme.colors.text} style={{ marginRight: 6 }} />
-              <Text 
-                style={{
-                  color: theme.colors.text,
-                  fontSize: 16,
-                  fontFamily: 'Poppins',
-                  flex: 1,
-                }}
-                numberOfLines={1}
-                ellipsizeMode="tail"
-              >
-                {selectedGGUF ? prettifyModelName(selectedGGUF) : "No model"}
-              </Text>
-              <Animated.View 
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 12,
-                  backgroundColor: '#007AFF',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginLeft: 8,
-                  opacity: personaIndicatorOpacity,
-                }}
-                pointerEvents={selectedPersona ? 'auto' : 'none'}
-                collapsable={false}
-              >
-                <Ionicons name="person" size={14} color="#FFFFFF" />
-              </Animated.View>
-            </TouchableOpacity>
-            {isTemporaryMode && hasStartedChat && (
-              <Text style={{
-                position: 'absolute',
-                top: 8, // Same top position as button
-                left: 73 + screenWidth * 0.4 + 8, // Position right of model selector
-                zIndex: 10,
-                color: theme.colors.textTertiary,
-                fontSize: 18,
+        {/* Keep buttons mounted but behind panel when open */}
+        <View style={{ zIndex: 10, pointerEvents: isPanelOpen ? 'none' : 'auto' }}>
+          <TouchableOpacity style={styles.topLeftPill} onPress={togglePanel}>
+            <Ionicons name="reorder-two-outline" size={23} color={theme.colors.text} />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.topLeftPill, { left: 73, maxWidth: screenWidth * 0.4, minHeight: 42, paddingRight: 8 }]} 
+            onPress={openModelSelector}
+          >
+            <Ionicons name="cube-outline" size={20} color={theme.colors.text} style={{ marginRight: 6 }} />
+            <Text 
+              style={{
+                color: theme.colors.text,
+                fontSize: 16,
                 fontFamily: 'Poppins',
-                lineHeight: 39, // Match button height (8 padding + 23 icon + 8 padding)
-              }}>
-                Temporary Mode
-              </Text>
-            )}
-          </>
-        )}
+                flex: 1,
+              }}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {selectedGGUF ? prettifyModelName(selectedGGUF) : "No model"}
+            </Text>
+            <Animated.View 
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: 12,
+                backgroundColor: '#007AFF',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginLeft: 8,
+                opacity: personaIndicatorOpacity,
+              }}
+              pointerEvents={selectedPersona ? 'auto' : 'none'}
+              collapsable={false}
+            >
+              <Ionicons name="person" size={14} color="#FFFFFF" />
+            </Animated.View>
+          </TouchableOpacity>
+          {isTemporaryMode && hasStartedChat && (
+            <Text style={{
+              position: 'absolute',
+              top: 8, // Same top position as button
+              left: 73 + screenWidth * 0.4 + 8, // Position right of model selector
+              zIndex: 10,
+              color: theme.colors.textTertiary,
+              fontSize: 18,
+              fontFamily: 'Poppins',
+              lineHeight: 39, // Match button height (8 padding + 23 icon + 8 padding)
+            }}>
+              Temporary Mode
+            </Text>
+          )}
+        </View>
 
         {/* Top-right container for temporary mode/new chat and settings buttons */}
-        <View style={styles.topRightButtons}>
+        {/* Keep buttons mounted but behind panel when open */}
+        <View style={[styles.topRightButtons, { pointerEvents: isPanelOpen ? 'none' : 'auto' }]}>
           {!hasStartedChat ? (
             // Show temporary mode toggle button before first message is sent
             <TouchableOpacity 
@@ -1836,6 +1982,24 @@ export default function ConversationScreen({
           </TouchableWithoutFeedback>
         </Modal>
 
+        {/* Backdrop overlay */}
+        {isPanelOpen && (
+          <TouchableWithoutFeedback onPress={togglePanel}>
+            <Animated.View
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: "rgba(0, 0, 0, 0.4)",
+                opacity: backdropOpacity,
+                zIndex: 15,
+              }}
+            />
+          </TouchableWithoutFeedback>
+        )}
+
         {/* Slide-out panel from the left */}
         <Animated.View
           style={[
@@ -1849,26 +2013,37 @@ export default function ConversationScreen({
               height: "100%",
               width: panelWidth,
               backgroundColor: theme.colors.card,
-              shadowColor: theme.colors.text,
-              shadowOffset: { width: 2, height: 0 },
-              shadowOpacity: 0.1,
-              shadowRadius: 4,
-              elevation: 5,
+              borderTopLeftRadius: 0,
+              borderTopRightRadius: 20,
+              borderBottomLeftRadius: 0,
+              borderBottomRightRadius: 20,
+              overflow: 'hidden', // Ensure children respect border radius
             },
           ]}
+          pointerEvents={isPanelOpen ? 'auto' : 'none'}
         >
           {/* Multiselect header */}
-          {isMultiselectMode && (
-            <View style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              borderBottomWidth: 1,
-              borderBottomColor: theme.colors.border,
-              backgroundColor: theme.colors.card,
-            }}>
+          <Animated.View
+            style={{
+              overflow: 'hidden',
+              height: multiselectHeaderHeight.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 60],
+              }),
+              opacity: multiselectHeaderOpacity,
+            }}
+          >
+            {isMultiselectMode && (
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                borderBottomWidth: 1,
+                borderBottomColor: theme.colors.border,
+                backgroundColor: theme.colors.card,
+              }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                 <Text style={{
                   color: theme.colors.text,
@@ -1932,7 +2107,8 @@ export default function ConversationScreen({
                 </TouchableOpacity>
               </View>
             </View>
-          )}
+            )}
+          </Animated.View>
 
           {/* Chat history list */}
           <ScrollView
@@ -1966,26 +2142,31 @@ export default function ConversationScreen({
                     }}>
                       Pinned
                     </Text>
-                    {groupedChatHistory.pinnedChats.map((chat) => (
-                      <ChatHistoryCard
+                    {groupedChatHistory.pinnedChats.map((chat, index) => (
+                      <AnimatedHistoryItemWrapper
                         key={chat.id}
-                        chat={chat}
-                        currentChatId={currentChatId}
-                        theme={theme}
-                        onPress={() => isMultiselectMode ? toggleChatSelection(chat.id) : handleChatSelect(chat)}
-                        onLongPress={(e) => handleLongPress(chat, e)}
-                        isEditing={editingChatId === chat.id}
-                        editingTitle={editingTitle}
-                        onEditingTitleChange={setEditingTitle}
-                        onRenameSave={handleRenameSave}
-                        onRenameCancel={() => {
-                          setEditingChatId(null);
-                          setEditingTitle('');
-                        }}
-                        isMultiselectMode={isMultiselectMode}
-                        isSelected={selectedChatIds.has(chat.id)}
-                        onToggleSelect={() => toggleChatSelection(chat.id)}
-                      />
+                        index={index}
+                        isVisible={isPanelOpen && !isLoadingHistory}
+                      >
+                        <ChatHistoryCard
+                          chat={chat}
+                          currentChatId={currentChatId}
+                          theme={theme}
+                          onPress={() => isMultiselectMode ? toggleChatSelection(chat.id) : handleChatSelect(chat)}
+                          onLongPress={(e) => handleLongPress(chat, e)}
+                          isEditing={editingChatId === chat.id}
+                          editingTitle={editingTitle}
+                          onEditingTitleChange={setEditingTitle}
+                          onRenameSave={handleRenameSave}
+                          onRenameCancel={() => {
+                            setEditingChatId(null);
+                            setEditingTitle('');
+                          }}
+                          isMultiselectMode={isMultiselectMode}
+                          isSelected={selectedChatIds.has(chat.id)}
+                          onToggleSelect={() => toggleChatSelection(chat.id)}
+                        />
+                      </AnimatedHistoryItemWrapper>
                     ))}
                   </View>
                 )}
@@ -2003,27 +2184,39 @@ export default function ConversationScreen({
                     }}>
                       {monthYear}
                     </Text>
-                    {groupedChatHistory.groupedUnpinned.get(monthYear)!.map((chat) => (
-                      <ChatHistoryCard
-                        key={chat.id}
-                        chat={chat}
-                        currentChatId={currentChatId}
-                        theme={theme}
-                        onPress={() => isMultiselectMode ? toggleChatSelection(chat.id) : handleChatSelect(chat)}
-                        onLongPress={(e) => handleLongPress(chat, e)}
-                        isEditing={editingChatId === chat.id}
-                        editingTitle={editingTitle}
-                        onEditingTitleChange={setEditingTitle}
-                        onRenameSave={handleRenameSave}
-                        onRenameCancel={() => {
-                          setEditingChatId(null);
-                          setEditingTitle('');
-                        }}
-                        isMultiselectMode={isMultiselectMode}
-                        isSelected={selectedChatIds.has(chat.id)}
-                        onToggleSelect={() => toggleChatSelection(chat.id)}
-                      />
-                    ))}
+                    {groupedChatHistory.groupedUnpinned.get(monthYear)!.map((chat, chatIndex) => {
+                      // Calculate global index for staggered animation
+                      const globalIndex = groupedChatHistory.pinnedChats.length + 
+                        groupedChatHistory.sortedKeys.slice(0, groupedChatHistory.sortedKeys.indexOf(monthYear))
+                          .reduce((sum, key) => sum + (groupedChatHistory.groupedUnpinned.get(key)?.length || 0), 0) + 
+                        chatIndex;
+                      return (
+                        <AnimatedHistoryItemWrapper
+                          key={chat.id}
+                          index={globalIndex}
+                          isVisible={isPanelOpen && !isLoadingHistory}
+                        >
+                          <ChatHistoryCard
+                            chat={chat}
+                            currentChatId={currentChatId}
+                            theme={theme}
+                            onPress={() => isMultiselectMode ? toggleChatSelection(chat.id) : handleChatSelect(chat)}
+                            onLongPress={(e) => handleLongPress(chat, e)}
+                            isEditing={editingChatId === chat.id}
+                            editingTitle={editingTitle}
+                            onEditingTitleChange={setEditingTitle}
+                            onRenameSave={handleRenameSave}
+                            onRenameCancel={() => {
+                              setEditingChatId(null);
+                              setEditingTitle('');
+                            }}
+                            isMultiselectMode={isMultiselectMode}
+                            isSelected={selectedChatIds.has(chat.id)}
+                            onToggleSelect={() => toggleChatSelection(chat.id)}
+                          />
+                        </AnimatedHistoryItemWrapper>
+                      );
+                    })}
                   </View>
                 ))}
               </>
@@ -2038,6 +2231,7 @@ export default function ConversationScreen({
             right: 0,
             padding: 16,
             backgroundColor: theme.colors.card,
+            borderBottomRightRadius: 20, // Match panel's rounded corner
           }}>
             <TouchableOpacity
               onPress={() => {
