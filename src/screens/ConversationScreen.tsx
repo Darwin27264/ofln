@@ -36,6 +36,7 @@ import {
   ActivityIndicator,
   LayoutChangeEvent,
   NativeModules,
+  Keyboard,
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import Markdown from "react-native-markdown-display";
@@ -513,8 +514,9 @@ export default function ConversationScreen({
   }, []);
   
   // Animated padding value for smooth transitions
-  const animatedPadding = useRef(new Animated.Value(0)).current;
-  const animatedBottomPadding = useRef(new Animated.Value(0)).current;
+  // Initialize with 12px (no keyboard state) to prevent jump
+  const animatedPadding = useRef(new Animated.Value(12)).current;
+  const animatedBottomPadding = useRef(new Animated.Value(12)).current;
 
   // Chat history state
   const [chatHistory, setChatHistory] = useState<ChatConversation[]>([]);
@@ -1414,7 +1416,10 @@ export default function ConversationScreen({
   // Calculate padding multiplier based on current state
   // This will be used to interpolate the animated padding
   const calculatePaddingMultiplier = useCallback((keyboardH: number) => {
-    if (keyboardH <= 0) return 0;
+    // When keyboard is not active, add padding to raise the input bar
+    if (keyboardH <= 0) {
+      return 12; // Add padding when keyboard is not active to raise input bar
+    }
     
     let additionalPadding = 0;
     
@@ -1440,6 +1445,11 @@ export default function ConversationScreen({
     const minimumRequiredPadding = keyboardH * 0.17;
     additionalPadding = Math.max(additionalPadding, minimumRequiredPadding);
     
+    // Add extra padding when keyboard is active to keep input bar higher with more spacing
+    // This applies to all devices - adding 8px extra padding for better spacing
+    const keyboardActiveExtraPadding = 8; // Add 8px extra padding when keyboard is active
+    additionalPadding += keyboardActiveExtraPadding;
+    
     // Adjust padding for Samsung devices - they need LESS padding to move input bar lower
     // Samsung devices have different keyboard behavior that causes the input bar to sit too high
     // By reducing padding, we bring the input bar closer to the keyboard (lower on screen)
@@ -1464,34 +1474,110 @@ export default function ConversationScreen({
     return additionalPadding;
   }, [windowResizeInsufficient, heightLoss, hasLayoutMeasurements, isSamsungDevice]);
 
+  // Track current padding animation to prevent overlapping animations
+  const paddingAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const targetPaddingRef = useRef<number>(12); // Start with no-keyboard state
+  const keyboardDurationRef = useRef<number>(250); // Track keyboard animation duration
+  
+  // Listen to keyboard events directly for immediate response and duration tracking
+  useEffect(() => {
+    const showEvent = Platform.OS === "android" ? "keyboardDidShow" : "keyboardWillShow";
+    const hideEvent = Platform.OS === "android" ? "keyboardDidHide" : "keyboardWillHide";
+    
+    const handleKeyboardShow = (event: any) => {
+      // iOS provides duration in the event, Android doesn't
+      const duration = (event as any).duration || 250;
+      keyboardDurationRef.current = duration;
+    };
+    
+    const handleKeyboardHide = (event?: any) => {
+      // iOS provides duration in the event, Android doesn't
+      const duration = (event as any)?.duration || 250;
+      keyboardDurationRef.current = duration;
+    };
+    
+    const showListener = Keyboard.addListener(showEvent, handleKeyboardShow);
+    const hideListener = Keyboard.addListener(hideEvent, handleKeyboardHide);
+    
+    return () => {
+      showListener.remove();
+      hideListener.remove();
+    };
+  }, []);
+  
   // Update animated padding when keyboard height changes
   useEffect(() => {
-    // Function to update padding based on current keyboard height
+    // Function to update padding based on current keyboard height with smooth animation
     const updatePadding = (keyboardH: number) => {
       const additionalPadding = calculatePaddingMultiplier(keyboardH);
-      animatedPadding.setValue(additionalPadding);
-      // Update bottom padding: only keyboard padding (no safe area insets)
-      animatedBottomPadding.setValue(additionalPadding);
+      
+      // Only animate if the target value has changed significantly (more than 1px difference)
+      // This prevents unnecessary animations and reduces glitches
+      if (Math.abs(targetPaddingRef.current - additionalPadding) < 1) {
+        return;
+      }
+      
+      targetPaddingRef.current = additionalPadding;
+      
+      // Stop any ongoing animation to prevent conflicts
+      if (paddingAnimationRef.current) {
+        paddingAnimationRef.current.stop();
+      }
+      
+      // Use keyboard animation duration for smooth, native feel
+      // Match the keyboard's own animation timing
+      const animationDuration = keyboardDurationRef.current;
+      
+      // Animate padding smoothly instead of using setValue
+      // Match keyboard animation duration for native feel
+      paddingAnimationRef.current = Animated.parallel([
+        Animated.timing(animatedPadding, {
+          toValue: additionalPadding,
+          duration: animationDuration,
+          easing: EASING.STANDARD,
+          useNativeDriver: false, // Padding animations can't use native driver
+        }),
+        Animated.timing(animatedBottomPadding, {
+          toValue: additionalPadding,
+          duration: animationDuration,
+          easing: EASING.STANDARD,
+          useNativeDriver: false, // Padding animations can't use native driver
+        }),
+      ]);
+      
+      paddingAnimationRef.current.start(() => {
+        paddingAnimationRef.current = null;
+      });
     };
 
     // Create a listener to update padding as keyboard animates
+    // Update immediately for smooth, native feel
     const listenerId = animatedHeight.addListener(({ value }) => {
       updatePadding(value);
     });
 
     // Initialize with current keyboard height
-    updatePadding(keyboardPadding);
+    const initialPadding = calculatePaddingMultiplier(keyboardPadding);
+    targetPaddingRef.current = initialPadding;
+    animatedPadding.setValue(initialPadding);
+    animatedBottomPadding.setValue(initialPadding);
 
     return () => {
       animatedHeight.removeListener(listenerId);
+      // Stop any ongoing animation on cleanup
+      if (paddingAnimationRef.current) {
+        paddingAnimationRef.current.stop();
+        paddingAnimationRef.current = null;
+      }
     };
   }, [animatedHeight, animatedPadding, animatedBottomPadding, calculatePaddingMultiplier, keyboardPadding]);
 
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={0}
+      enabled={Platform.OS === "ios"}
     >
       <View style={{ flex: 1 }} onLayout={handleLayout}>
         {/* Top-left pills for slide-out panel and model selector */}
@@ -1508,7 +1594,7 @@ export default function ConversationScreen({
               <Text 
                 style={{
                   color: theme.colors.text,
-                  fontSize: 15,
+                  fontSize: 16,
                   fontFamily: 'Poppins',
                   flex: 1,
                 }}
@@ -2013,7 +2099,7 @@ export default function ConversationScreen({
               }
               return (
                 <View key={index} style={styles.messageWrapper}>
-                  <View style={[containerStyle, { maxWidth: "100%" }]}>
+                  <View style={[containerStyle, isAssistantDirect ? { maxWidth: "100%" } : {}]}>
                     {msg.thought && (
                       <TouchableOpacity
                         onPress={() => toggleThought(index + 1)}
@@ -2047,6 +2133,7 @@ export default function ConversationScreen({
                               fontSize: 16, 
                               fontFamily: "Poppins",
                               color: msg.role === "user" ? theme.colors.primaryText : theme.colors.text,
+                              lineHeight: 24,
                               margin: 0,
                               padding: 0,
                               flexWrap: "wrap",
@@ -2061,6 +2148,7 @@ export default function ConversationScreen({
                             },
                             text: {
                               flexWrap: "wrap",
+                              lineHeight: 24,
                               margin: 0,
                               padding: 0,
                             },
@@ -2146,102 +2234,105 @@ export default function ConversationScreen({
               style={[styles.greetingContainer, { opacity: greetingOpacity }]}
             >
               <Text style={styles.greetingText}>
-                {isTemporaryMode ? "Temporary Mode" : "How can I help you today?"}
+                {isTemporaryMode ? "Temporary Mode" : "How can I help you?"}
               </Text>
+              
+              {/* Preset message suggestions or temporary mode explanation */}
+              {userInput.trim().length === 0 && (
+                <View style={{
+                  marginTop: 32,
+                  alignItems: 'center',
+                  width: '100%',
+                }}>
+                  {isTemporaryMode ? (
+                    <Animated.View
+                      style={{
+                        opacity: tempModeExplanationAnim,
+                        transform: [{
+                          translateY: tempModeExplanationAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [10, 0],
+                          }),
+                        }],
+                        width: '100%',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <View style={{
+                        backgroundColor: theme.colors.glass,
+                        paddingHorizontal: 20,
+                        paddingVertical: 16,
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        width: '100%',
+                      }}>
+                        <Text style={{
+                          color: theme.colors.textSecondary,
+                          fontSize: 18,
+                          fontFamily: 'Poppins',
+                          textAlign: 'left',
+                          lineHeight: 24,
+                        }}>
+                          Conversations in temporary mode are not saved. This chat will not appear in your history.
+                        </Text>
+                      </View>
+                    </Animated.View>
+                  ) : (
+                    <Animated.View
+                      style={{
+                        opacity: presetMessagesAnim,
+                        transform: [{
+                          translateY: presetMessagesAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [10, 0],
+                          }),
+                        }],
+                        alignItems: 'center',
+                        width: '100%',
+                      }}
+                    >
+                      {PRESET_MESSAGES.map((preset, index) => (
+                        <TouchableOpacity
+                          key={index}
+                          onPress={() => handlePresetMessage(preset)}
+                          style={{
+                            backgroundColor: 'transparent',
+                            paddingHorizontal: 20,
+                            paddingVertical: 12,
+                            borderRadius: 30,
+                            borderWidth: 1,
+                            borderColor: theme.colors.border,
+                            marginBottom: index < PRESET_MESSAGES.length - 1 ? 8 : 0,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            minWidth: 200,
+                          }}
+                        >
+                          <Ionicons 
+                            name={PRESET_ICONS[preset] as any} 
+                            size={20} 
+                            color={theme.colors.text} 
+                            style={{ marginRight: 8 }}
+                          />
+                          <Text style={{
+                            color: theme.colors.text,
+                            fontSize: 16,
+                            fontFamily: 'Poppins',
+                            textAlign: 'center',
+                          }}>
+                            {preset}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </Animated.View>
+                  )}
+                </View>
+              )}
             </Animated.View>
           )}
         </View>
-
-        {/* Preset message suggestions or temporary mode explanation */}
-        {noMessages && userInput.trim().length === 0 && (
-          <View style={{
-            paddingHorizontal: 16,
-            paddingBottom: 12,
-            gap: 12,
-          }}>
-            {isTemporaryMode ? (
-              <Animated.View
-                style={{
-                  opacity: tempModeExplanationAnim,
-                  transform: [{
-                    translateY: tempModeExplanationAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [10, 0],
-                    }),
-                  }],
-                }}
-              >
-                <View style={{
-                  backgroundColor: theme.colors.glass,
-                  paddingHorizontal: 20,
-                  paddingVertical: 16,
-                  borderRadius: 16,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                  width: '100%',
-                }}>
-                  <Text style={{
-                    color: theme.colors.textSecondary,
-                    fontSize: 18,
-                    fontFamily: 'Poppins',
-                    textAlign: 'left',
-                    lineHeight: 24,
-                  }}>
-                    Conversations in temporary mode are not saved. This chat will not appear in your history.
-                  </Text>
-                </View>
-              </Animated.View>
-            ) : (
-              <Animated.View
-                style={{
-                  opacity: presetMessagesAnim,
-                  transform: [{
-                    translateY: presetMessagesAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [10, 0],
-                    }),
-                  }],
-                }}
-              >
-                {PRESET_MESSAGES.map((preset, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    onPress={() => handlePresetMessage(preset)}
-                    style={{
-                      backgroundColor: theme.colors.glass,
-                      paddingHorizontal: 20,
-                      paddingVertical: 12,
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: theme.colors.border,
-                      width: '100%',
-                      marginBottom: index < PRESET_MESSAGES.length - 1 ? 12 : 0,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <Text style={{
-                      color: theme.colors.text,
-                      fontSize: 16,
-                      fontFamily: 'Poppins',
-                      textAlign: 'left',
-                      flex: 1,
-                    }}>
-                      {preset}
-                    </Text>
-                    <Ionicons 
-                      name={PRESET_ICONS[preset] as any} 
-                      size={20} 
-                      color={theme.colors.textTertiary} 
-                      style={{ marginLeft: 12 }}
-                    />
-                  </TouchableOpacity>
-                ))}
-              </Animated.View>
-            )}
-          </View>
-        )}
 
         {/* Bottom input bar */}
         <Animated.View
@@ -2340,7 +2431,7 @@ export default function ConversationScreen({
               }}
             >
               <Text style={{
-                fontSize: 14,
+                fontSize: 16,
                 fontWeight: "600",
                 fontFamily: "Poppins",
                 color: selectorTab === "models" ? theme.colors.primaryText : theme.colors.text,
@@ -2359,7 +2450,7 @@ export default function ConversationScreen({
               }}
             >
               <Text style={{
-                fontSize: 14,
+                fontSize: 16,
                 fontWeight: "600",
                 fontFamily: "Poppins",
                 color: selectorTab === "personas" ? theme.colors.primaryText : theme.colors.text,
@@ -2433,8 +2524,12 @@ export default function ConversationScreen({
                         <Text style={[
                           styles.buttonText,
                           isSelected && styles.selectedButtonText,
+                          {
+                            flex: 1,
+                            marginRight: 8,
+                          },
                         ]}
-                        numberOfLines={2}
+                        numberOfLines={1}
                         ellipsizeMode="tail"
                         >
                           {prettifyModelName(model)}
@@ -2445,8 +2540,8 @@ export default function ConversationScreen({
                           height: 20, 
                           alignItems: 'center', 
                           justifyContent: 'center',
-                          marginLeft: 8,
                           position: 'relative',
+                          flexShrink: 0,
                         }}>
                           {isCurrentlyLoading && (
                             <View style={{
@@ -2530,13 +2625,14 @@ export default function ConversationScreen({
                       ]}
                     >
                       <View style={styles.modelButtonContent}>
-                        <View style={{ flex: 1 }}>
+                        <View style={{ flex: 1, marginRight: 8 }}>
                           <Text style={[
                             styles.buttonText,
                             isSelected && styles.selectedButtonText,
                             { textAlign: 'left' },
                           ]}
                           numberOfLines={1}
+                          ellipsizeMode="tail"
                           >
                             {persona.name}
                           </Text>
@@ -2549,6 +2645,7 @@ export default function ConversationScreen({
                               textAlign: 'left',
                             }}
                             numberOfLines={1}
+                            ellipsizeMode="tail"
                             >
                               {persona.tagline}
                             </Text>
@@ -2560,8 +2657,8 @@ export default function ConversationScreen({
                           height: 20, 
                           alignItems: 'center', 
                           justifyContent: 'center',
-                          marginLeft: 8,
                           position: 'relative',
+                          flexShrink: 0,
                         }}>
                           <AnimatedCheckmark
                             visible={isSelected}

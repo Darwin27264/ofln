@@ -675,12 +675,15 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   
   return (
     <View style={[{ flex: 1, backgroundColor: theme.colors.background }]}>
+      {/* Fixed header */}
+      <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 10, backgroundColor: theme.colors.background }}>
+        <Text style={[shared.settingsTitle, stylesLocalWithTheme.title, { color: theme.colors.text }]}>Performance</Text>
+      </View>
+      
       <ScrollView
         style={[shared.container, stylesLocalWithTheme.scroll]}
         contentContainerStyle={stylesLocalWithTheme.scrollContent}
       >
-        <Text style={[shared.settingsTitle, stylesLocalWithTheme.title, { color: theme.colors.text }]}>Performance</Text>
-
         {selectedModel && stats && (
           <>
             {/* Stats cards */}

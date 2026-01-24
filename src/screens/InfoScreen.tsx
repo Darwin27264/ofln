@@ -85,13 +85,25 @@ export default function InfoScreen({ onBack }: Props) {
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={{
-          fontSize: 36,
-          fontWeight: "600",
-          color: theme.colors.text,
+        <View style={{
+          flexDirection: "row",
+          alignItems: "baseline",
           marginBottom: 16,
-          fontFamily: "Poppins",
-        }}>{appName}</Text>
+        }}>
+          <Text style={{
+            fontSize: 36,
+            fontWeight: "600",
+            color: theme.colors.text,
+            fontFamily: "Poppins",
+          }}>{appName}</Text>
+          <Text style={{
+            fontSize: 18,
+            color: theme.colors.text,
+            fontFamily: "Poppins",
+            fontWeight: "500",
+            marginLeft: 16,
+          }}>v{appVersion}</Text>
+        </View>
 
         <Text style={{
           fontSize: 18,
@@ -100,22 +112,6 @@ export default function InfoScreen({ onBack }: Props) {
           marginBottom: 30,
           fontFamily: "Poppins",
         }}>{appPurpose}</Text>
-
-        <View style={{
-          backgroundColor: theme.colors.glass,
-          borderRadius: 12,
-          borderWidth: 1,
-          borderColor: theme.colors.border,
-          padding: 16,
-          alignSelf: "flex-start",
-        }}>
-          <Text style={{
-            fontSize: 18,
-            color: theme.colors.text,
-            fontFamily: "Poppins",
-            fontWeight: "500",
-          }}>v{appVersion}</Text>
-        </View>
 
         {/* Error Log Section */}
         <View style={{ marginTop: 30 }}>

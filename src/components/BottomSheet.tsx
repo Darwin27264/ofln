@@ -468,12 +468,13 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 0,
+    marginTop: -8,
   },
   headerLeft: {
     flex: 1,
   },
   title: {
-    fontSize: 24,
+    fontSize: 18,
     fontFamily: 'Poppins',
     fontWeight: '600',
     color: colors.text,
