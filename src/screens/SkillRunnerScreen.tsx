@@ -141,7 +141,7 @@ export default function SkillRunnerScreen({
     }).start();
   }, [speedMode, speedModeAnim]);
 
-  // Model modal animations
+  // Model modal animations - using spring for smooth, native feel
   useEffect(() => {
     if (isModelDropdownOpen) {
       modelModalOpacity.setValue(0);
@@ -149,13 +149,15 @@ export default function SkillRunnerScreen({
       Animated.parallel([
         Animated.timing(modelModalOpacity, {
           toValue: 1,
-          duration: 200,
+          duration: 100,
           useNativeDriver: true,
         }),
-        Animated.timing(modelModalTranslateY, {
+        Animated.spring(modelModalTranslateY, {
           toValue: 0,
-          duration: 300,
           useNativeDriver: true,
+          tension: 100,
+          friction: 14,
+          overshootClamping: true,
         }),
       ]).start();
     } else {
@@ -174,7 +176,7 @@ export default function SkillRunnerScreen({
     }
   }, [isModelDropdownOpen, modelModalOpacity, modelModalTranslateY]);
 
-  // Persona modal animations
+  // Persona modal animations - using spring for smooth, native feel
   useEffect(() => {
     if (isPersonaDropdownOpen) {
       personaModalOpacity.setValue(0);
@@ -182,13 +184,15 @@ export default function SkillRunnerScreen({
       Animated.parallel([
         Animated.timing(personaModalOpacity, {
           toValue: 1,
-          duration: 200,
+          duration: 100,
           useNativeDriver: true,
         }),
-        Animated.timing(personaModalTranslateY, {
+        Animated.spring(personaModalTranslateY, {
           toValue: 0,
-          duration: 300,
           useNativeDriver: true,
+          tension: 100,
+          friction: 14,
+          overshootClamping: true,
         }),
       ]).start();
     } else {

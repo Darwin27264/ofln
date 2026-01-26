@@ -878,7 +878,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
             ]
           )}
         >
-          <Text style={stylesLocalWithTheme.btnText}>Clear</Text>
+          <Text style={[stylesLocalWithTheme.btnText, { marginLeft: 0 }]}>Clear</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -989,6 +989,7 @@ const createStylesLocal = (colors: any) => StyleSheet.create({
   btn: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 24,

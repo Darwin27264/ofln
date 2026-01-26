@@ -151,9 +151,13 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
     animatedValue.setValue(0);
     currentAnimatedValue.current = 0;
     
-    const animation = Animated.timing(animatedValue, {
+    // Use spring animation for more native, smooth feel (like history panel)
+    const animation = Animated.spring(animatedValue, {
       toValue: 1,
-      ...BOTTOM_SHEET_ANIMATIONS.open,
+      useNativeDriver: true,
+      tension: 100,
+      friction: 14,
+      overshootClamping: true,
     });
     
     currentAnimation.current = animation;

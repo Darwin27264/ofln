@@ -1592,8 +1592,8 @@ export default function ConversationScreen({
     additionalPadding = Math.max(additionalPadding, minimumRequiredPadding);
     
     // Add extra padding when keyboard is active to keep input bar higher with more spacing
-    // This applies to all devices - adding 8px extra padding for better spacing
-    const keyboardActiveExtraPadding = 8; // Add 8px extra padding when keyboard is active
+    // This applies to all devices - adding 12px extra padding for better spacing
+    const keyboardActiveExtraPadding = 12; // Add 12px extra padding when keyboard is active
     additionalPadding += keyboardActiveExtraPadding;
     
     // Adjust padding for Samsung devices - they need LESS padding to move input bar lower
@@ -1607,7 +1607,8 @@ export default function ConversationScreen({
         // REDUCE padding for Samsung devices to bring input bar lower (closer to keyboard)
         // Negative value means we subtract from the calculated padding
         // Using a percentage of keyboard height ensures it scales appropriately
-        extraSpacing = -Math.max(20, keyboardH * 0.06); // Subtract at least 20px or 6% of keyboard height
+        // Slightly less aggressive reduction to allow for slight spacing increase
+        extraSpacing = -Math.max(16, keyboardH * 0.05); // Subtract at least 16px or 5% of keyboard height
         console.log(`Applying Samsung-specific spacing reduction: ${Math.abs(extraSpacing).toFixed(1)}px`);
       }
     }
@@ -2434,7 +2435,7 @@ export default function ConversationScreen({
               {/* Preset message suggestions or temporary mode explanation */}
               {userInput.trim().length === 0 && (
                 <View style={{
-                  marginTop: 32,
+                  marginTop: 24,
                   alignItems: 'center',
                   width: '100%',
                 }}>
@@ -2453,7 +2454,7 @@ export default function ConversationScreen({
                       }}
                     >
                       <View style={{
-                        backgroundColor: theme.colors.glass,
+                        backgroundColor: 'transparent',
                         paddingHorizontal: 20,
                         paddingVertical: 16,
                         borderRadius: 16,
@@ -2462,7 +2463,7 @@ export default function ConversationScreen({
                         width: '100%',
                       }}>
                         <Text style={{
-                          color: theme.colors.textSecondary,
+                          color: theme.colors.text,
                           fontSize: 18,
                           fontFamily: 'Poppins',
                           textAlign: 'left',
@@ -2583,7 +2584,7 @@ export default function ConversationScreen({
           visible={isModelSelectorVisible}
           onClose={closeModelSelector}
           title={selectorTab === "models" ? "Select Model" : "Select Persona"}
-          height={0.6}
+          height={0.65}
           disableDrag={isLoadingModel}
           headerRight={
             selectorTab === "personas" && selectedPersona ? (
