@@ -36,7 +36,6 @@ import {
   ActivityIndicator,
   LayoutChangeEvent,
   NativeModules,
-  Keyboard,
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import Markdown from "react-native-markdown-display";
@@ -516,7 +515,7 @@ export default function ConversationScreen({
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
   const insets = useSafeAreaInsets();
-  const { keyboardHeight: keyboardPadding, animatedHeight } = useKeyboardPadding();
+  const { keyboardHeight: keyboardPadding, animatedHeight, syncKeyboardState } = useKeyboardPadding();
   const [initialLayoutHeight, setInitialLayoutHeight] = useState<number | null>(null);
   const [currentLayoutHeight, setCurrentLayoutHeight] = useState<number | null>(null);
   
@@ -1533,11 +1532,9 @@ export default function ConversationScreen({
   }, [isPanelOpen, panelAnim, panelWidth]);
 
   const handleLayout = useCallback((event: LayoutChangeEvent) => {
-    const layoutHeight = event.nativeEvent.layout.height;
-    if (initialLayoutHeight === null) {
-      setInitialLayoutHeight(layoutHeight);
-    }
-    setCurrentLayoutHeight(layoutHeight);
+    const { height } = event.nativeEvent.layout;
+    if (initialLayoutHeight === null) setInitialLayoutHeight(height);
+    setCurrentLayoutHeight(height);
   }, [initialLayoutHeight]);
 
   // Calculate how much the window has actually resized (when adjustResize works)
@@ -1559,151 +1556,61 @@ export default function ConversationScreen({
     hasLayoutMeasurements &&
     heightLoss < keyboardPadding * 0.8;
 
-  // Calculate padding multiplier based on current state
-  // This will be used to interpolate the animated padding
+  const NO_KEYBOARD_PADDING = 12;
+  const MIN_PADDING_RATIO = 0.10;
   const calculatePaddingMultiplier = useCallback((keyboardH: number) => {
-    // When keyboard is not active, add padding to raise the input bar
-    if (keyboardH <= 0) {
-      return 12; // Add padding when keyboard is not active to raise input bar
-    }
-    
-    let additionalPadding = 0;
-    
+    if (keyboardH <= 0) return NO_KEYBOARD_PADDING;
+
+    let padding: number;
     if (windowResizeInsufficient) {
-      // Window didn't resize enough (common on Samsung/OEM) - add gap + safety margin
       const gap = keyboardH - heightLoss;
-      // Use the larger of: gap + 10px buffer, or 20% of keyboard height
-      additionalPadding = Math.max(
-        gap + 10, // Gap + 10px buffer
-        keyboardH * 0.20 // Or at least 20% of keyboard height
-      );
+      padding = Math.max(gap + 10, keyboardH * 0.20);
     } else if (hasLayoutMeasurements && heightLoss > 0) {
-      // Window resized properly - add buffer for safety
-      // Use 10-12px adaptive buffer
-      additionalPadding = Math.max(10, Math.min(keyboardH * 0.06, 12));
+      padding = Math.max(10, Math.min(keyboardH * 0.06, 12));
     } else {
-      // No layout measurements yet or keyboard just appeared - use fallback
-      // Use 20% of keyboard height + buffer
-      additionalPadding = keyboardH * 0.20 + 10; // 20% + 10px buffer
+      padding = keyboardH * 0.20 + 10;
     }
-    
-    // Final safety check: ensure we always have at least 17% of keyboard height as padding
-    const minimumRequiredPadding = keyboardH * 0.17;
-    additionalPadding = Math.max(additionalPadding, minimumRequiredPadding);
-    
-    // Add extra padding when keyboard is active to keep input bar higher with more spacing
-    // This applies to all devices - adding 12px extra padding for better spacing
-    const keyboardActiveExtraPadding = 12; // Add 12px extra padding when keyboard is active
-    additionalPadding += keyboardActiveExtraPadding;
-    
-    // Adjust padding for Samsung devices - they need LESS padding to move input bar lower
-    // Samsung devices have different keyboard behavior that causes the input bar to sit too high
-    // By reducing padding, we bring the input bar closer to the keyboard (lower on screen)
-    let extraSpacing = 0;
-    if (Platform.OS === 'android') {
-      // Use Samsung detection OR windowResizeInsufficient as indicator
-      // windowResizeInsufficient is often true on Samsung devices due to their keyboard handling
-      if (isSamsungDevice || windowResizeInsufficient) {
-        // REDUCE padding for Samsung devices to bring input bar lower (closer to keyboard)
-        // Negative value means we subtract from the calculated padding
-        // Using a percentage of keyboard height ensures it scales appropriately
-        // Slightly less aggressive reduction to allow for slight spacing increase
-        extraSpacing = -Math.max(16, keyboardH * 0.05); // Subtract at least 16px or 5% of keyboard height
-        console.log(`Applying Samsung-specific spacing reduction: ${Math.abs(extraSpacing).toFixed(1)}px`);
-      }
+
+    padding = Math.max(padding, keyboardH * 0.17);
+    padding += 12;
+
+    if (Platform.OS === "android" && (isSamsungDevice || windowResizeInsufficient)) {
+      padding -= Math.max(16, keyboardH * 0.05);
     }
-    additionalPadding += extraSpacing;
-    
-    // Ensure padding doesn't go below a safe minimum (at least 10% of keyboard height)
-    const absoluteMinimum = keyboardH * 0.10;
-    additionalPadding = Math.max(additionalPadding, absoluteMinimum);
-    
-    return additionalPadding;
+    return Math.max(padding, keyboardH * MIN_PADDING_RATIO);
   }, [windowResizeInsufficient, heightLoss, hasLayoutMeasurements, isSamsungDevice]);
 
-  // Track current padding animation to prevent overlapping animations
   const paddingAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
-  const targetPaddingRef = useRef<number>(12); // Start with no-keyboard state
-  const keyboardDurationRef = useRef<number>(250); // Track keyboard animation duration
-  
-  // Listen to keyboard events directly for immediate response and duration tracking
+  const targetPaddingRef = useRef(12);
+  const PADDING_ANIM_DURATION = 250;
+
   useEffect(() => {
-    const showEvent = Platform.OS === "android" ? "keyboardDidShow" : "keyboardWillShow";
-    const hideEvent = Platform.OS === "android" ? "keyboardDidHide" : "keyboardWillHide";
-    
-    const handleKeyboardShow = (event: any) => {
-      // iOS provides duration in the event, Android doesn't
-      const duration = (event as any).duration || 250;
-      keyboardDurationRef.current = duration;
-    };
-    
-    const handleKeyboardHide = (event?: any) => {
-      // iOS provides duration in the event, Android doesn't
-      const duration = (event as any)?.duration || 250;
-      keyboardDurationRef.current = duration;
-    };
-    
-    const showListener = Keyboard.addListener(showEvent, handleKeyboardShow);
-    const hideListener = Keyboard.addListener(hideEvent, handleKeyboardHide);
-    
-    return () => {
-      showListener.remove();
-      hideListener.remove();
-    };
-  }, []);
-  
-  // Update animated padding when keyboard height changes
-  useEffect(() => {
-    // Function to update padding based on current keyboard height with smooth animation
     const updatePadding = (keyboardH: number) => {
-      const additionalPadding = calculatePaddingMultiplier(keyboardH);
-      
-      // Only animate if the target value has changed significantly (more than 1px difference)
-      // This prevents unnecessary animations and reduces glitches
-      if (Math.abs(targetPaddingRef.current - additionalPadding) < 1) {
-        return;
-      }
-      
-      targetPaddingRef.current = additionalPadding;
-      
-      // Stop any ongoing animation to prevent conflicts
-      if (paddingAnimationRef.current) {
-        paddingAnimationRef.current.stop();
-      }
-      
-      // Use keyboard animation duration for smooth, native feel
-      // Match the keyboard's own animation timing
-      const animationDuration = keyboardDurationRef.current;
-      
-      // Animate padding smoothly instead of using setValue
-      // Match keyboard animation duration for native feel
+      const padding = calculatePaddingMultiplier(keyboardH);
+      if (Math.abs(targetPaddingRef.current - padding) < 1) return;
+      targetPaddingRef.current = padding;
+
+      if (paddingAnimationRef.current) paddingAnimationRef.current.stop();
       paddingAnimationRef.current = Animated.parallel([
         Animated.timing(animatedPadding, {
-          toValue: additionalPadding,
-          duration: animationDuration,
+          toValue: padding,
+          duration: PADDING_ANIM_DURATION,
           easing: EASING.STANDARD,
-          useNativeDriver: false, // Padding animations can't use native driver
+          useNativeDriver: false,
         }),
         Animated.timing(animatedBottomPadding, {
-          toValue: additionalPadding,
-          duration: animationDuration,
+          toValue: padding,
+          duration: PADDING_ANIM_DURATION,
           easing: EASING.STANDARD,
-          useNativeDriver: false, // Padding animations can't use native driver
+          useNativeDriver: false,
         }),
       ]);
-      
       paddingAnimationRef.current.start(() => {
         paddingAnimationRef.current = null;
       });
     };
 
-    // Create a listener to update padding as keyboard animates
-    // Update immediately for smooth, native feel
-    const listenerId = animatedHeight.addListener(({ value }) => {
-      updatePadding(value);
-    });
-
-    // Initialize with current keyboard height
+    const listenerId = animatedHeight.addListener(({ value }) => updatePadding(value));
     const initialPadding = calculatePaddingMultiplier(keyboardPadding);
     targetPaddingRef.current = initialPadding;
     animatedPadding.setValue(initialPadding);
@@ -1711,11 +1618,8 @@ export default function ConversationScreen({
 
     return () => {
       animatedHeight.removeListener(listenerId);
-      // Stop any ongoing animation on cleanup
-      if (paddingAnimationRef.current) {
-        paddingAnimationRef.current.stop();
-        paddingAnimationRef.current = null;
-      }
+      paddingAnimationRef.current?.stop();
+      paddingAnimationRef.current = null;
     };
   }, [animatedHeight, animatedPadding, animatedBottomPadding, calculatePaddingMultiplier, keyboardPadding]);
 
@@ -2546,6 +2450,11 @@ export default function ConversationScreen({
               value={userInput}
               onChangeText={setUserInput}
               multiline
+              onFocus={() => {
+                // Sync keyboard height from native after focus; fixes race where
+                // keyboardDidShow fires before we subscribe (all devices).
+                setTimeout(syncKeyboardState, 200);
+              }}
             />
             {isGenerating ? (
               <Animated.View

@@ -172,7 +172,8 @@ const stripFileExtension = (modelName: string): string => {
 
 /* ──────────────────────────────────── component ──────────────────────────────────── */
 const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
+  const graphLineColor = isDark ? '#FFFFFF' : '#6B7280';
   const shared = createStyles(theme.colors);
   const { usageRecords, isLoading, error, clearUsageData } = useUsageData();
   const [selectedModel, setSelectedModel] = useState<string>('');
@@ -606,12 +607,12 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
     backgroundGradientTo: 'transparent',
     backgroundGradientFromOpacity: 0,
     backgroundGradientToOpacity: 0,
-    color: (o = 1) => hexToRgba(theme.colors.accent, o),
+    color: (o = 1) => hexToRgba(graphLineColor, o),
     labelColor: () => 'transparent',
     strokeWidth: 2,
     decimalPlaces: 0,
     propsForDots: { r: '0' },
-    fillShadowGradient: theme.colors.accent,
+    fillShadowGradient: graphLineColor,
     fillShadowGradientOpacity: 0.25,
   };
 
@@ -674,15 +675,13 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   };
   
   return (
-    <View style={[{ flex: 1, backgroundColor: theme.colors.background }]}>
-      {/* Fixed header */}
-      <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 10, backgroundColor: theme.colors.background }}>
-        <Text style={[shared.settingsTitle, stylesLocalWithTheme.title, { color: theme.colors.text }]}>Performance</Text>
-      </View>
-      
+    <View style={[{ flex: 1, backgroundColor: theme.colors.background, padding: 20 }]}>
+      <Text style={[shared.settingsTitle, stylesLocalWithTheme.title, { color: theme.colors.text }]}>Performance</Text>
+
       <ScrollView
-        style={[shared.container, stylesLocalWithTheme.scroll]}
+        style={stylesLocalWithTheme.scroll}
         contentContainerStyle={stylesLocalWithTheme.scrollContent}
+        showsVerticalScrollIndicator={false}
       >
         {selectedModel && stats && (
           <>
@@ -753,17 +752,17 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
         </View>
       </ScrollView>
 
-      {/* Model selector - centered pill with swipe and arrow buttons */}
+      {/* Model selector - centered pill with swipe and arrow buttons (surface/card style, readable text) */}
       <View style={stylesLocalWithTheme.modelBar}>
         <View style={stylesLocalWithTheme.modelContainer}>
           {/* Left arrow button - absolutely positioned */}
           {hasPreviousModel && (
             <TouchableOpacity
               onPress={navigateToPrevious}
-              style={[stylesLocalWithTheme.arrowButton, stylesLocalWithTheme.arrowButtonLeft, { backgroundColor: theme.colors.primary }]}
+              style={[stylesLocalWithTheme.arrowButton, stylesLocalWithTheme.arrowButtonLeft, { backgroundColor: theme.colors.surface }]}
               activeOpacity={0.7}
             >
-              <Ionicons name="chevron-back" size={20} color={theme.colors.primaryText} />
+              <Ionicons name="chevron-back" size={20} color={theme.colors.text} />
             </TouchableOpacity>
           )}
           
@@ -773,14 +772,14 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
             style={[
               stylesLocalWithTheme.modelChip,
               {
-                backgroundColor: theme.colors.primary,
+                backgroundColor: theme.colors.surface,
                 transform: [{ translateX: pillTranslateX }],
                 opacity: pillOpacity,
               },
             ]}
           >
             <Text
-              style={[stylesLocalWithTheme.modelText, { color: theme.colors.primaryText }]}
+              style={[stylesLocalWithTheme.modelText, { color: theme.colors.text }]}
               numberOfLines={2}
               ellipsizeMode="tail"
             >
@@ -792,10 +791,10 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           {hasNextModel && (
             <TouchableOpacity
               onPress={navigateToNext}
-              style={[stylesLocalWithTheme.arrowButton, stylesLocalWithTheme.arrowButtonRight, { backgroundColor: theme.colors.primary }]}
+              style={[stylesLocalWithTheme.arrowButton, stylesLocalWithTheme.arrowButtonRight, { backgroundColor: theme.colors.surface }]}
               activeOpacity={0.7}
             >
-              <Ionicons name="chevron-forward" size={20} color={theme.colors.primaryText} />
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.text} />
             </TouchableOpacity>
           )}
         </View>
@@ -891,9 +890,9 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
 
 /* ───────────────────────────── styles ───────────────────────────── */
 const createStylesLocal = (colors: any) => StyleSheet.create({
-  scroll: { padding: 20 },
-  scrollContent: { paddingBottom: 220 },
-  title: { marginBottom: 40 },
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 130 },
+  title: { marginBottom: 20 },
   row: { flexDirection: 'row', marginBottom: 10 },
 
   statCard: {
