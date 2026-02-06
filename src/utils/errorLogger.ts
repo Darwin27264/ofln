@@ -4,6 +4,86 @@ import { Platform, NativeModules } from "react-native";
 
 const errorLogFile = `${RNFS.DocumentDirectoryPath}/error_log.txt`;
 
+/**
+ * Build a header string with app and library versions (fetched at runtime).
+ * Used at the top of the View Logs screen.
+ */
+export const getAppEnvironmentInfo = (): string => {
+  const lines: string[] = [];
+  lines.push("=== App environment ===");
+  lines.push("");
+
+  try {
+    const pkg = require("../../package.json");
+    lines.push(`App: ${pkg.name || "ofln"} ${pkg.version || "?"}`);
+  } catch {
+    lines.push("App: (unable to read)");
+  }
+
+  try {
+    const react = require("react");
+    lines.push(`React: ${react.version ?? "?"}`);
+  } catch {
+    lines.push("React: (unable to read)");
+  }
+
+  try {
+    const rn = require("react-native");
+    const v = (rn as { version?: string }).version;
+    if (v) {
+      lines.push(`React Native: ${v}`);
+    } else {
+      try {
+        const rnPkg = require("react-native/package.json");
+        lines.push(`React Native: ${rnPkg.version ?? "?"}`);
+      } catch {
+        lines.push("React Native: (unable to read)");
+      }
+    }
+  } catch {
+    lines.push("React Native: (unable to read)");
+  }
+
+  try {
+    let llamaVersion = "";
+    try {
+      const llamaPkg = require("llama.rn/package.json");
+      llamaVersion = String(llamaPkg.version ?? "").trim();
+    } catch {
+      // ignore
+    }
+    if (llamaVersion) {
+      lines.push(`llama.rn: ${llamaVersion}`);
+    } else {
+      const llamaRn = require("llama.rn");
+      const buildInfo = (llamaRn as { BuildInfo?: { number?: string; commit?: string } }).BuildInfo;
+      if (buildInfo?.number != null) {
+        lines.push(`llama.rn: build ${buildInfo.number}${buildInfo.commit ? ` (${buildInfo.commit})` : ""}`);
+      } else {
+        lines.push("llama.rn: (unable to read)");
+      }
+    }
+  } catch {
+    lines.push("llama.rn: (unable to read)");
+  }
+
+  try {
+    lines.push(`Platform: ${Platform.OS} ${String(Platform.Version ?? "")}`);
+  } catch {
+    lines.push("Platform: (unable to read)");
+  }
+
+  const constants = (Platform.constants ?? {}) as Record<string, unknown>;
+  if (constants.Brand) lines.push(`Device brand: ${constants.Brand}`);
+  if (constants.Model) lines.push(`Device model: ${constants.Model}`);
+  if (constants.Manufacturer) lines.push(`Manufacturer: ${constants.Manufacturer}`);
+
+  lines.push("");
+  lines.push("=== End environment ===");
+  lines.push("");
+  return lines.join("\n");
+};
+
 export interface ErrorLogEntry {
   timestamp: string;
   level: "ERROR" | "WARN" | "INFO";
@@ -31,16 +111,16 @@ export interface ErrorLogEntry {
  */
 const getDeviceInfo = (): ErrorLogEntry["deviceInfo"] => {
   try {
-    const platformConstants = Platform.constants || {};
+    const platformConstants = (Platform.constants || {}) as Record<string, unknown>;
     let nativeBrand = "";
     let nativeManufacturer = "";
     let nativeModel = "";
     
     try {
-      const deviceInfo = NativeModules.PlatformConstants || {};
-      nativeBrand = deviceInfo.Brand || "";
-      nativeManufacturer = deviceInfo.Manufacturer || "";
-      nativeModel = deviceInfo.Model || "";
+      const deviceInfo = (NativeModules.PlatformConstants || {}) as Record<string, unknown>;
+      nativeBrand = String(deviceInfo.Brand || "").toLowerCase();
+      nativeManufacturer = String(deviceInfo.Manufacturer || "").toLowerCase();
+      nativeModel = String(deviceInfo.Model || "").toLowerCase();
     } catch (e) {
       // NativeModules might not be available
     }
@@ -48,9 +128,9 @@ const getDeviceInfo = (): ErrorLogEntry["deviceInfo"] => {
     return {
       platform: Platform.OS,
       osVersion: Platform.Version?.toString(),
-      brand: (platformConstants.Brand || nativeBrand || "").toLowerCase(),
-      model: (platformConstants.Model || nativeModel || "").toLowerCase(),
-      manufacturer: (platformConstants.Manufacturer || nativeManufacturer || "").toLowerCase(),
+      brand: String(platformConstants.Brand || nativeBrand || "").toLowerCase(),
+      model: String(platformConstants.Model || nativeModel || "").toLowerCase(),
+      manufacturer: String(platformConstants.Manufacturer || nativeManufacturer || "").toLowerCase(),
     };
   } catch (error) {
     return {
@@ -193,7 +273,7 @@ export const getErrorLogPath = (): string => {
 };
 
 /**
- * Read the error log file
+ * Read the error log file (errors only, no environment header).
  */
 export const readErrorLog = async (): Promise<string> => {
   try {
@@ -206,6 +286,16 @@ export const readErrorLog = async (): Promise<string> => {
     console.error("Failed to read error log:", error);
     return `Failed to read error log: ${error instanceof Error ? error.message : "Unknown error"}`;
   }
+};
+
+/**
+ * Get full log content for the View Logs screen: environment info at top, then error log.
+ * Fetches environment at runtime (not hardcoded).
+ */
+export const getFullLogContent = async (): Promise<string> => {
+  const header = getAppEnvironmentInfo();
+  const errors = await readErrorLog();
+  return header + "--- Error log ---\n\n" + errors;
 };
 
 /**

@@ -1,6 +1,6 @@
 {
   "name": "ofln",
-  "version": "1.1.1",
+  "version": "0.1.1",
   "private": true,
   "scripts": {
     "android": "react-native run-android",
@@ -14,7 +14,7 @@
     "android:check-storage": "adb shell df -h",
     "android:install": "cd android && ./gradlew installDebug",
     "android:build-release": "cd android && ./gradlew assembleRelease",
-    "android:install-release": "adb install -r android/app/build/outputs/apk/release/app-release.apk",
+    "android:install-release": "adb install -r android/app/build/outputs/apk/release/ofln-release.apk",
     "android:test-release": "npm run android:build-release && npm run android:install-release"
   },
   "dependencies": {

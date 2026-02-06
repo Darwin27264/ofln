@@ -4,7 +4,7 @@ import { View, Text, TouchableOpacity, ScrollView, Modal, TextInput } from "reac
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
-import { readErrorLog, getErrorLogPath, clearErrorLog } from "../utils/errorLogger";
+import { getFullLogContent, getErrorLogPath, clearErrorLog } from "../utils/errorLogger";
 import { showAlert } from "../components/CustomAlert";
 // Import package.json to get app version and name
 // Using require instead of import to avoid TypeScript module resolution issues
@@ -21,16 +21,16 @@ export default function InfoScreen({ onBack }: Props) {
   const [errorLogContent, setErrorLogContent] = useState<string>("");
 
   const appName = packageJson.name || "ofln";
-  const appVersion = packageJson.version || "0.0.1";
+  const appVersion = packageJson.version || "0.1.1";
   const appPurpose = "A React Native mobile application for running Large Language Models (LLMs) offline on mobile devices. The app enables users to download, manage, and interact with AI models locally without requiring an internet connection after initial setup.";
 
-  const handleViewErrorLog = async () => {
+  const handleViewLogs = async () => {
     try {
-      const logContent = await readErrorLog();
+      const logContent = await getFullLogContent();
       setErrorLogContent(logContent);
       setErrorLogVisible(true);
     } catch (error) {
-      showAlert("Error", "Failed to read error log.", [{ text: "OK" }]);
+      showAlert("Error", "Failed to load logs.", [{ text: "OK" }]);
     }
   };
 
@@ -46,7 +46,8 @@ export default function InfoScreen({ onBack }: Props) {
           onPress: async () => {
             try {
               await clearErrorLog();
-              setErrorLogContent("Error log cleared.");
+              const logContent = await getFullLogContent();
+              setErrorLogContent(logContent);
               showAlert("Success", "Error log cleared.", [{ text: "OK" }]);
             } catch (error) {
               showAlert("Error", "Failed to clear error log.", [{ text: "OK" }]);
@@ -124,7 +125,7 @@ export default function InfoScreen({ onBack }: Props) {
           }}>Diagnostics</Text>
           
           <TouchableOpacity
-            onPress={handleViewErrorLog}
+            onPress={handleViewLogs}
             style={{
               backgroundColor: theme.colors.card,
               borderRadius: 12,
@@ -144,12 +145,12 @@ export default function InfoScreen({ onBack }: Props) {
                 color: theme.colors.text,
                 fontFamily: "Poppins",
                 marginBottom: 4,
-              }}>View Error Log</Text>
+              }}>View Logs</Text>
               <Text style={{
                 fontSize: 12,
                 color: theme.colors.textSecondary,
                 fontFamily: "Poppins",
-              }}>View diagnostic information and error logs</Text>
+              }}>App environment and error logs</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
           </TouchableOpacity>
@@ -244,7 +245,7 @@ export default function InfoScreen({ onBack }: Props) {
               fontWeight: "600",
               color: theme.colors.text,
               fontFamily: "Poppins",
-            }}>Error Log</Text>
+            }}>Logs</Text>
             <TouchableOpacity
               onPress={() => setErrorLogVisible(false)}
               style={{ padding: 8 }}
