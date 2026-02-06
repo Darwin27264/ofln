@@ -44,6 +44,7 @@ import SkillEditorScreen from "./src/screens/SkillEditorScreen";
 import CodeLibLibraryScreen from "./src/screens/CodeLibLibraryScreen";
 import CodeLibEditorScreen from "./src/screens/CodeLibEditorScreen";
 import InfoScreen from "./src/screens/InfoScreen";
+import DiagnosticsScreen from "./src/screens/DiagnosticsScreen";
 import { Persona, getPersonas } from "./src/services/personaService";
 import { ModelInfo } from "./src/components/ModelCard";
 import { Skill } from "./src/services/skillService";
@@ -68,7 +69,18 @@ type Message = {
 function AppContent(): React.JSX.Element {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
-  
+
+  // DEV-only: log New Architecture status at startup (Fabric + TurboModules)
+  useEffect(() => {
+    if (__DEV__) {
+      const fabric = Boolean((global as any).nativeFabricUIManager);
+      const turbo = Boolean((global as any).__turboModuleProxy);
+      console.log(
+        "[ofln] New Architecture: Fabric=" + fabric + ", TurboModules=" + turbo
+      );
+    }
+  }, []);
+
   // Determine status bar and nav bar colors based on app theme
   // Use theme background color for system bars to match app theme
   const statusBarColor = theme.colors.background;
@@ -95,7 +107,7 @@ function AppContent(): React.JSX.Element {
   const [userInput, setUserInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedGGUF, setSelectedGGUF] = useState<string | null>(null);
-  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "skills" | "skillRunner" | "skillEditor" | "codelib" | "codelibEditor" | "info";
+  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "skills" | "skillRunner" | "skillEditor" | "codelib" | "codelibEditor" | "info" | "diagnostics";
   const [currentPage, setCurrentPage] = useState<PageType>("conversation");
   const [editingPersona, setEditingPersona] = useState<Persona | null | undefined>(undefined);
   const [selectedModelForSettings, setSelectedModelForSettings] = useState<ModelInfo | null>(null);
@@ -611,12 +623,30 @@ function AppContent(): React.JSX.Element {
           assistantDisplayMode={assistantDisplayMode}
           setAssistantDisplayMode={setAssistantDisplayMode}
           onBackToConversation={() => setCurrentPage("conversation")}
-          // Clicking the stats block navigates to the Stages page.
           onOpenStats={() => setCurrentPage("stages")}
           onGoToModelSelection={() => setCurrentPage("modelSelection")}
           onGoToPersonas={() => setCurrentPage("personas")}
           onGoToSkills={() => setCurrentPage("skills")}
           onGoToInfo={() => setCurrentPage("info")}
+          onOpenDiagnostics={__DEV__ ? () => setCurrentPage("diagnostics") : undefined}
+          />
+        </Animated.View>
+      )}
+
+      {__DEV__ && currentPage === "diagnostics" && (
+        <Animated.View 
+          style={[{ flex: 1 }, pageTransitionStyle]}
+          collapsable={false}
+        >
+          <DiagnosticsScreen
+            onBack={() => setCurrentPage("settings")}
+            modelPath={
+              selectedGGUF
+                ? `${RNFS.DocumentDirectoryPath}/${selectedGGUF}`
+                : localModels.length > 0
+                  ? localModels[0].filePath
+                  : null
+            }
           />
         </Animated.View>
       )}

@@ -36,10 +36,12 @@
 -keep class com.ofln.** { *; }
 
 # ============================================
-# llama.rn - LLM Native Library
+# llama.rn - LLM Native Library (New Arch / TurboModule)
 # ============================================
 -keep class com.llama.** { *; }
+-keep class com.rnllama.** { *; }
 -keepclassmembers class com.llama.** { *; }
+-keepclassmembers class com.rnllama.** { *; }
 
 # ============================================
 # React Native Vector Icons

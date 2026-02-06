@@ -4989,10 +4989,10 @@ linkify-it@^2.0.0:
   dependencies:
     uc.micro "^1.0.1"
 
-llama.rn@^0.5.0:
-  version "0.5.8"
-  resolved "https://registry.npmjs.org/llama.rn/-/llama.rn-0.5.8.tgz"
-  integrity sha512-SBo+0g5d9Xtwy4Abbcn6hMZLsCqEuOvKEpL/rLy/SmzRm/Yd6NBeZaou0IN4Tm7EGOkZczxonVKYnqx9v5spCg==
+llama.rn@0.10.1:
+  version "0.10.1"
+  resolved "https://registry.npmjs.org/llama.rn/-/llama.rn-0.10.1.tgz"
+  integrity sha512-l4EJ5+gOAgKYcqzG9M3ORfA9AaiXT/qYtTGkdUxs9Djy+DhjmDir5wMuLxnEjxzzOc8oIsuhlF+peI1zEn8BZw==
 
 locate-path@^3.0.0:
   version "3.0.0"

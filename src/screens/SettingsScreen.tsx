@@ -1,6 +1,6 @@
 // SettingsScreen.tsx
 import React, { useRef, useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, Animated, Easing } from "react-native";
+import { View, Text, TouchableOpacity, Pressable, Animated, Easing } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
@@ -13,10 +13,12 @@ interface Props {
   setAssistantDisplayMode: React.Dispatch<React.SetStateAction<"bubble" | "direct">>;
   onBackToConversation: () => void;
   onGoToModelSelection: () => void;
-  onOpenStats: () => void; // NEW prop to open the stats (stages) page
-  onGoToPersonas: () => void; // NEW prop to open the personas page
-  onGoToSkills: () => void; // NEW prop to open the skills page
-  onGoToInfo: () => void; // NEW prop to open the info page
+  onOpenStats: () => void;
+  onGoToPersonas: () => void;
+  onGoToSkills: () => void;
+  onGoToInfo: () => void;
+  /** DEV-only: open diagnostics (long-press on Settings title) */
+  onOpenDiagnostics?: () => void;
 }
 
 export default function SettingsScreen({
@@ -28,6 +30,7 @@ export default function SettingsScreen({
   onGoToPersonas,
   onGoToSkills,
   onGoToInfo,
+  onOpenDiagnostics,
 }: Props) {
   const { theme, toggleTheme, isDark, isTransitioning } = useTheme();
   const styles = createStyles(theme.colors);
@@ -160,7 +163,17 @@ export default function SettingsScreen({
         }
       ]}
     >
-      <Text style={[styles.settingsTitle, { marginBottom: 40 }]}>Settings</Text>
+      {__DEV__ && onOpenDiagnostics ? (
+        <Pressable
+          onLongPress={onOpenDiagnostics}
+          delayLongPress={600}
+          style={{ marginBottom: 40 }}
+        >
+          <Text style={[styles.settingsTitle]}>Settings</Text>
+        </Pressable>
+      ) : (
+        <Text style={[styles.settingsTitle, { marginBottom: 40 }]}>Settings</Text>
+      )}
       <View style={{ marginBottom: 15 }}>
         <View style={{ flexDirection: "row", marginBottom: 10, height: 145 }}>
           <TouchableOpacity style={{ flex: 1, marginRight: 5 }} onPress={onOpenStats}>
