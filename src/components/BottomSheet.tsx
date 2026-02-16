@@ -1,6 +1,6 @@
 /**
  * BottomSheet Component
- * 
+ *
  * A unified, reusable bottom sheet component with standardized:
  * - Smooth, performant animations with proper state management
  * - Velocity-based drag-to-dismiss gesture support
@@ -8,6 +8,12 @@
  * - Robust animation cancellation and cleanup
  * - Consistent header style and font sizes
  * - Uniform dimensions and layout
+ *
+ * Robustness (aligned with history panel behavior):
+ * - Stays mounted when closed so reopen is instant (no remount).
+ * - When visible becomes false (overlay tap or programmatic e.g. BackHandler),
+ *   we snap animated value to 0 so the sheet never appears stuck or half-visible.
+ * - RAF open is guarded with visibleRef so we never open after a quick close.
  */
 
 import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
@@ -82,6 +88,8 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   const currentAnimatedValue = useRef(0); // Track current animated value to avoid _value access
   const [isMounted, setIsMounted] = useState(false);
   const [screenHeight, setScreenHeight] = useState(() => Dimensions.get('window').height);
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
 
   // Handle orientation changes and window resizing
   useEffect(() => {
@@ -315,22 +323,21 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   useEffect(() => {
     if (visible) {
       setIsMounted(true);
-      // Reset all drag state before opening
       isDragging.current = false;
       dragStartY.current = 0;
-      // Small delay to ensure mount before animation
-      const timer = setTimeout(() => {
+      // Start animation on next frame so layout is ready. Guard so we don't open if visible flipped to false before RAF fired.
+      const raf = requestAnimationFrame(() => {
+        if (!visibleRef.current) return;
         openSheet();
-      }, 10);
-      return () => clearTimeout(timer);
+      });
+      return () => cancelAnimationFrame(raf);
     } else {
-      // Reset everything when hidden
+      // When closed (user tapped overlay or programmatic e.g. BackHandler): snap to closed so we never show a stuck half-visible sheet.
       cancelAnimation();
       isDragging.current = false;
       dragStartY.current = 0;
       animatedValue.setValue(0);
       currentAnimatedValue.current = 0;
-      setIsMounted(false);
       return undefined;
     }
   }, [visible, openSheet, cancelAnimation, animatedValue]);
@@ -345,13 +352,14 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   // Memoize styles to avoid recreating on every render
   const styles = useMemo(() => createStyles(theme.colors), [theme.colors]);
 
-  if (!visible && !isMounted) {
+  // Never rendered until first open; then stay mounted for instant reopen (like history panel)
+  if (!isMounted) {
     return null;
   }
 
   return (
     <>
-      {/* Overlay */}
+      {/* Overlay - non-interactive when closed so content behind is tappable */}
       <Animated.View
         pointerEvents={visible ? 'auto' : 'none'}
         style={[
@@ -366,8 +374,9 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
         </TouchableWithoutFeedback>
       </Animated.View>
 
-      {/* Bottom Sheet */}
+      {/* Bottom Sheet - non-interactive when closed */}
       <Animated.View
+        pointerEvents={visible ? 'auto' : 'none'}
         style={[
           styles.container,
           {

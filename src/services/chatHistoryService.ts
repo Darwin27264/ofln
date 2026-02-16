@@ -1,10 +1,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+export interface MessageAttachment {
+  type: 'image';
+  uri: string;
+  width?: number;
+  height?: number;
+  fileName?: string;
+}
+
 export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   thought?: string;
   showThought?: boolean;
+  attachments?: MessageAttachment[];
 }
 
 export interface ChatConversation {

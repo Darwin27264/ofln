@@ -163,6 +163,22 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.transparent,
     paddingTop: 8,
   },
+  inputRowWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginBottom: 8,
+  },
+  addButtonOutside: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.glass,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   inputBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -176,6 +192,12 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     marginBottom: 8,
     backgroundColor: colors.glass,
     backdropFilter: "blur(10px)",
+  },
+  inputBarInRow: {
+    flex: 1,
+    marginLeft: 8,
+    marginHorizontal: 0,
+    marginBottom: 0,
   },
   input: {
     flex: 1,
@@ -206,6 +228,37 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 2,
+  },
+  attachmentPreviewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginBottom: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: colors.glass,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  attachmentThumb: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    marginRight: 10,
+  },
+  attachmentLabel: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: "Poppins",
+    color: colors.textSecondary,
+  },
+  attachmentRemove: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   toggleButton: {

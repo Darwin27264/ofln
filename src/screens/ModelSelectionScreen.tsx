@@ -17,6 +17,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   ActivityIndicator,
   Dimensions,
   Animated,
@@ -88,124 +89,63 @@ const REPUTABLE_AUTHORS = [
 // Popular models optimized for mobile (pre-selected quantization)
 const POPULAR_MODELS: ModelInfo[] = [
   {
-    id: "smollm2-1.7b",
+    id: "qwen25-05b",
+    name: "Qwen2.5 0.5B Instruct",
+    repoId: "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+    fileName: "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+    size: "~0.5GB",
+    description:
+      "Fastest usable assistant for mobile. Great for quick replies, summaries, rewrites.",
+    tags: ["instruct", "tiny", "fast"],
+  },
+  {
+    id: "qwen25-15b",
+    name: "Qwen2.5 1.5B Instruct",
+    repoId: "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+    fileName: "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+    size: "1.12GB",
+    description:
+      "Best general-purpose small model for mobile. Strong instruction-following and structured output.",
+    tags: ["instruct", "small", "general", "json"],
+  },
+  {
+    id: "smollm2-17b",
     name: "SmolLM2 1.7B Instruct",
     repoId: "HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF",
     fileName: "smollm2-1.7b-instruct-q4_k_m.gguf",
-    size: "1.1GB",
-    description: "Compact and efficient 1.7B model. Great balance of size and capability.",
-    author: "HuggingFaceTB",
-    downloads: 40000,
+    size: "~1.06GB",
+    description: "Reliable mobile daily driver with good capability per GB.",
     tags: ["instruct", "small", "compact"],
-    publishedDate: "2024-12-15"
   },
   {
-    id: "llama-32-1b",
-    name: "Llama 3.2 1B Instruct",
+    id: "llama32-1b-q40",
+    name: "Llama 3.2 1B Instruct (Q4_0)",
     repoId: "bartowski/Llama-3.2-1B-Instruct-GGUF",
-    fileName: "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
-    size: "0.7GB",
-    description: "Ultra-fast, decent quality for 1B. Great for quick responses and basic tasks.",
-    author: "bartowski",
-    downloads: 50000,
-    tags: ["instruct", "small", "fast"],
-    publishedDate: "2024-12-10"
+    fileName: "Llama-3.2-1B-Instruct-Q4_0.gguf",
+    size: "773MB",
+    description:
+      "Very fast Llama-family model. bartowski quant (llama.cpp native). Q4_0 is the safest choice if you ever use Android OpenCL/Adreno.",
+    tags: ["instruct", "small", "fast", "q4_0"],
   },
   {
-    id: "gemma2-2b",
-    name: "Gemma 2 2B Instruct",
-    repoId: "bartowski/gemma-2-2b-it-GGUF",
-    fileName: "gemma-2-2b-it-Q4_K_M.gguf",
-    size: "1.4GB",
-    description: "Tiny 'smart' mini from Google. Efficient and capable despite small size.",
-    author: "bartowski",
-    downloads: 40000,
-    tags: ["instruct", "tiny", "efficient"],
-    publishedDate: "2024-05-27"
-  },
-  {
-    id: "llama-32-3b",
-    name: "Llama 3.2 3B Instruct",
-    repoId: "bartowski/Llama-3.2-3B-Instruct-GGUF",
-    fileName: "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-    size: "2.1GB",
-    description: "Great daily-driver at 3B. Balanced performance and quality for most tasks.",
-    author: "bartowski",
-    downloads: 75000,
-    tags: ["instruct", "balanced", "general"],
-    publishedDate: "2024-12-10"
-  },
-  {
-    id: "llama-32-3b-uncensored",
-    name: "Llama 3.2 3B Instruct (Uncensored)",
-    repoId: "bartowski/Llama-3.2-3B-Instruct-uncensored-GGUF",
-    fileName: "Llama-3.2-3B-Instruct-uncensored-Q4_K_M.gguf",
-    size: "2.2GB",
-    description: "Uncensored version of Llama 3.2 3B. Same great performance with fewer content restrictions.",
-    author: "bartowski",
-    downloads: 22097,
-    tags: ["instruct", "uncensored", "balanced"],
-    publishedDate: "2024-12-10"
-  },
-  {
-    id: "phi-35-mini-38b",
+    id: "phi35-mini",
     name: "Phi-3.5 Mini Instruct",
     repoId: "bartowski/Phi-3.5-mini-instruct-GGUF",
     fileName: "Phi-3.5-mini-instruct-Q4_K_M.gguf",
-    size: "2.3GB",
-    description: "Strong small-model reasoning/coding. Excellent for technical tasks and problem-solving.",
-    author: "bartowski",
-    downloads: 60000,
-    tags: ["instruct", "reasoning", "coding"],
-    publishedDate: "2024-04-23"
+    size: "~2.3GB",
+    description:
+      "Most capable option here for reasoning/problem-solving. Heavier but worth it on modern phones.",
+    tags: ["instruct", "reasoning"],
   },
   {
-    id: "qwen-25-3b",
-    name: "Qwen2.5 3B Instruct",
-    repoId: "Qwen/Qwen2.5-3B-Instruct-GGUF",
-    fileName: "qwen2.5-3b-instruct-q4_k_m.gguf",
-    size: "2.0GB",
-    description: "Multilingual + JSON-friendly. Supports multiple languages and structured outputs.",
-    author: "Qwen",
-    downloads: 80000,
-    tags: ["instruct", "multilingual", "json"],
-    publishedDate: "2024-09-12"
-  },
-  {
-    id: "qwen-25-7b",
-    name: "Qwen2.5 7B Instruct",
-    repoId: "Qwen/Qwen2.5-7B-Instruct-GGUF",
-    fileName: "qwen2.5-7b-instruct-q4_k_m.gguf",
-    size: "4.2GB",
-    description: "7B with strong code/math. Excellent for programming and mathematical tasks.",
-    author: "Qwen",
-    downloads: 90000,
-    tags: ["instruct", "coding", "math"],
-    publishedDate: "2024-09-12"
-  },
-  {
-    id: "qwen-25-coder-3b",
-    name: "Qwen2.5 Coder 3B Instruct",
-    repoId: "Qwen/Qwen2.5-Coder-3B-Instruct-GGUF",
-    fileName: "qwen2.5-coder-3b-instruct-q4_k_m.gguf",
-    size: "2.0GB",
-    description: "Best small coder. Optimized for code generation and programming tasks.",
-    author: "Qwen",
-    downloads: 55000,
-    tags: ["coder", "programming", "small"],
-    publishedDate: "2024-09-12"
-  },
-  {
-    id: "deepseek-r1d-7b",
-    name: "DeepSeek R1 Distill Qwen 7B",
-    repoId: "bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF",
-    fileName: "deepseek-r1-distill-qwen-7b-q4_k_s.gguf",
-    size: "4.5GB",
-    description: "Distilled reasoning (slower/verbose). Shows reasoning process for complex problems.",
-    author: "bartowski",
-    downloads: 35000,
-    tags: ["reasoning", "thinking", "verbose"],
-    publishedDate: "2024-12-19"
+    id: "deepseek-r1d-15b-q40",
+    name: "DeepSeek R1 Distill Qwen 1.5B (Q4_0)",
+    repoId: "bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
+    fileName: "DeepSeek-R1-Distill-Qwen-1.5B-Q4_0.gguf",
+    size: "1.07GB",
+    description:
+      "Reasoning-style small model. Better at step-by-step tasks than most tiny general models.",
+    tags: ["reasoning", "thinking", "small", "q4_0"],
   },
 ];
 
@@ -279,8 +219,60 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   
   // Quantization selector state
   const [showQuantSelector, setShowQuantSelector] = useState<boolean>(false);
+  const [isQuantModalExiting, setIsQuantModalExiting] = useState(false);
   const [selectedModelForDownload, setSelectedModelForDownload] = useState<ModelInfo | null>(null);
-  
+
+  // Quantization modal pop-in animation (matches CustomAlert pattern)
+  const quantModalOpacity = useRef(new Animated.Value(0)).current;
+  const quantModalScale = useRef(new Animated.Value(0.92)).current;
+
+  useEffect(() => {
+    if (showQuantSelector && !isQuantModalExiting) {
+      quantModalOpacity.setValue(0);
+      quantModalScale.setValue(0.92);
+      Animated.parallel([
+        Animated.timing(quantModalOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.spring(quantModalScale, {
+          toValue: 1,
+          tension: 100,
+          friction: 14,
+          overshootClamping: true,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else if (isQuantModalExiting) {
+      Animated.parallel([
+        Animated.timing(quantModalOpacity, {
+          toValue: 0,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.timing(quantModalScale, {
+          toValue: 0.92,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setShowQuantSelector(false);
+        setIsQuantModalExiting(false);
+      });
+    }
+  }, [showQuantSelector, isQuantModalExiting, quantModalOpacity, quantModalScale]);
+
+  const closeQuantSelector = useCallback((animate = true) => {
+    if (showQuantSelector && !isQuantModalExiting) {
+      if (animate) {
+        setIsQuantModalExiting(true);
+      } else {
+        setShowQuantSelector(false);
+      }
+    }
+  }, [showQuantSelector, isQuantModalExiting]);
+
   // Dropdown state for model cards
   const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
   
@@ -936,18 +928,61 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           return;
         }
 
-        // Save local model info
-        const localModelInfo: LocalModelInfo = {
-          fileName: fileName,
-          filePath: filePath,
-          addedDate: new Date().toISOString(),
-          fileSize: stat.size,
-        };
+        // Ask user whether to import into app storage (recommended) or keep external reference
+        showAlert(
+          "Add Model",
+          'How would you like to use this model?\n\n"Import into app" copies the file into the app\'s private storage (more reliable, recommended).\n"Use external" keeps the file at its current location.',
+          [
+            {
+              text: "Use external",
+              onPress: async () => {
+                const localModelInfo: LocalModelInfo = {
+                  fileName: fileName,
+                  filePath: filePath,
+                  addedDate: new Date().toISOString(),
+                  fileSize: stat.size,
+                };
 
-        await saveLocalModel(localModelInfo);
-        await checkDownloadedModels();
+                await saveLocalModel(localModelInfo);
+                await checkDownloadedModels();
 
-        showAlert("Success", `Model "${fileName}" has been added successfully.`, [{ text: "OK" }]);
+                showAlert(
+                  "Added",
+                  `Model "${fileName}" has been added as an external model.\n\nIf loading fails, try importing it into app storage instead.`,
+                  [{ text: "OK" }]
+                );
+              },
+            },
+            {
+              text: "Import into app",
+              style: "default",
+              onPress: async () => {
+                try {
+                  const destPath = `${RNFS.DocumentDirectoryPath}/${fileName}`;
+                  const existsInApp = await RNFS.exists(destPath);
+                  if (!existsInApp) {
+                    await RNFS.copyFile(filePath, destPath);
+                  }
+
+                  showAlert(
+                    "Imported",
+                    `Model "${fileName}" has been copied into app storage.\nYou can now load it from the Downloaded list.`,
+                    [{ text: "OK" }]
+                  );
+                  await checkDownloadedModels();
+                } catch (copyError) {
+                  console.error("Error importing model into app storage:", copyError);
+                  showAlert(
+                    "Import failed",
+                    "Could not copy the model into app storage. You can still try using it as an external model.",
+                    [{ text: "OK" }]
+                  );
+                }
+              },
+            },
+          ],
+          true
+        );
       }
     } catch (error: any) {
       // Handle different error types
@@ -1849,34 +1884,37 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
               </ScrollView>
       </BottomSheet>
 
-      {/* Quantization Selector Modal */}
+      {/* Quantization Selector Modal - pop-in animation like CustomAlert */}
       <Modal
-        visible={showQuantSelector}
+        visible={showQuantSelector || isQuantModalExiting}
         transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowQuantSelector(false)}
+        animationType="none"
+        onRequestClose={closeQuantSelector}
       >
-        <Pressable
-          style={{
-            flex: 1,
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: 20,
-          }}
-          onPress={() => setShowQuantSelector(false)}
-        >
-          <Pressable
+        <TouchableWithoutFeedback onPress={closeQuantSelector}>
+          <Animated.View
             style={{
-              backgroundColor: theme.colors.card,
-              borderRadius: 20,
-              padding: 24,
-              width: "100%",
-              maxWidth: 500,
-              maxHeight: "80%",
+              flex: 1,
+              backgroundColor: "rgba(0, 0, 0, 0.5)",
+              opacity: quantModalOpacity,
+              justifyContent: "center",
+              alignItems: "center",
+              padding: 20,
             }}
-            onPress={(e) => e.stopPropagation()}
           >
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <Animated.View
+                style={{
+                  backgroundColor: theme.colors.card,
+                  borderRadius: 20,
+                  padding: 24,
+                  width: "100%",
+                  maxWidth: 500,
+                  maxHeight: "80%",
+                  opacity: quantModalOpacity,
+                  transform: [{ scale: quantModalScale }],
+                }}
+              >
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <Text
                 style={{
@@ -1889,7 +1927,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                 Select Quantization
               </Text>
               <TouchableOpacity
-                onPress={() => setShowQuantSelector(false)}
+                onPress={closeQuantSelector}
                 style={{ padding: 4 }}
               >
                 <Icon name="close" size={24} color={theme.colors.text} />
@@ -1932,7 +1970,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                         <TouchableOpacity
                           key={`${quant.fileName}-${index}`}
                           onPress={async () => {
-                            setShowQuantSelector(false);
+                            closeQuantSelector(false);
                             const fileNameToDownload = quant.fileName;
                             
                             showAlert(
@@ -2075,8 +2113,10 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                 </ScrollView>
               </>
             )}
-          </Pressable>
-        </Pressable>
+              </Animated.View>
+            </TouchableWithoutFeedback>
+          </Animated.View>
+        </TouchableWithoutFeedback>
       </Modal>
 
 

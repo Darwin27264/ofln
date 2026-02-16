@@ -1,18 +1,36 @@
 // llamaservice.ts
 import { Platform } from "react-native";
 import RNFS from "react-native-fs";
-import { initLlama } from "llama.rn";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { initLlama, loadLlamaModelInfo } from "llama.rn";
 import { recordUsage, getPerformanceLevel } from "./usageTracker";
 import { getModelSettings, ModelSettings, DEFAULT_SETTINGS } from "./modelSettingsService";
 import { Persona, buildPersonaSystemPrompt } from "./personaService";
 import { logError } from "../utils/errorLogger";
+import { isAndroidEmulator } from "./deviceEnv";
+import { getModelInfo, detectQuantFromFilename, isQuantAllowedForAndroidAccel } from "./modelInfoService";
 
 // Types
+type MessageAttachment = {
+  type: "image";
+  uri: string;
+  width?: number;
+  height?: number;
+  fileName?: string;
+};
+
 type Message = {
   role: "user" | "assistant" | "system";
   content: string;
   thought?: string;
   showThought?: boolean;
+  attachments?: MessageAttachment[];
+};
+
+export type SendMessageOptions = {
+  /** When set, this text is sent to the model instead of message content (e.g. OCR-injected text). */
+  textForPrompt?: string;
+  attachments?: MessageAttachment[];
 };
 
 /**
@@ -100,6 +118,29 @@ export const loadModel = async (
       settings = DEFAULT_SETTINGS;
     }
     
+    // Preflight: load basic model info for debugging (DEV-only)
+    try {
+      const modelUri = filePath.startsWith("file://") ? filePath : `file://${filePath}`;
+      const modelInfo = await getModelInfo(modelUri);
+      if (__DEV__) {
+        console.log("[ofln] Preflight model info", {
+          fileName,
+          modelUri,
+          requested_n_ctx: settings.n_ctx,
+          requested_n_gpu_layers: settings.n_gpu_layers,
+          modelInfo,
+        });
+      }
+    } catch (infoError) {
+      if (__DEV__) {
+        console.log("[ofln] Failed to load model info", {
+          fileName,
+          filePath,
+          error: infoError instanceof Error ? infoError.message : String(infoError),
+        });
+      }
+    }
+    
     // For Samsung devices, reduce context window size to prevent memory issues
     // This is a conservative approach to ensure models load successfully
     let adjustedN_ctx = settings.n_ctx;
@@ -118,6 +159,79 @@ export const loadModel = async (
       console.log(`Reduced context window to ${adjustedN_ctx} for better compatibility`);
     }
     
+    // Android-specific acceleration gating:
+    // - Experimental acceleration toggle (AsyncStorage)
+    // - Emulator detection
+    // - Quantization allowlist (Q4_0, Q6_K)
+    // - Conservative cap on n_gpu_layers
+    const ACCEL_SETTING_KEY = "@runtime_accel_enabled";
+
+    let accelEnabled = false;
+    let isEmulator = false;
+    let appliedQuant: string | null = null;
+    let appliedNgpuLayers = 0;
+    let appliedUseMlock = true;
+    let accelReason = "default";
+
+    if (Platform.OS === "android") {
+      try {
+        const stored = await AsyncStorage.getItem(ACCEL_SETTING_KEY);
+        accelEnabled = stored === "true";
+      } catch (e) {
+        accelEnabled = false;
+      }
+
+      isEmulator = isAndroidEmulator();
+
+      const modelUri = filePath.startsWith("file://") ? filePath : `file://${filePath}`;
+      const info = await getModelInfo(modelUri);
+
+      // Prefer info-derived quant if present; fall back to filename
+      // llama.rn model info shape is not strictly documented; avoid hard assumptions.
+      const infoQuant =
+        info && typeof (info as any).general?.quantization === "string"
+          ? ((info as any).general.quantization as string)
+          : null;
+      appliedQuant = infoQuant || detectQuantFromFilename(fileName);
+
+      // Default for Android: CPU-only, no mlock.
+      appliedUseMlock = false;
+      appliedNgpuLayers = 0;
+      accelReason = "cpu_default";
+
+      if (isEmulator) {
+        accelReason = "emulator";
+        adjustedN_gpu_layers = 0;
+      } else if (!accelEnabled) {
+        accelReason = "toggle_off";
+        adjustedN_gpu_layers = 0;
+      } else if (!isQuantAllowedForAndroidAccel(appliedQuant)) {
+        accelReason = "quant_not_allowlisted";
+        adjustedN_gpu_layers = 0;
+      } else {
+        // Acceleration allowed: respect per-model setting but cap it for safety.
+        const desired = typeof adjustedN_gpu_layers === "number" ? adjustedN_gpu_layers : 0;
+        const capped = Math.max(0, Math.min(8, desired));
+        adjustedN_gpu_layers = capped;
+        appliedNgpuLayers = capped;
+        accelReason = "accel_allowed";
+      }
+
+      if (__DEV__) {
+        console.log("[ModelLoading] Android acceleration gating", {
+          fileName,
+          accelEnabled,
+          isEmulator,
+          quant: appliedQuant,
+          requested_n_gpu_layers: settings.n_gpu_layers,
+          adjusted_n_gpu_layers: adjustedN_gpu_layers,
+          applied_n_gpu_layers: appliedNgpuLayers,
+          appliedUseMlock,
+          reason: accelReason,
+        });
+      }
+    }
+
     // Try to initialize llama context with use_mlock: true first
     // This helps prevent memory swapping on mobile devices
     // If it fails (e.g., on Samsung devices with strict memory management),
@@ -129,13 +243,25 @@ export const loadModel = async (
     while (loadAttempts < maxAttempts && !llamaContext) {
       try {
         const useMlock = loadAttempts === 0; // Try with mlock first, then without
-        console.log(`Attempting to load model: ${fileName} (attempt ${loadAttempts + 1}/${maxAttempts}) with use_mlock: ${useMlock}`);
+
+        // Apply platform-specific overrides computed above.
+        let attemptUseMlock = useMlock;
+        let attemptNgpuLayers = adjustedN_gpu_layers;
+
+        if (Platform.OS === "android") {
+          attemptUseMlock = appliedUseMlock;
+          attemptNgpuLayers = appliedNgpuLayers;
+        }
+
+        console.log(
+          `Attempting to load model: ${fileName} (attempt ${loadAttempts + 1}/${maxAttempts}) with use_mlock: ${attemptUseMlock}, n_gpu_layers: ${attemptNgpuLayers}, platform: ${Platform.OS}`
+        );
         
         llamaContext = await initLlama({
           model: filePath,
-          use_mlock: useMlock,
+          use_mlock: attemptUseMlock,
           n_ctx: adjustedN_ctx,
-          n_gpu_layers: adjustedN_gpu_layers,
+          n_gpu_layers: attemptNgpuLayers,
         });
         
         if (llamaContext) {
@@ -391,16 +517,18 @@ export const handleSendMessageCompletion = async (
   setTokensPerSecond: React.Dispatch<React.SetStateAction<number[]>>,
   scrollViewRef: React.RefObject<any>,
   selectedModel: string,
-  selectedPersona: Persona | null = null
+  selectedPersona: Persona | null = null,
+  sendOptions?: SendMessageOptions
 ) => {
   // Validate context exists
   if (!context) {
     console.error("Model not loaded - cannot send message");
     return;
   }
-  
-  // Validate user input is not empty
-  if (!userInput || !userInput.trim()) {
+
+  const hasAttachments = sendOptions?.attachments && sendOptions.attachments.length > 0;
+  // Validate: need either non-empty text or attachments
+  if (!hasAttachments && (!userInput || !userInput.trim())) {
     console.error("Input error: empty message - cannot send");
     return;
   }
@@ -414,9 +542,14 @@ export const handleSendMessageCompletion = async (
     settings = DEFAULT_SETTINGS;
   }
 
+  const displayContent = (userInput || "").trim() || (hasAttachments ? "(Image attached)" : "");
   const newConversation: Message[] = [
     ...conversation,
-    { role: "user", content: userInput },
+    {
+      role: "user",
+      content: displayContent,
+      attachments: sendOptions?.attachments,
+    },
   ];
   setConversation(newConversation);
   setUserInput("");
@@ -488,6 +621,19 @@ export const handleSendMessageCompletion = async (
         { role: "system", content: systemPrompt },
         ...newConversation,
       ];
+    }
+
+    // When textForPrompt is set (e.g. OCR-injected), use it for the last user message so the model sees it
+    const textForPrompt = sendOptions?.textForPrompt;
+    if (textForPrompt !== undefined && textForPrompt !== "") {
+      const lastIdx = conversationWithSystemPrompt.length - 1;
+      if (lastIdx >= 0 && conversationWithSystemPrompt[lastIdx].role === "user") {
+        conversationWithSystemPrompt = [...conversationWithSystemPrompt];
+        conversationWithSystemPrompt[lastIdx] = {
+          ...conversationWithSystemPrompt[lastIdx],
+          content: textForPrompt,
+        };
+      }
     }
 
     const result: CompletionResult = await context.completion(

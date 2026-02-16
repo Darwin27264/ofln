@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Keyboard, Platform, KeyboardEvent, Animated, Easing } from "react-native";
 
 /** Get current keyboard height if visible (RN 0.76+). Returns 0 if closed or unavailable. */
@@ -21,13 +21,16 @@ export function useKeyboardPadding() {
   const animatedHeight = useRef(new Animated.Value(0)).current;
   const syncRef = useRef<() => void>(() => {});
 
-  useEffect(() => {
+  // Subscribe in useLayoutEffect so we don't miss keyboardDidShow when it fires before useEffect
+  useLayoutEffect(() => {
     const showEvent = Platform.OS === "android" ? "keyboardDidShow" : "keyboardWillShow";
     const hideEvent = Platform.OS === "android" ? "keyboardDidHide" : "keyboardWillHide";
 
     const handleShow = (event: KeyboardEvent) => {
       const height = event.endCoordinates?.height ?? 0;
       setKeyboardHeight(height);
+      // Set animated value immediately so padding is applied without waiting for animation
+      animatedHeight.setValue(height);
       Animated.timing(animatedHeight, {
         toValue: height,
         duration: typeof event.duration === "number" && event.duration > 0 ? event.duration : KEYBOARD_ANIM_DURATION,

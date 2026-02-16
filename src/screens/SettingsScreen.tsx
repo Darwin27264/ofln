@@ -1,10 +1,11 @@
 // SettingsScreen.tsx
 import React, { useRef, useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, Pressable, Animated, Easing } from "react-native";
+import { View, Text, TouchableOpacity, Pressable, Animated, Easing, Platform } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import RNFS from "react-native-fs";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { showAlert } from "../components/CustomAlert";
 import { readErrorLog, getErrorLogPath, clearErrorLog } from "../utils/errorLogger";
 
@@ -15,7 +16,6 @@ interface Props {
   onGoToModelSelection: () => void;
   onOpenStats: () => void;
   onGoToPersonas: () => void;
-  onGoToSkills: () => void;
   onGoToInfo: () => void;
   /** DEV-only: open diagnostics (long-press on Settings title) */
   onOpenDiagnostics?: () => void;
@@ -28,7 +28,6 @@ export default function SettingsScreen({
   onGoToModelSelection,
   onOpenStats,
   onGoToPersonas,
-  onGoToSkills,
   onGoToInfo,
   onOpenDiagnostics,
 }: Props) {
@@ -109,6 +108,9 @@ export default function SettingsScreen({
   
   // State for aggregated usage stats (loaded from RNFS)
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
+  const [accelEnabled, setAccelEnabled] = useState<boolean>(false);
+
+  const ACCEL_SETTING_KEY = "@runtime_accel_enabled";
 
   useEffect(() => {
     const loadUsageData = async () => {
@@ -150,6 +152,36 @@ export default function SettingsScreen({
     };
     loadUsageData();
   }, []);
+
+  useEffect(() => {
+    const loadAccelSetting = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(ACCEL_SETTING_KEY);
+        if (stored !== null) {
+          setAccelEnabled(stored === "true");
+        } else {
+          // Default: experimental acceleration OFF
+          setAccelEnabled(false);
+        }
+      } catch (error) {
+        console.error("Error loading acceleration setting:", error);
+      }
+    };
+    if (Platform.OS === "android") {
+      loadAccelSetting();
+    }
+  }, []);
+
+  const toggleAccel = async () => {
+    if (Platform.OS !== "android") return;
+    try {
+      const next = !accelEnabled;
+      setAccelEnabled(next);
+      await AsyncStorage.setItem(ACCEL_SETTING_KEY, next ? "true" : "false");
+    } catch (error) {
+      console.error("Error saving acceleration setting:", error);
+    }
+  };
 
   return (
     <Animated.View 
@@ -194,11 +226,11 @@ export default function SettingsScreen({
           </TouchableOpacity>
         </View>
         <View style={{ flexDirection: "row", height: 145 }}>
-          <TouchableOpacity style={{ flex: 1, marginRight: 5 }} onPress={onGoToSkills}>
-            <Animated.View style={styles.settingsBlock}>
-              <Ionicons name="sparkles-outline" size={21} color={theme.colors.text} style={styles.blockIcon}/>
+          <TouchableOpacity style={{ flex: 1, marginRight: 5 }} onPress={() => {}} activeOpacity={1}>
+            <Animated.View style={[styles.settingsBlock, { opacity: 0.7 }]}>
+              <Ionicons name="key-outline" size={20} color={theme.colors.textSecondary} style={styles.blockIcon}/>
               <View style={styles.blockTextContainer}>
-                <Text style={styles.blockText}>Skills</Text>
+                <Text style={[styles.blockText, { color: theme.colors.textSecondary }]}>API</Text>
               </View>
             </Animated.View>
           </TouchableOpacity>
@@ -235,6 +267,65 @@ export default function SettingsScreen({
           </Animated.View>
         </TouchableOpacity>
       </View>
+      {Platform.OS === "android" && (
+        <View style={{ marginTop: 16 }}>
+          <TouchableOpacity
+            onPress={toggleAccel}
+            style={{
+              backgroundColor: theme.colors.card,
+              borderRadius: 16,
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "600",
+                  color: theme.colors.text,
+                  fontFamily: "Poppins",
+                  marginBottom: 4,
+                }}
+              >
+                Experimental acceleration (GPU/OpenCL)
+              </Text>
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: theme.colors.textSecondary,
+                  fontFamily: "Poppins",
+                }}
+              >
+                May improve speed on some Android devices; can cause model load failures. Off by default.
+              </Text>
+            </View>
+            <View
+              style={{
+                width: 50,
+                height: 30,
+                borderRadius: 15,
+                backgroundColor: accelEnabled ? theme.colors.primary : theme.colors.border,
+                justifyContent: "center",
+                paddingHorizontal: 4,
+              }}
+            >
+              <View
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 11,
+                  backgroundColor: theme.colors.background,
+                  alignSelf: accelEnabled ? "flex-end" : "flex-start",
+                }}
+              />
+            </View>
+          </TouchableOpacity>
+        </View>
+      )}
       <View style={{ position: "absolute", bottom: 20, left: 15, right: 15, backgroundColor: "transparent", flexDirection: "row", justifyContent: "space-between" }}>
         <TouchableOpacity onPress={onBackToConversation} style={{
           flexDirection: "row",

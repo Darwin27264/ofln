@@ -36,7 +36,20 @@ import {
   ActivityIndicator,
   LayoutChangeEvent,
   NativeModules,
+  Image,
+  PermissionsAndroid,
 } from "react-native";
+import { launchImageLibrary, launchCamera } from "react-native-image-picker";
+
+/** Returns false if the image picker native module is not linked (e.g. app not rebuilt after install). */
+function isImagePickerAvailable(): boolean {
+  try {
+    const mod = NativeModules.ImagePicker;
+    return mod != null && typeof mod.launchImageLibrary === "function";
+  } catch {
+    return false;
+  }
+}
 import Ionicons from "react-native-vector-icons/Ionicons";
 import Markdown from "react-native-markdown-display";
 import Clipboard from "@react-native-clipboard/clipboard";
@@ -50,12 +63,22 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useKeyboardPadding } from "../hooks/useKeyboardPadding";
 import { Persona, getPersonas } from "../services/personaService";
 import { ANIMATION_CONFIG, EASING, ANIMATION_DURATIONS } from "../utils/animationConfig";
+import { extractTextFromImage } from "../services/ocrService";
+
+type MessageAttachment = {
+  type: "image";
+  uri: string;
+  width?: number;
+  height?: number;
+  fileName?: string;
+};
 
 type Message = {
   role: "user" | "assistant" | "system";
   content: string;
   thought?: string;
   showThought?: boolean;
+  attachments?: MessageAttachment[];
 };
 
 /**
@@ -440,6 +463,50 @@ const AnimatedHistoryItemWrapper: React.FC<{
 
 AnimatedHistoryItemWrapper.displayName = 'AnimatedHistoryItemWrapper';
 
+/**
+ * Staggered fade-in wrapper for model selector list items (matches history panel feel).
+ */
+const AnimatedModelItemWrapper: React.FC<{
+  children: React.ReactNode;
+  index: number;
+  isVisible: boolean;
+}> = React.memo(({ children, index, isVisible }) => {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(10)).current;
+
+  useEffect(() => {
+    if (isVisible) {
+      const delay = Math.min(index * 20, 200);
+      Animated.parallel([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: ANIMATION_DURATIONS.STANDARD,
+          delay,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateY, {
+          toValue: 0,
+          duration: ANIMATION_DURATIONS.STANDARD,
+          delay,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      opacity.setValue(0);
+      translateY.setValue(10);
+    }
+  }, [isVisible, index, opacity, translateY]);
+
+  return (
+    <Animated.View style={{ opacity, transform: [{ translateY }] }}>
+      {children}
+    </Animated.View>
+  );
+});
+AnimatedModelItemWrapper.displayName = 'AnimatedModelItemWrapper';
+
 interface Props {
   conversation: Message[];
   setConversation: React.Dispatch<React.SetStateAction<Message[]>>;
@@ -465,7 +532,8 @@ interface Props {
   stopGeneration: () => void;
   handleSendMessageCompletion: (
     conversation: Message[],
-    userInput: string
+    userInput: string,
+    sendOptions?: { textForPrompt?: string; attachments?: MessageAttachment[] }
   ) => Promise<void>;
   assistantDisplayMode: "bubble" | "direct";
   onOpenSettings: () => void;
@@ -598,6 +666,25 @@ export default function ConversationScreen({
   // Menu animation
   const menuOpacity = useRef(new Animated.Value(0)).current;
   const menuScale = useRef(new Animated.Value(0.9)).current;
+  const menuItem0Opacity = useRef(new Animated.Value(0)).current;
+  const menuItem0Translate = useRef(new Animated.Value(8)).current;
+  const menuItem1Opacity = useRef(new Animated.Value(0)).current;
+  const menuItem1Translate = useRef(new Animated.Value(8)).current;
+  const menuItem2Opacity = useRef(new Animated.Value(0)).current;
+  const menuItem2Translate = useRef(new Animated.Value(8)).current;
+  const menuItem3Opacity = useRef(new Animated.Value(0)).current;
+  const menuItem3Translate = useRef(new Animated.Value(8)).current;
+
+  // Attach image popup menu (above add button)
+  const [attachMenuVisible, setAttachMenuVisible] = useState(false);
+  const [attachMenuAnchor, setAttachMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const attachMenuOpacity = useRef(new Animated.Value(0)).current;
+  const attachMenuScale = useRef(new Animated.Value(0.9)).current;
+  const attachItem0Opacity = useRef(new Animated.Value(0)).current;
+  const attachItem0Translate = useRef(new Animated.Value(8)).current;
+  const attachItem1Opacity = useRef(new Animated.Value(0)).current;
+  const attachItem1Translate = useRef(new Animated.Value(8)).current;
+  const addButtonRef = useRef<View>(null);
 
   // Animation configurations are imported from centralized config
   // This ensures consistency across the application
@@ -612,6 +699,17 @@ export default function ConversationScreen({
   const [loadingModelFile, setLoadingModelFile] = useState<string | null>(null);
   const [selectorTab, setSelectorTab] = useState<"models" | "personas">("models");
   const [availablePersonas, setAvailablePersonas] = useState<Persona[]>([]);
+
+  // Pending image attachment (local state only until send)
+  type PendingAttachment = {
+    uri: string;
+    fileName?: string;
+    type?: string;
+    width?: number;
+    height?: number;
+  };
+  const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
+  const [isOcrRunning, setIsOcrRunning] = useState(false);
 
   // Helper function to prettify model name
   const prettifyModelName = (fileName: string): string => {
@@ -972,11 +1070,15 @@ export default function ConversationScreen({
     Animated.parallel([
       Animated.timing(menuOpacity, {
         toValue: 0,
-        ...ANIMATION_CONFIG.menu,
+        duration: 80,
+        easing: EASING.EASE_IN,
+        useNativeDriver: true,
       }),
       Animated.timing(menuScale, {
-        toValue: 0.9,
-        ...ANIMATION_CONFIG.menu,
+        toValue: 0.92,
+        duration: 80,
+        easing: EASING.EASE_IN,
+        useNativeDriver: true,
       }),
     ]).start(() => setMenuVisible(false));
   }, [menuOpacity, menuScale]);
@@ -1047,30 +1149,34 @@ export default function ConversationScreen({
    */
   const handleLongPress = useCallback((chat: ChatConversation, event: any) => {
     if (isMultiselectMode) {
-      // In multiselect mode, toggle selection
       toggleChatSelection(chat.id);
     } else {
-      // Normal mode - show context menu
       const { pageX, pageY } = event.nativeEvent;
       setSelectedChatId(chat.id);
       setMenuPosition({ x: pageX, y: pageY });
       setMenuVisible(true);
-      
-      // Animate menu appearance with optimized config
+
       menuOpacity.setValue(0);
-      menuScale.setValue(0.9);
+      menuScale.setValue(0.92);
+      [menuItem0Opacity, menuItem1Opacity, menuItem2Opacity, menuItem3Opacity].forEach((v) => v.setValue(0));
+      [menuItem0Translate, menuItem1Translate, menuItem2Translate, menuItem3Translate].forEach((v) => v.setValue(6));
+
+      const itemAnim = (opacity: Animated.Value, translate: Animated.Value, delay: number) =>
+        Animated.parallel([
+          Animated.timing(opacity, { toValue: 1, duration: 100, delay, easing: EASING.EASE_OUT, useNativeDriver: true }),
+          Animated.timing(translate, { toValue: 0, duration: 100, delay, easing: EASING.EASE_OUT, useNativeDriver: true }),
+        ]);
+
       Animated.parallel([
-        Animated.timing(menuOpacity, {
-          toValue: 1,
-          ...ANIMATION_CONFIG.menu,
-        }),
-        Animated.timing(menuScale, {
-          toValue: 1,
-          ...ANIMATION_CONFIG.menu,
-        }),
+        Animated.timing(menuOpacity, { toValue: 1, duration: 80, easing: EASING.EASE_OUT, useNativeDriver: true }),
+        Animated.spring(menuScale, { toValue: 1, useNativeDriver: true, tension: 280, friction: 22, overshootClamping: true }),
+        itemAnim(menuItem0Opacity, menuItem0Translate, 25),
+        itemAnim(menuItem1Opacity, menuItem1Translate, 50),
+        itemAnim(menuItem2Opacity, menuItem2Translate, 75),
+        itemAnim(menuItem3Opacity, menuItem3Translate, 100),
       ]).start();
     }
-  }, [isMultiselectMode, toggleChatSelection, menuOpacity, menuScale]);
+  }, [isMultiselectMode, toggleChatSelection, menuOpacity, menuScale, menuItem0Opacity, menuItem0Translate, menuItem1Opacity, menuItem1Translate, menuItem2Opacity, menuItem2Translate, menuItem3Opacity, menuItem3Translate]);
 
   /**
    * Handle rename chat
@@ -1255,8 +1361,8 @@ export default function ConversationScreen({
       return;
     }
     
-    // Validate input is not empty
-    if (!userInput.trim()) {
+    // Validate: need either text or an attachment
+    if (!userInput.trim() && !pendingAttachment) {
       return;
     }
     
@@ -1276,7 +1382,56 @@ export default function ConversationScreen({
       }),
     ]).start(async () => {
       try {
-        await handleSendMessageCompletion(conversation, userInput);
+        const displayContent = userInput.trim();
+        let sendOptions: { textForPrompt?: string; attachments?: MessageAttachment[] } | undefined;
+
+        if (pendingAttachment) {
+          setIsOcrRunning(true);
+          try {
+            const ocrText = await extractTextFromImage(pendingAttachment.uri);
+            if (ocrText === "" && __DEV__) {
+              console.log("[ConversationScreen] OCR returned no text");
+            }
+            const textForPrompt =
+              "[Attached Image OCR]\n" +
+              (ocrText || "(No text detected.)") +
+              "\n\n[User]\n" +
+              (displayContent || "(No additional text)");
+            const attachments: MessageAttachment[] = [
+              {
+                type: "image",
+                uri: pendingAttachment.uri,
+                width: pendingAttachment.width,
+                height: pendingAttachment.height,
+                fileName: pendingAttachment.fileName,
+              },
+            ];
+            sendOptions = { textForPrompt, attachments };
+          } catch (ocrErr) {
+            if (__DEV__) console.warn("OCR error:", ocrErr);
+            showToast("Could not read text from image. Sending image anyway.");
+            sendOptions = {
+              textForPrompt:
+                "[Attached Image]\n(No text detected.)\n\n[User]\n" +
+                (displayContent || "(No additional text)"),
+              attachments: [
+                {
+                  type: "image",
+                  uri: pendingAttachment.uri,
+                  width: pendingAttachment.width,
+                  height: pendingAttachment.height,
+                  fileName: pendingAttachment.fileName,
+                },
+              ],
+            };
+          } finally {
+            setIsOcrRunning(false);
+          }
+          setPendingAttachment(null);
+        }
+
+        const contentForHistory = displayContent || (sendOptions ? "(Image attached)" : "");
+        await handleSendMessageCompletion(conversation, contentForHistory, sendOptions);
         // Scroll to bottom after message is sent
         requestAnimationFrame(() => {
           scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -1286,7 +1441,7 @@ export default function ConversationScreen({
         showToast('Failed to send message. Please try again.');
       }
     });
-  }, [context, userInput, conversation, handleSendMessageCompletion, showToast, scaleAnim]);
+  }, [context, userInput, conversation, pendingAttachment, handleSendMessageCompletion, showToast, scaleAnim]);
 
   /**
    * Handle scroll events to determine if auto-scroll should be enabled
@@ -1367,6 +1522,159 @@ export default function ConversationScreen({
     }
   }, []);
 
+  /** Dismiss the attach image popup with animation; optional onComplete runs after close */
+  const dismissAttachMenu = useCallback((onComplete?: () => void) => {
+    Animated.parallel([
+      Animated.timing(attachMenuOpacity, {
+        toValue: 0,
+        duration: 80,
+        easing: EASING.EASE_IN,
+        useNativeDriver: true,
+      }),
+      Animated.timing(attachMenuScale, {
+        toValue: 0.92,
+        duration: 80,
+        easing: EASING.EASE_IN,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setAttachMenuVisible(false);
+      setAttachMenuAnchor(null);
+      onComplete?.();
+    });
+  }, [attachMenuOpacity, attachMenuScale]);
+
+  /** Open image library and set pendingAttachment */
+  const choosePhoto = useCallback(async () => {
+    try {
+      const result = await launchImageLibrary({
+        mediaType: "photo",
+        selectionLimit: 1,
+      });
+      if (result.didCancel || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      const uri = asset.uri ?? asset.fileName;
+      if (!uri) return;
+      setPendingAttachment({
+        uri,
+        fileName: asset.fileName,
+        type: asset.type,
+        width: asset.width,
+        height: asset.height,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const needsRebuild = /null|not found|undefined/i.test(msg);
+      if (__DEV__) console.warn("Image picker error:", err);
+      showToast(
+        needsRebuild
+          ? "Image picker not linked. Rebuild the app (e.g. npm run android) and try again."
+          : "Could not open photo library"
+      );
+    }
+  }, [showToast]);
+
+  /** Take photo with camera and set pendingAttachment */
+  const takePhoto = useCallback(async () => {
+    try {
+      if (Platform.OS === "android") {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.CAMERA,
+          {
+            title: "Camera permission",
+            message: "This app needs camera access to take a photo for the chat.",
+            buttonNeutral: "Ask later",
+            buttonNegative: "Cancel",
+            buttonPositive: "OK",
+          }
+        );
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          showToast("Camera permission is required to take a photo.");
+          return;
+        }
+      }
+      const result = await launchCamera({
+        mediaType: "photo",
+        saveToPhotos: false,
+      });
+      if (result.didCancel || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      const uri = asset.uri ?? asset.fileName;
+      if (!uri) return;
+      setPendingAttachment({
+        uri,
+        fileName: asset.fileName,
+        type: asset.type,
+        width: asset.width,
+        height: asset.height,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const needsRebuild = /null|not found|undefined/i.test(msg);
+      if (__DEV__) console.warn("Camera error:", err);
+      showToast(
+        needsRebuild
+          ? "Image picker not linked. Rebuild the app (e.g. npm run android) and try again."
+          : "Could not open camera"
+      );
+    }
+  }, [showToast]);
+
+  /** Show attach popup above the add button */
+  const openAttachMenu = useCallback(() => {
+    if (!isImagePickerAvailable()) {
+      showToast("Image picker not available. Rebuild the app (e.g. npm run android) and try again.");
+      return;
+    }
+    addButtonRef.current?.measureInWindow((x, y, width, height) => {
+      setAttachMenuAnchor({ x, y, width, height });
+      setAttachMenuVisible(true);
+      attachMenuOpacity.setValue(0);
+      attachMenuScale.setValue(0.92);
+      attachItem0Opacity.setValue(0);
+      attachItem0Translate.setValue(6);
+      attachItem1Opacity.setValue(0);
+      attachItem1Translate.setValue(6);
+      Animated.parallel([
+        Animated.timing(attachMenuOpacity, {
+          toValue: 1,
+          duration: 80,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+        Animated.spring(attachMenuScale, { toValue: 1, useNativeDriver: true, tension: 280, friction: 22, overshootClamping: true }),
+        Animated.timing(attachItem0Opacity, {
+          toValue: 1,
+          duration: 100,
+          delay: 25,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+        Animated.timing(attachItem0Translate, {
+          toValue: 0,
+          duration: 100,
+          delay: 25,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+        Animated.timing(attachItem1Opacity, {
+          toValue: 1,
+          duration: 100,
+          delay: 50,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+        Animated.timing(attachItem1Translate, {
+          toValue: 0,
+          duration: 100,
+          delay: 50,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
+  }, [showToast, attachMenuOpacity, attachMenuScale, attachItem0Opacity, attachItem0Translate, attachItem1Opacity, attachItem1Translate]);
+
   /**
    * Closes the model selector bottom sheet
    */
@@ -1397,7 +1705,7 @@ export default function ConversationScreen({
       const success = await loadModel(modelPath, context, setContext);
       if (success) {
         setSelectedGGUF(modelFile);
-        showToast("Model switched successfully");
+        showToast("Model loaded");
         await checkDownloadedModels();
         setIsLoadingModel(false);
         setLoadingModelFile(null);
@@ -1499,7 +1807,7 @@ export default function ConversationScreen({
     await handleSendMessageCompletion(newConversation, userMessageContent);
   }, [context, conversation, isGenerating, stopGeneration, handleSendMessageCompletion, setConversation, setTokensPerSecond]);
 
-  const sendButtonDisabled = !userInput.trim();
+  const sendButtonDisabled = !userInput.trim() && !pendingAttachment;
 
   // Memoize grouped chat history for performance
   const groupedChatHistory = useMemo(() => {
@@ -1548,27 +1856,32 @@ export default function ConversationScreen({
   const isKeyboardVisible = keyboardPadding > 0;
   const hasLayoutMeasurements = initialLayoutHeight !== null && currentLayoutHeight !== null;
   
-  // More aggressive threshold - window resize is insufficient if height loss is less than 80% of keyboard
-  // This ensures we add padding even when resize is partially working
-  const windowResizeInsufficient = 
+  // Stricter threshold: only treat resize as sufficient when window actually shrank by at least
+  // the full keyboard height. Otherwise we risk the input bar staying behind the keyboard.
+  const windowResizeSufficient =
+    Platform.OS === "android" &&
+    hasLayoutMeasurements &&
+    heightLoss >= keyboardPadding;
+  const windowResizeInsufficient =
     Platform.OS === "android" &&
     isKeyboardVisible &&
-    hasLayoutMeasurements &&
-    heightLoss < keyboardPadding * 0.8;
+    (!hasLayoutMeasurements || heightLoss < keyboardPadding);
 
   const NO_KEYBOARD_PADDING = 12;
-  const MIN_PADDING_RATIO = 0.10;
+  const MIN_PADDING_RATIO = 0.20; // Raised from 0.10 so we always push at least 20% of keyboard when visible
   const calculatePaddingMultiplier = useCallback((keyboardH: number) => {
     if (keyboardH <= 0) return NO_KEYBOARD_PADDING;
 
     let padding: number;
     if (windowResizeInsufficient) {
       const gap = keyboardH - heightLoss;
-      padding = Math.max(gap + 10, keyboardH * 0.20);
-    } else if (hasLayoutMeasurements && heightLoss > 0) {
-      padding = Math.max(10, Math.min(keyboardH * 0.06, 12));
+      padding = Math.max(gap + 10, keyboardH * 0.25);
+    } else if (windowResizeSufficient && hasLayoutMeasurements && heightLoss > 0) {
+      // Window resized; use minimal padding but ensure we still cover any gap
+      const gap = Math.max(0, keyboardH - heightLoss);
+      padding = Math.max(12, gap + 8);
     } else {
-      padding = keyboardH * 0.20 + 10;
+      padding = keyboardH * 0.25 + 10;
     }
 
     padding = Math.max(padding, keyboardH * 0.17);
@@ -1577,8 +1890,10 @@ export default function ConversationScreen({
     if (Platform.OS === "android" && (isSamsungDevice || windowResizeInsufficient)) {
       padding -= Math.max(16, keyboardH * 0.05);
     }
-    return Math.max(padding, keyboardH * MIN_PADDING_RATIO);
-  }, [windowResizeInsufficient, heightLoss, hasLayoutMeasurements, isSamsungDevice]);
+    // When keyboard is visible on Android, never use less than MIN_PADDING_RATIO so input stays above keyboard
+    const result = Math.max(padding, keyboardH * MIN_PADDING_RATIO);
+    return Math.max(result, NO_KEYBOARD_PADDING);
+  }, [windowResizeInsufficient, windowResizeSufficient, heightLoss, hasLayoutMeasurements, isSamsungDevice]);
 
   const paddingAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const targetPaddingRef = useRef(12);
@@ -1765,122 +2080,160 @@ export default function ConversationScreen({
               inputRange: [0, 1],
               outputRange: ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0.2)'],
             }) }}>
-              {menuPosition && selectedChatId && (
+              {menuPosition && selectedChatId && (() => {
+                const chat = chatHistory.find(c => c.id === selectedChatId);
+                const isPinned = chat?.pinned || false;
+                const menuBlockStyle = {
+                  backgroundColor: theme.colors.card,
+                  borderRadius: 12,
+                  paddingVertical: 12,
+                  paddingHorizontal: 14,
+                  flexDirection: 'row' as const,
+                  alignItems: 'center' as const,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                };
+                return (
+                  <Animated.View
+                    style={{
+                      position: 'absolute',
+                      left: Math.max(16, Math.min(menuPosition.x - 80, screenWidth - 200)),
+                      top: menuPosition.y < Dimensions.get('window').height * 0.3
+                        ? Math.min(menuPosition.y + 10, Dimensions.get('window').height - 220)
+                        : Math.max(50, menuPosition.y - 220),
+                      minWidth: 140,
+                      zIndex: 1000,
+                      opacity: menuOpacity,
+                      transform: [{ scale: menuScale }],
+                    }}
+                    onStartShouldSetResponder={() => true}
+                    pointerEvents="box-none"
+                  >
+                    <Animated.View style={{ opacity: menuItem0Opacity, transform: [{ translateY: menuItem0Translate }], marginBottom: 8 }}>
+                      <TouchableOpacity
+                        onPress={() => selectedChatId && handleRename(selectedChatId)}
+                        style={menuBlockStyle}
+                      >
+                        <Ionicons name="pencil-outline" size={18} color={theme.colors.text} />
+                        <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>Rename</Text>
+                      </TouchableOpacity>
+                    </Animated.View>
+                    <Animated.View style={{ opacity: menuItem1Opacity, transform: [{ translateY: menuItem1Translate }], marginBottom: 8 }}>
+                      <TouchableOpacity
+                        onPress={() => selectedChatId && handlePinToggle(selectedChatId)}
+                        style={menuBlockStyle}
+                      >
+                        <Ionicons name={isPinned ? "bookmark" : "bookmark-outline"} size={18} color={theme.colors.text} />
+                        <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>{isPinned ? 'Unpin' : 'Pin'}</Text>
+                      </TouchableOpacity>
+                    </Animated.View>
+                    <Animated.View style={{ opacity: menuItem2Opacity, transform: [{ translateY: menuItem2Translate }], marginBottom: 8 }}>
+                      <TouchableOpacity
+                        onPress={() => selectedChatId && enterMultiselectMode(selectedChatId)}
+                        style={menuBlockStyle}
+                      >
+                        <Ionicons name="checkbox-outline" size={18} color={theme.colors.text} />
+                        <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>Select Multiple</Text>
+                      </TouchableOpacity>
+                    </Animated.View>
+                    <Animated.View style={{ opacity: menuItem3Opacity, transform: [{ translateY: menuItem3Translate }] }}>
+                      <TouchableOpacity
+                        onPress={() => selectedChatId && handleDeleteChat(selectedChatId)}
+                        style={menuBlockStyle}
+                      >
+                        <Ionicons name="trash-outline" size={18} color={theme.colors.error} />
+                        <Text style={{ color: theme.colors.error, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>Delete</Text>
+                      </TouchableOpacity>
+                    </Animated.View>
+                  </Animated.View>
+                );
+              })()}
+            </Animated.View>
+          </TouchableWithoutFeedback>
+        </Modal>
+
+        {/* Attach image popup (above add button) */}
+        <Modal
+          visible={attachMenuVisible}
+          transparent
+          animationType="none"
+          onRequestClose={() => dismissAttachMenu()}
+        >
+          <TouchableWithoutFeedback onPress={() => dismissAttachMenu()}>
+            <Animated.View
+              style={{
+                flex: 1,
+                backgroundColor: attachMenuOpacity.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0.2)'],
+                }),
+              }}
+            >
+              {attachMenuAnchor && (
                 <Animated.View
                   style={{
                     position: 'absolute',
-                    left: Math.max(16, Math.min(menuPosition.x - 80, screenWidth - 200)),
-                    top: menuPosition.y < Dimensions.get('window').height * 0.3 
-                      ? Math.min(menuPosition.y + 10, Dimensions.get('window').height - 200)
-                      : Math.max(50, menuPosition.y - 120),
-                    backgroundColor: theme.colors.card,
-                    borderRadius: 10,
-                    paddingVertical: 6,
-                    paddingHorizontal: 4,
-                    minWidth: 140,
-                    shadowColor: theme.colors.text,
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.15,
-                    shadowRadius: 6,
-                    elevation: 4,
+                    left: Math.max(16, Math.min(attachMenuAnchor.x + attachMenuAnchor.width / 2 - 90, screenWidth - 196)),
+                    top: attachMenuAnchor.y - 116,
+                    minWidth: 180,
                     zIndex: 1000,
-                    opacity: menuOpacity,
-                    transform: [{ scale: menuScale }],
+                    opacity: attachMenuOpacity,
+                    transform: [{ scale: attachMenuScale }],
                   }}
                   onStartShouldSetResponder={() => true}
+                  pointerEvents="box-none"
                 >
-                  {(() => {
-                    const chat = chatHistory.find(c => c.id === selectedChatId);
-                    const isPinned = chat?.pinned || false;
-                    return (
-                      <>
-                        <TouchableOpacity
-                          onPress={() => {
-                            if (selectedChatId) {
-                              handleRename(selectedChatId);
-                            }
-                          }}
-                          style={{
-                            paddingVertical: 10,
-                            paddingHorizontal: 12,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <Ionicons name="pencil-outline" size={18} color={theme.colors.text} />
-                          <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
-                            Rename
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => {
-                            if (selectedChatId) {
-                              handlePinToggle(selectedChatId);
-                            }
-                          }}
-                          style={{
-                            paddingVertical: 10,
-                            paddingHorizontal: 12,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <Ionicons 
-                            name={isPinned ? "bookmark" : "bookmark-outline"} 
-                            size={18} 
-                            color={theme.colors.text} 
-                          />
-                          <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
-                            {isPinned ? 'Unpin' : 'Pin'}
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => {
-                            if (selectedChatId) {
-                              enterMultiselectMode(selectedChatId);
-                            }
-                          }}
-                          style={{
-                            paddingVertical: 10,
-                            paddingHorizontal: 12,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <Ionicons name="checkbox-outline" size={18} color={theme.colors.text} />
-                          <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
-                            Select Multiple
-                          </Text>
-                        </TouchableOpacity>
-                        <View
-                          style={{
-                            height: 1,
-                            backgroundColor: theme.colors.border,
-                            marginVertical: 3,
-                            marginHorizontal: 8,
-                          }}
-                        />
-                        <TouchableOpacity
-                          onPress={() => {
-                            if (selectedChatId) {
-                              handleDeleteChat(selectedChatId);
-                            }
-                          }}
-                          style={{
-                            paddingVertical: 10,
-                            paddingHorizontal: 12,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <Ionicons name="trash-outline" size={18} color={theme.colors.error} />
-                          <Text style={{ color: theme.colors.error, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
-                            Delete
-                          </Text>
-                        </TouchableOpacity>
-                      </>
-                    );
-                  })()}
+                  <Animated.View
+                    style={{
+                      opacity: attachItem0Opacity,
+                      transform: [{ translateY: attachItem0Translate }],
+                      marginBottom: 8,
+                    }}
+                  >
+                    <TouchableOpacity
+                      onPress={() => dismissAttachMenu(takePhoto)}
+                      style={{
+                        backgroundColor: theme.colors.card,
+                        borderRadius: 12,
+                        paddingVertical: 12,
+                        paddingHorizontal: 14,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                      }}
+                    >
+                      <Ionicons name="camera-outline" size={18} color={theme.colors.text} />
+                      <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
+                        Take a photo
+                      </Text>
+                    </TouchableOpacity>
+                  </Animated.View>
+                  <Animated.View
+                    style={{
+                      opacity: attachItem1Opacity,
+                      transform: [{ translateY: attachItem1Translate }],
+                    }}
+                  >
+                    <TouchableOpacity
+                      onPress={() => dismissAttachMenu(choosePhoto)}
+                      style={{
+                        backgroundColor: theme.colors.card,
+                        borderRadius: 12,
+                        paddingVertical: 12,
+                        paddingHorizontal: 14,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                      }}
+                    >
+                      <Ionicons name="image-outline" size={18} color={theme.colors.text} />
+                      <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
+                        Select an image
+                      </Text>
+                    </TouchableOpacity>
+                  </Animated.View>
                 </Animated.View>
               )}
             </Animated.View>
@@ -1927,7 +2280,7 @@ export default function ConversationScreen({
           ]}
           pointerEvents={isPanelOpen ? 'auto' : 'none'}
         >
-          {/* Multiselect header */}
+          {/* Multiselect header: height and opacity split so native driver only sees opacity (height is not supported by native driver) */}
           <Animated.View
             style={{
               overflow: 'hidden',
@@ -1935,9 +2288,9 @@ export default function ConversationScreen({
                 inputRange: [0, 1],
                 outputRange: [0, 60],
               }),
-              opacity: multiselectHeaderOpacity,
             }}
           >
+            <Animated.View style={{ opacity: multiselectHeaderOpacity }}>
             {isMultiselectMode && (
               <View style={{
                 flexDirection: 'row',
@@ -2013,13 +2366,14 @@ export default function ConversationScreen({
               </View>
             </View>
             )}
+            </Animated.View>
           </Animated.View>
 
-          {/* Chat history list */}
+          {/* Chat history list - removeClippedSubviews=false to avoid Fabric "Unable to find viewState for tag" when selection state updates */}
           <ScrollView
             style={{ flex: 1, marginTop: isMultiselectMode ? 0 : 24, paddingHorizontal: 16 }}
             contentContainerStyle={{ paddingBottom: 100 }}
-            removeClippedSubviews={true}
+            removeClippedSubviews={false}
           >
             {isLoadingHistory ? (
               <View style={{ padding: 20, alignItems: 'center' }}>
@@ -2215,6 +2569,20 @@ export default function ConversationScreen({
                           Model's Reasoning:
                         </Text>
                         <Text style={styles.thoughtText}>{msg.thought}</Text>
+                      </View>
+                    )}
+                    {msg.role === "user" && msg.attachments && msg.attachments.length > 0 && (
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 8, gap: 6 }}>
+                        {msg.attachments.map((att, i) =>
+                          att.type === "image" ? (
+                            <Image
+                              key={i}
+                              source={{ uri: att.uri }}
+                              style={{ width: 64, height: 64, borderRadius: 8 }}
+                              resizeMode="cover"
+                            />
+                          ) : null
+                        )}
                       </View>
                     )}
                     {msg.role === "assistant" && (!msg.content || msg.content.trim().length === 0) && isGenerating && index === conversation.slice(1).length - 1 ? (
@@ -2442,49 +2810,80 @@ export default function ConversationScreen({
             },
           ]}
         >
-          <View style={styles.inputBar}>
-            <TextInput
-              style={styles.input}
-              placeholder="Message..."
-              placeholderTextColor={theme.colors.textTertiary}
-              value={userInput}
-              onChangeText={setUserInput}
-              multiline
-              onFocus={() => {
-                // Sync keyboard height from native after focus; fixes race where
-                // keyboardDidShow fires before we subscribe (all devices).
-                setTimeout(syncKeyboardState, 200);
-              }}
-            />
-            {isGenerating ? (
-              <Animated.View
-                style={{ marginLeft: "auto" }}
+          {pendingAttachment && (
+            <View style={styles.attachmentPreviewRow}>
+              <Image
+                source={{ uri: pendingAttachment.uri }}
+                style={styles.attachmentThumb}
+                resizeMode="cover"
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.attachmentLabel} numberOfLines={1}>
+                  {pendingAttachment.fileName || "Image attached"}
+                </Text>
+                {isOcrRunning && (
+                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4, gap: 6 }}>
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                    <Text style={[styles.attachmentLabel, { fontSize: 12 }]}>Reading image…</Text>
+                  </View>
+                )}
+              </View>
+              <TouchableOpacity
+                style={[styles.attachmentRemove, { backgroundColor: theme.colors.surface }]}
+                onPress={() => setPendingAttachment(null)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                disabled={isOcrRunning}
               >
-                <TouchableOpacity style={styles.stopButton} onPress={stopGeneration}>
-                  <Ionicons
-                    name="stop-circle"
-                    size={40}
-                    color={theme.colors.error}
-                  />
-                </TouchableOpacity>
-              </Animated.View>
-            ) : (
-              <Animated.View
-                style={{ transform: [{ scale: scaleAnim }], marginLeft: "auto" }}
+                <Ionicons name="close" size={20} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+          )}
+          <View style={styles.inputRowWrapper}>
+            <View ref={addButtonRef} collapsable={false}>
+              <TouchableOpacity
+                style={styles.addButtonOutside}
+                onPress={openAttachMenu}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <TouchableOpacity
-                  style={styles.sendIconButton}
-                  onPress={handleSendMessage}
-                  disabled={sendButtonDisabled || isLoading}
-                >
-                  <Ionicons
-                    name="arrow-up-circle"
-                    size={40}
-                    color={sendButtonDisabled ? theme.colors.textTertiary : theme.colors.text}
-                  />
-                </TouchableOpacity>
-              </Animated.View>
-            )}
+                <Ionicons name="add" size={28} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <View style={[styles.inputBar, styles.inputBarInRow]}>
+              <TextInput
+                style={styles.input}
+                placeholder="Message..."
+                placeholderTextColor={theme.colors.textTertiary}
+                value={userInput}
+                onChangeText={setUserInput}
+                multiline
+                onFocus={() => {
+                  syncKeyboardState();
+                  setTimeout(syncKeyboardState, 100);
+                  setTimeout(syncKeyboardState, 300);
+                }}
+              />
+              {isGenerating ? (
+                <Animated.View style={{ marginLeft: "auto" }}>
+                  <TouchableOpacity style={styles.stopButton} onPress={stopGeneration}>
+                    <Ionicons name="stop-circle" size={40} color={theme.colors.error} />
+                  </TouchableOpacity>
+                </Animated.View>
+              ) : (
+                <Animated.View style={{ transform: [{ scale: scaleAnim }], marginLeft: "auto" }}>
+                  <TouchableOpacity
+                    style={styles.sendIconButton}
+                    onPress={handleSendMessage}
+                    disabled={sendButtonDisabled || isLoading}
+                  >
+                    <Ionicons
+                      name="arrow-up-circle"
+                      size={40}
+                      color={sendButtonDisabled ? theme.colors.textTertiary : theme.colors.text}
+                    />
+                  </TouchableOpacity>
+                </Animated.View>
+              )}
+            </View>
           </View>
         </Animated.View>
 
@@ -2611,64 +3010,71 @@ export default function ConversationScreen({
                   const isSelected = selectedGGUF === model;
                   const isCurrentlyLoading = isLoadingModel && loadingModelFile === model;
                   return (
-                    <TouchableOpacity
+                    <AnimatedModelItemWrapper
                       key={index}
-                      onPress={() => handleModelSwitch(model)}
-                      disabled={isLoadingModel || isSelected}
-                      style={[
-                        styles.modelButton,
-                        isSelected && styles.selectedButton,
-                        {
-                          marginVertical: 6,
-                          opacity: isLoadingModel && !isSelected && !isCurrentlyLoading ? 0.5 : 1,
-                        },
-                      ]}
+                      index={index}
+                      isVisible={isModelSelectorVisible && selectorTab === "models"}
                     >
-                      <View style={styles.modelButtonContent}>
-                        <Text style={[
-                          styles.buttonText,
-                          isSelected && styles.selectedButtonText,
+                      <TouchableOpacity
+                        onPress={() => handleModelSwitch(model)}
+                        disabled={isLoadingModel || isSelected}
+                        style={[
+                          styles.modelButton,
+                          isSelected && styles.selectedButton,
                           {
-                            flex: 1,
-                            marginRight: 8,
+                            marginVertical: 6,
+                            opacity: isLoadingModel && !isSelected && !isCurrentlyLoading ? 0.5 : 1,
                           },
                         ]}
-                        numberOfLines={1}
-                        ellipsizeMode="tail"
-                        >
-                          {prettifyModelName(model)}
-                        </Text>
-                        {/* Fixed-width container to prevent layout shift */}
-                        <View style={{ 
-                          width: 28, 
-                          height: 20, 
-                          alignItems: 'center', 
-                          justifyContent: 'center',
-                          position: 'relative',
-                          flexShrink: 0,
-                        }}>
-                          {isCurrentlyLoading && (
-                            <View style={{
-                              position: 'absolute',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}>
-                              <ActivityIndicator 
-                                size="small" 
-                                color={theme.colors.accent}
-                              />
-                            </View>
-                          )}
-                          <AnimatedCheckmark
-                            visible={isSelected && !isCurrentlyLoading}
-                            size={20}
-                            color={theme.colors.primaryText}
-                          />
+                      >
+                        <View style={styles.modelButtonContent}>
+                          <Text style={[
+                            styles.buttonText,
+                            isSelected && styles.selectedButtonText,
+                            {
+                              flex: 1,
+                              minWidth: 0,
+                              marginRight: 12,
+                              textAlign: 'left',
+                            },
+                          ]}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                          >
+                            {prettifyModelName(model)}
+                          </Text>
+                          {/* Fixed-width container for checkmark so name truncates before it */}
+                          <View style={{ 
+                            width: 32, 
+                            height: 24, 
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            position: 'relative',
+                            flexShrink: 0,
+                          }}>
+                            {isCurrentlyLoading && (
+                              <View style={{
+                                position: 'absolute',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}>
+                                <ActivityIndicator 
+                                  size="small" 
+                                  color={theme.colors.accent}
+                                />
+                              </View>
+                            )}
+                            <AnimatedCheckmark
+                              visible={isSelected && !isCurrentlyLoading}
+                              size={20}
+                              color={theme.colors.primaryText}
+                            />
+                          </View>
                         </View>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })
+                      </TouchableOpacity>
+                    </AnimatedModelItemWrapper>
+                  );
+                })
               )
             ) : (
               // Personas tab
@@ -2729,7 +3135,7 @@ export default function ConversationScreen({
                       ]}
                     >
                       <View style={styles.modelButtonContent}>
-                        <View style={{ flex: 1, marginRight: 8 }}>
+                        <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
                           <Text style={[
                             styles.buttonText,
                             isSelected && styles.selectedButtonText,
@@ -2755,10 +3161,10 @@ export default function ConversationScreen({
                             </Text>
                           )}
                         </View>
-                        {/* Fixed-width container to prevent layout shift */}
+                        {/* Fixed-width container for checkmark so name truncates before it */}
                         <View style={{ 
-                          width: 28, 
-                          height: 20, 
+                          width: 32, 
+                          height: 24, 
                           alignItems: 'center', 
                           justifyContent: 'center',
                           position: 'relative',

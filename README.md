@@ -262,7 +262,7 @@ No environment variables are required. The app uses:
 ## Development Commands
 
 ### Available Scripts
-
+ 
 - `npm start`: Start Metro bundler
 - `npm run android`: Build and run on Android device/emulator
 - `npm run ios`: Build and run on iOS simulator/device

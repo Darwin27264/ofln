@@ -38,16 +38,12 @@ import StagesScreen from "./src/screens/StagesScreen";
 import PersonasLibraryScreen from "./src/screens/PersonasLibraryScreen";
 import PersonaEditorScreen from "./src/screens/PersonaEditorScreen";
 import ModelSettingsScreen from "./src/screens/ModelSettingsScreen";
-import SkillsLibraryScreen from "./src/screens/SkillsLibraryScreen";
-import SkillRunnerScreen from "./src/screens/SkillRunnerScreen";
-import SkillEditorScreen from "./src/screens/SkillEditorScreen";
 import CodeLibLibraryScreen from "./src/screens/CodeLibLibraryScreen";
 import CodeLibEditorScreen from "./src/screens/CodeLibEditorScreen";
 import InfoScreen from "./src/screens/InfoScreen";
 import DiagnosticsScreen from "./src/screens/DiagnosticsScreen";
 import { Persona, getPersonas } from "./src/services/personaService";
 import { ModelInfo } from "./src/components/ModelCard";
-import { Skill } from "./src/services/skillService";
 import { CodeLibFunction } from "./src/services/codelibService";
 
 // Services
@@ -56,6 +52,7 @@ import {
   stopGeneration,
   handleSendMessageCompletion,
   checkFileExists,
+  type SendMessageOptions,
 } from "./src/services/llamaService";
 import { validateLocalModels, LocalModelInfo } from "./src/services/localModelService";
 
@@ -64,6 +61,7 @@ type Message = {
   content: string;
   thought?: string;
   showThought?: boolean;
+  attachments?: Array<{ type: "image"; uri: string; width?: number; height?: number; fileName?: string }>;
 };
 
 function AppContent(): React.JSX.Element {
@@ -107,12 +105,10 @@ function AppContent(): React.JSX.Element {
   const [userInput, setUserInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedGGUF, setSelectedGGUF] = useState<string | null>(null);
-  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "skills" | "skillRunner" | "skillEditor" | "codelib" | "codelibEditor" | "info" | "diagnostics";
+  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "codelib" | "codelibEditor" | "info" | "diagnostics";
   const [currentPage, setCurrentPage] = useState<PageType>("conversation");
   const [editingPersona, setEditingPersona] = useState<Persona | null | undefined>(undefined);
   const [selectedModelForSettings, setSelectedModelForSettings] = useState<ModelInfo | null>(null);
-  const [runningSkill, setRunningSkill] = useState<Skill | null>(null);
-  const [editingSkill, setEditingSkill] = useState<Skill | null | undefined>(undefined);
   const [editingCodeLibFunction, setEditingCodeLibFunction] = useState<CodeLibFunction | null | undefined>(undefined);
   const [testingCodeLibFunction, setTestingCodeLibFunction] = useState<CodeLibFunction | null>(null);
   const [tokensPerSecond, setTokensPerSecond] = useState<number[]>([]);
@@ -325,7 +321,7 @@ function AppContent(): React.JSX.Element {
   useEffect(() => {
     checkDownloadedModels();
     // Load personas when navigating to relevant pages
-    if (currentPage === "skillRunner" || currentPage === "personas" || currentPage === "conversation") {
+    if (currentPage === "personas" || currentPage === "conversation") {
       loadAvailablePersonas();
     }
   }, [currentPage, checkDownloadedModels, loadAvailablePersonas]);
@@ -583,7 +579,7 @@ function AppContent(): React.JSX.Element {
           stopGeneration={() =>
             stopGeneration(context, setIsGenerating, setIsLoading, setConversation)
           }
-          handleSendMessageCompletion={(messages, userMsg) =>
+          handleSendMessageCompletion={(messages, userMsg, sendOptions?: SendMessageOptions) =>
             handleSendMessageCompletion(
               messages,
               userMsg,
@@ -596,8 +592,9 @@ function AppContent(): React.JSX.Element {
               tokensPerSecond,
               setTokensPerSecond,
               scrollViewRef,
-              selectedGGUF || "unknown",  // Pass the selected model for usage tracking
-              selectedPersona  // Pass the selected persona for prompt injection
+              selectedGGUF || "unknown",
+              selectedPersona,
+              sendOptions
             )
           }
           assistantDisplayMode={assistantDisplayMode}
@@ -626,7 +623,6 @@ function AppContent(): React.JSX.Element {
           onOpenStats={() => setCurrentPage("stages")}
           onGoToModelSelection={() => setCurrentPage("modelSelection")}
           onGoToPersonas={() => setCurrentPage("personas")}
-          onGoToSkills={() => setCurrentPage("skills")}
           onGoToInfo={() => setCurrentPage("info")}
           onOpenDiagnostics={__DEV__ ? () => setCurrentPage("diagnostics") : undefined}
           />
@@ -716,84 +712,13 @@ function AppContent(): React.JSX.Element {
         </Animated.View>
       )}
 
-      {currentPage === "skills" && (
-        <Animated.View 
-          style={[{ flex: 1 }, pageTransitionStyle]}
-          collapsable={false}
-        >
-          <SkillsLibraryScreen
-            onBack={() => setCurrentPage("settings")}
-            onRunSkill={(skill) => {
-              setRunningSkill(skill);
-              setCurrentPage("skillRunner");
-            }}
-            onEditSkill={(skill) => {
-              setEditingSkill(skill);
-              setCurrentPage("skillEditor");
-            }}
-            onGoToCodeLib={() => setCurrentPage("codelib")}
-          />
-        </Animated.View>
-      )}
-
-      {currentPage === "skillRunner" && runningSkill && (
-        <Animated.View 
-          style={[{ flex: 1 }, pageTransitionStyle]}
-          collapsable={false}
-        >
-          <SkillRunnerScreen
-            skill={runningSkill}
-            onBack={() => {
-              setRunningSkill(null);
-              setCurrentPage("skills");
-            }}
-            selectedModelId={selectedGGUF || undefined}
-            selectedPersona={selectedPersona}
-            onModelSelect={() => setCurrentPage("modelSelection")}
-            onPersonaSelect={() => setCurrentPage("personas")}
-            context={context}
-            downloadedModels={downloadedModels}
-            loadModel={loadModel}
-            setSelectedGGUF={setSelectedGGUF}
-            setContext={setContext}
-            availablePersonas={availablePersonas}
-            setSelectedPersona={setSelectedPersona}
-          />
-        </Animated.View>
-      )}
-
-      {currentPage === "skillEditor" && editingSkill !== undefined && (
-        <Animated.View 
-          style={[{ flex: 1 }, pageTransitionStyle]}
-          collapsable={false}
-        >
-          <SkillEditorScreen
-            skill={editingSkill}
-            onSave={async (savedSkill) => {
-              const { saveSkill } = await import("./src/services/skillService");
-              await saveSkill(savedSkill);
-              setEditingSkill(undefined);
-              setCurrentPage("skills");
-            }}
-            onCancel={() => {
-              setEditingSkill(undefined);
-              setCurrentPage("skills");
-            }}
-            onTest={(testSkill) => {
-              setRunningSkill(testSkill);
-              setCurrentPage("skillRunner");
-            }}
-          />
-        </Animated.View>
-      )}
-
       {currentPage === "codelib" && (
         <Animated.View 
           style={[{ flex: 1 }, pageTransitionStyle]}
           collapsable={false}
         >
           <CodeLibLibraryScreen
-            onBack={() => setCurrentPage("skills")}
+            onBack={() => setCurrentPage("settings")}
             onEditFunction={(func) => {
               setEditingCodeLibFunction(func);
               setCurrentPage("codelibEditor");
