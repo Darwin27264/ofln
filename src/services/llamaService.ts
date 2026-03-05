@@ -1,7 +1,6 @@
 // llamaservice.ts
 import { Platform } from "react-native";
 import RNFS from "react-native-fs";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { initLlama, loadLlamaModelInfo } from "llama.rn";
 import { recordUsage, getPerformanceLevel } from "./usageTracker";
 import { getModelSettings, ModelSettings, DEFAULT_SETTINGS } from "./modelSettingsService";
@@ -9,6 +8,7 @@ import { Persona, buildPersonaSystemPrompt } from "./personaService";
 import { logError } from "../utils/errorLogger";
 import { isAndroidEmulator } from "./deviceEnv";
 import { getModelInfo, detectQuantFromFilename, isQuantAllowedForAndroidAccel } from "./modelInfoService";
+import { getAccelerationConfig } from "./accelerationCapabilityService";
 
 // Types
 type MessageAttachment = {
@@ -160,27 +160,18 @@ export const loadModel = async (
     }
     
     // Android-specific acceleration gating:
-    // - Experimental acceleration toggle (AsyncStorage)
+    // - Per-model n_gpu_layers (set in Model Settings)
     // - Emulator detection
     // - Quantization allowlist (Q4_0, Q6_K)
-    // - Conservative cap on n_gpu_layers
-    const ACCEL_SETTING_KEY = "@runtime_accel_enabled";
-
-    let accelEnabled = false;
+    // - Runtime device check (OpenCL / Hexagon NPU via getBackendDevicesInfo)
     let isEmulator = false;
     let appliedQuant: string | null = null;
     let appliedNgpuLayers = 0;
     let appliedUseMlock = true;
     let accelReason = "default";
+    let appliedDevices: string[] | undefined;
 
     if (Platform.OS === "android") {
-      try {
-        const stored = await AsyncStorage.getItem(ACCEL_SETTING_KEY);
-        accelEnabled = stored === "true";
-      } catch (e) {
-        accelEnabled = false;
-      }
-
       isEmulator = isAndroidEmulator();
 
       const modelUri = filePath.startsWith("file://") ? filePath : `file://${filePath}`;
@@ -197,35 +188,40 @@ export const loadModel = async (
       // Default for Android: CPU-only, no mlock.
       appliedUseMlock = false;
       appliedNgpuLayers = 0;
+      appliedDevices = undefined;
       accelReason = "cpu_default";
 
       if (isEmulator) {
         accelReason = "emulator";
         adjustedN_gpu_layers = 0;
-      } else if (!accelEnabled) {
-        accelReason = "toggle_off";
-        adjustedN_gpu_layers = 0;
       } else if (!isQuantAllowedForAndroidAccel(appliedQuant)) {
         accelReason = "quant_not_allowlisted";
         adjustedN_gpu_layers = 0;
       } else {
-        // Acceleration allowed: respect per-model setting but cap it for safety.
+        // Acceleration allowed: runtime device check for OpenCL / Hexagon NPU.
+        const accelConfig = await getAccelerationConfig();
         const desired = typeof adjustedN_gpu_layers === "number" ? adjustedN_gpu_layers : 0;
-        const capped = Math.max(0, Math.min(8, desired));
+        const maxCap = accelConfig.suggestedMaxGpuLayers; // 99 when HTP or OpenCL available, else 0
+        const capped = Math.max(0, Math.min(maxCap > 0 ? maxCap : 8, desired));
         adjustedN_gpu_layers = capped;
         appliedNgpuLayers = capped;
-        accelReason = "accel_allowed";
+        appliedDevices = accelConfig.preferredDevices; // ['HTP0'] when Hexagon NPU available
+        accelReason = accelConfig.hasHTP
+          ? "hexagon_npu"
+          : accelConfig.hasOpenCL || accelConfig.devices.length > 0
+            ? "opencl_gpu"
+            : "accel_allowed";
       }
 
       if (__DEV__) {
         console.log("[ModelLoading] Android acceleration gating", {
           fileName,
-          accelEnabled,
           isEmulator,
           quant: appliedQuant,
           requested_n_gpu_layers: settings.n_gpu_layers,
           adjusted_n_gpu_layers: adjustedN_gpu_layers,
           applied_n_gpu_layers: appliedNgpuLayers,
+          appliedDevices,
           appliedUseMlock,
           reason: accelReason,
         });
@@ -253,19 +249,34 @@ export const loadModel = async (
           attemptNgpuLayers = appliedNgpuLayers;
         }
 
-        console.log(
-          `Attempting to load model: ${fileName} (attempt ${loadAttempts + 1}/${maxAttempts}) with use_mlock: ${attemptUseMlock}, n_gpu_layers: ${attemptNgpuLayers}, platform: ${Platform.OS}`
-        );
-        
-        llamaContext = await initLlama({
+        const initParams: Parameters<typeof initLlama>[0] = {
           model: filePath,
           use_mlock: attemptUseMlock,
           n_ctx: adjustedN_ctx,
           n_gpu_layers: attemptNgpuLayers,
-        });
-        
+        };
+        if (Platform.OS === "android" && appliedDevices && appliedDevices.length > 0) {
+          initParams.devices = appliedDevices;
+        }
+
+        console.log(
+          `Attempting to load model: ${fileName} (attempt ${loadAttempts + 1}/${maxAttempts}) with use_mlock: ${attemptUseMlock}, n_gpu_layers: ${attemptNgpuLayers}, devices: ${appliedDevices ? JSON.stringify(appliedDevices) : "default"}, platform: ${Platform.OS}`
+        );
+
+        llamaContext = await initLlama(initParams);
+
         if (llamaContext) {
-          console.log(`Successfully loaded model: ${fileName} with use_mlock: ${useMlock}`);
+          const gpuStatus = {
+            gpu: (llamaContext as any).gpu,
+            reasonNoGPU: (llamaContext as any).reasonNoGPU,
+            devices: (llamaContext as any).devices,
+          };
+          console.log(
+            `Successfully loaded model: ${fileName} with use_mlock: ${attemptUseMlock}. GPU: ${gpuStatus.gpu}, reasonNoGPU: ${gpuStatus.reasonNoGPU || "—"}, devices: ${JSON.stringify(gpuStatus.devices || [])}`
+          );
+          if (__DEV__) {
+            console.log("[ModelLoading] Runtime GPU status", gpuStatus);
+          }
           break;
         }
       } catch (attemptError) {
@@ -576,6 +587,57 @@ export const handleSendMessageCompletion = async (
       "</eos>",
     ];
 
+    // ── Model family detection ────────────────────────────────────────────
+    // Qwen3+ (including Qwen3.5, QwQ) have a Jinja-based thinking toggle
+    // that can be controlled via llama.rn's `enable_thinking` param.
+    // DeepSeek R1 models expose native reasoning tokens.
+    // Qwen2.5 and earlier do NOT have thinking mode.
+    const normalizedModelName = selectedModel.toLowerCase();
+    const isQwen3ThinkingModel =
+      // "qwen3" matches qwen3, qwen3.5, etc. — but NOT qwen2.5 / qwen2 / qwen1
+      /qwen3/.test(normalizedModelName) || normalizedModelName.includes("qwq");
+    const isDeepSeekR1 =
+      normalizedModelName.includes("deepseek-r1") ||
+      normalizedModelName.includes("r1d");
+    // Any model family where thinking/reasoning blocks can occur
+    const supportsThinkTags = isQwen3ThinkingModel || isDeepSeekR1;
+
+    // ── Query complexity heuristic ────────────────────────────────────────
+    // For Qwen3 thinking models we decide whether to enable thinking at the
+    // API level using llama.rn's `enable_thinking` parameter (Jinja template
+    // aware).  Thinking is expensive and almost always unnecessary for short
+    // conversational messages, so we disable it for "simple" queries and let
+    // the model think only when it is genuinely useful.
+    //
+    // Complexity signals (any one match → complex):
+    //   • ≥ 20 words
+    //   • Explicit reasoning verbs (explain, analyse, solve, prove, …)
+    //   • Math operators / LaTeX
+    //   • Inline code or code fences
+    //   • More than one question mark (multi-part query)
+    const _inputForComplexity = sendOptions?.textForPrompt || userInput;
+    const isComplexQuery = (() => {
+      const text = _inputForComplexity.trim();
+      const wordCount = text.split(/\s+/).filter(Boolean).length;
+      if (wordCount >= 20) return true;
+      if (/\b(explain|analyze|analyse|compare|solve|calculate|prove|derive|implement|debug|optimize|refactor|design|summarize|summarise|translate|evaluate|critique)\b/i.test(text)) return true;
+      if (/[+\-*/^=<>√∫∑∏≈≤≥≠]|\\[a-z]+\{/.test(text)) return true; // math / LaTeX
+      if (/```|`[^`]+`/.test(text)) return true;  // code
+      if ((text.match(/\?/g) || []).length > 1) return true; // multi-question
+      return false;
+    })();
+
+    // `enable_thinking`: for Qwen3 models, disable via the Jinja template
+    //   when the query is simple to get fast direct responses.
+    // `reasoning_format`: set to 'auto' so that when thinking IS enabled,
+    //   llama.cpp extracts the thought tokens into `reasoning_content` during
+    //   streaming (instead of leaving them inline in `data.token`).
+    //   Defaults to 'none' in llama.rn which is why reasoning_content was
+    //   always empty before.
+    const enableThinking = isQwen3ThinkingModel ? isComplexQuery : undefined;
+    const reasoningFormat: 'auto' | 'none' =
+      (isQwen3ThinkingModel && isComplexQuery) || isDeepSeekR1 ? 'auto' : 'none';
+
     // Placeholder for assistant's response
     setConversation((prev) => [
       ...prev,
@@ -589,9 +651,14 @@ export const handleSendMessageCompletion = async (
     let currentAssistantMessage = "";
     let currentThought = "";
     let inThinkBlock = false;
+    let hasReceivedThought = false;
 
+    // llama.rn 0.11.2 TokenData shape.
+    // `reasoning_content` is populated by llama.cpp when reasoning_format is
+    // 'auto' or 'deepseek' and the model is generating thinking tokens.
     interface CompletionData {
       token: string;
+      reasoning_content?: string;
     }
     interface CompletionResult {
       timings: {
@@ -599,16 +666,15 @@ export const handleSendMessageCompletion = async (
       };
     }
 
-    // Build system prompt with persona information if available
+    // Build system prompt from persona settings (no model-family hacks needed
+    // since thinking is now controlled at the API level, not via prompting).
     const systemPrompt = buildPersonaSystemPrompt(selectedPersona, settings.systemPrompt);
-    
+
     // Update conversation with system prompt
-    // If there's no system message, add one; otherwise update the first system message
     let conversationWithSystemPrompt: Message[];
     const systemMessageIndex = newConversation.findIndex(msg => msg.role === "system");
     
     if (systemMessageIndex >= 0) {
-      // Update the first system message
       conversationWithSystemPrompt = newConversation.map((msg, idx) => {
         if (idx === systemMessageIndex) {
           return { ...msg, content: systemPrompt };
@@ -616,14 +682,13 @@ export const handleSendMessageCompletion = async (
         return msg;
       });
     } else {
-      // Add system message at the beginning
       conversationWithSystemPrompt = [
         { role: "system", content: systemPrompt },
         ...newConversation,
       ];
     }
 
-    // When textForPrompt is set (e.g. OCR-injected), use it for the last user message so the model sees it
+    // When textForPrompt is set (e.g. OCR-injected), use it for the model prompt
     const textForPrompt = sendOptions?.textForPrompt;
     if (textForPrompt !== undefined && textForPrompt !== "") {
       const lastIdx = conversationWithSystemPrompt.length - 1;
@@ -636,6 +701,49 @@ export const handleSendMessageCompletion = async (
       }
     }
 
+    // ── Sliding-window context trim ────────────────────────────────────────
+    // Without trimming, the entire message array is forwarded and the context
+    // window silently overflows — llama.cpp drops tokens from the start, which
+    // removes the system prompt first.  Once the system prompt is gone the
+    // model becomes verbose and repetitive.
+    //
+    // Strategy (no token-counter needed):
+    //   • ~3.5 chars ≈ 1 token (conservative estimate, works for English/mixed)
+    //   • Budget = (n_ctx - n_predict - 128 safety) tokens for the whole prompt
+    //   • Always keep: system message + current user message (last)
+    //   • Fill remaining budget with history pairs newest-first
+    conversationWithSystemPrompt = (() => {
+      if (conversationWithSystemPrompt.length <= 2) return conversationWithSystemPrompt;
+
+      const CHARS_PER_TOKEN = 3.5;
+      const budgetTokens = Math.max(0, settings.n_ctx - settings.n_predict - 128);
+      let budgetChars = budgetTokens * CHARS_PER_TOKEN;
+
+      // Separate pinned messages from history
+      const systemMsg = conversationWithSystemPrompt[0]; // always first
+      const currentUserMsg = conversationWithSystemPrompt[conversationWithSystemPrompt.length - 1];
+      const history = conversationWithSystemPrompt.slice(1, -1); // middle messages
+
+      budgetChars -= (systemMsg.content?.length ?? 0);
+      budgetChars -= (currentUserMsg.content?.length ?? 0);
+
+      if (budgetChars <= 0 || history.length === 0) {
+        return [systemMsg, currentUserMsg];
+      }
+
+      // Walk backward through history, keeping as many recent messages as fit
+      const kept: typeof history = [];
+      for (let i = history.length - 1; i >= 0; i--) {
+        const msgChars = (history[i].content?.length ?? 0) + 20; // +20 for role overhead
+        if (budgetChars - msgChars < 0) break;
+        budgetChars -= msgChars;
+        kept.unshift(history[i]);
+      }
+
+      return [systemMsg, ...kept, currentUserMsg];
+    })();
+    // ── End sliding-window trim ────────────────────────────────────────────
+
     const result: CompletionResult = await context.completion(
       {
         messages: conversationWithSystemPrompt,
@@ -645,59 +753,145 @@ export const handleSendMessageCompletion = async (
         top_k: settings.top_k,
         repeat_penalty: settings.repeat_penalty,
         stop: stopWords,
+        // Thinking control (llama.rn 0.11.2+, Qwen3 / DeepSeek R1 aware):
+        // `enable_thinking` is passed to the Jinja chat template — false tells
+        //   Qwen3 to skip thinking entirely (template inserts empty <think></think>).
+        // `reasoning_format: 'auto'` makes llama.cpp extract reasoning tokens
+        //   into `data.reasoning_content` during streaming so they never appear
+        //   in the visible `data.token` stream.
+        ...(enableThinking !== undefined && { enable_thinking: enableThinking }),
+        reasoning_format: reasoningFormat,
       },
       (data: CompletionData) => {
-        const token = data.token;
-        currentAssistantMessage += token;
-
-        if (token.includes("<think>")) {
-          inThinkBlock = true;
-          currentThought = token.replace("<think>", "");
-        } else if (token.includes("</think>")) {
-          inThinkBlock = false;
-          const finalThought = currentThought.replace("</think>", "").trim();
-
+        // ── PATH A: Native reasoning tokens ────────────────────────────────
+        // llama.cpp delivers the FULL accumulated reasoning text in each
+        // `reasoning_content` callback (not just the delta).  We detect
+        // whether NEW content has arrived by comparing the incoming string
+        // to what we already have:
+        //   • if longer  → still thinking, replace and update state
+        //   • if equal   → thinking phase over; fall through to PATH B so
+        //                  the actual response token in `data.token` is
+        //                  processed normally
+        //   • if absent  → definitely not thinking, go to PATH B
+        if (data.reasoning_content && data.reasoning_content !== currentThought) {
+          hasReceivedThought = true;
+          // Replace (not append) because reasoning_content is the full text
+          currentThought = data.reasoning_content;
           setConversation((prev) => {
             const lastIndex = prev.length - 1;
+            if (lastIndex < 0) return prev;
             const updated = [...prev];
             updated[lastIndex] = {
               ...updated[lastIndex],
-              content: updated[lastIndex].content.replace(
-                `<think>${finalThought}</think>`,
-                ""
-              ),
-              thought: finalThought,
+              thought: currentThought,
+              // Keep content empty so the ThinkingIndicator stays visible
+              content: "",
             };
             return updated;
           });
-
-          currentThought = "";
-        } else if (inThinkBlock) {
-          currentThought += token;
+          if (scrollViewRef.current) {
+            requestAnimationFrame(() => {
+              scrollViewRef.current.scrollToEnd({ animated: false });
+            });
+          }
+          return;
         }
 
-        // Remove thinking blocks but preserve content
-        // Use a more robust regex that handles incomplete blocks
-        let visibleContent = currentAssistantMessage
-          .replace(/<think>.*?<\/redacted_reasoning>/gs, "")
-          .replace(/<think>.*$/gs, "") // Handle incomplete reasoning blocks
-          .replace(/<end_of_turn>/g, "") // Remove end of turn tokens
-          .replace(/<\/?eos>/g, ""); // Remove eos tokens (both <eos> and </eos>)
-        
-        // Only trim if content exists to prevent losing whitespace-only content during generation
-        if (visibleContent.length > 0) {
-          visibleContent = visibleContent.trim();
+        // ── PATH B: Regular token ──────────────────────────────────────────
+        const token = data.token;
+        if (!token) {
+          return;
         }
+
+        currentAssistantMessage += token;
+
+        // ── PATH B1: XML <think> tag parsing (fallback) ────────────────────
+        // For models that emit literal <think>…</think> in the token stream
+        // (i.e. llama.cpp did NOT extract them natively), parse them here.
+        // While inside a think block, update the thought progressively and
+        // keep the visible content empty.
+        if (supportsThinkTags) {
+          if (token.includes("<think>")) {
+            inThinkBlock = true;
+            hasReceivedThought = true;
+            currentThought += token.replace("<think>", "");
+            setConversation((prev) => {
+              const lastIndex = prev.length - 1;
+              if (lastIndex < 0) return prev;
+              const updated = [...prev];
+              updated[lastIndex] = {
+                ...updated[lastIndex],
+                thought: currentThought,
+                content: "",
+              };
+              return updated;
+            });
+            if (scrollViewRef.current) {
+              requestAnimationFrame(() => {
+                scrollViewRef.current.scrollToEnd({ animated: false });
+              });
+            }
+            return;
+          }
+
+          if (inThinkBlock) {
+            if (token.includes("</think>")) {
+              inThinkBlock = false;
+              currentThought += token.replace("</think>", "");
+              currentThought = currentThought.trim();
+              // Thought is finalised — state will be updated below with the
+              // cleaned visible content, preserving the thought field.
+            } else {
+              // Still inside think block — accumulate thought, hide content.
+              currentThought += token;
+              setConversation((prev) => {
+                const lastIndex = prev.length - 1;
+                if (lastIndex < 0) return prev;
+                const updated = [...prev];
+                updated[lastIndex] = {
+                  ...updated[lastIndex],
+                  thought: currentThought,
+                  content: "",
+                };
+                return updated;
+              });
+              if (scrollViewRef.current) {
+                requestAnimationFrame(() => {
+                  scrollViewRef.current.scrollToEnd({ animated: false });
+                });
+              }
+              return;
+            }
+          }
+        }
+
+        // ── PATH B2: Compute visible content ──────────────────────────────
+        // Strip any <think> blocks (complete or still-open) from the
+        // accumulated message so they never appear in the bubble.
+        let visibleContent = currentAssistantMessage;
+        if (supportsThinkTags) {
+          visibleContent = visibleContent
+            .replace(/<think>.*?<\/redacted_reasoning>/gs, "")
+            .replace(/<think>.*?<\/think>/gs, "")
+            .replace(/<think>[\s\S]*$/, "");
+        }
+        visibleContent = visibleContent
+          .replace(/<end_of_turn>/g, "")
+          .replace(/<\/?eos>/g, "")
+          .trim();
 
         setConversation((prev) => {
           const lastIndex = prev.length - 1;
-          if (lastIndex < 0) return prev; // Safety check
-          
+          if (lastIndex < 0) return prev;
           const updated = [...prev];
-          // Ensure we always preserve content, even if it's just whitespace during generation
           updated[lastIndex] = {
             ...updated[lastIndex],
-            content: visibleContent || updated[lastIndex].content || "",
+            // Always set content directly — never fall back to stale content,
+            // as that caused "disappearing text" during streamed think blocks.
+            content: visibleContent,
+            // Preserve the thought that was accumulated; don't overwrite with
+            // undefined once PATH A or B1 has already set it.
+            thought: currentThought || updated[lastIndex].thought,
           };
           return updated;
         });
@@ -713,13 +907,38 @@ export const handleSendMessageCompletion = async (
     // Calculate metrics after completion
     const endTime = Date.now();
     const inferenceTime = endTime - startTime; // in milliseconds
-    // Remove thinking blocks and end tokens from final content
-    const finalVisibleContent = currentAssistantMessage
-      .replace(/<think>.*?<\/redacted_reasoning>/gs, "")
-      .replace(/<think>.*$/gs, "") // Handle incomplete reasoning blocks
-      .replace(/<end_of_turn>/g, "") // Remove end of turn tokens
-      .replace(/<\/?eos>/g, "") // Remove eos tokens (both <eos> and </eos>)
+
+    // Compute the final visible content by stripping any think blocks.
+    // Also flush the final thought to state in case the stream ended inside
+    // a think block (e.g. generation was stopped mid-thought).
+    let finalVisibleContent = currentAssistantMessage;
+    if (supportsThinkTags) {
+      finalVisibleContent = finalVisibleContent
+        .replace(/<think>.*?<\/redacted_reasoning>/gs, "")
+        .replace(/<think>.*?<\/think>/gs, "")
+        .replace(/<think>[\s\S]*$/, "");
+    }
+    finalVisibleContent = finalVisibleContent
+      .replace(/<end_of_turn>/g, "")
+      .replace(/<\/?eos>/g, "")
       .trim();
+
+    // Ensure the final thought and visible content are committed to state.
+    // This is a no-op when streaming completed normally but matters when the
+    // user stopped generation mid-thought or mid-response.
+    if (hasReceivedThought || currentThought) {
+      setConversation((prev) => {
+        const lastIndex = prev.length - 1;
+        if (lastIndex < 0) return prev;
+        const updated = [...prev];
+        updated[lastIndex] = {
+          ...updated[lastIndex],
+          thought: currentThought.trim() || updated[lastIndex].thought,
+          content: finalVisibleContent || updated[lastIndex].content || "",
+        };
+        return updated;
+      });
+    }
     const tokenCount = finalVisibleContent
       .split(" ")
       .filter((t) => t.length > 0).length;

@@ -24,7 +24,7 @@
     "@react-native-ml-kit/text-recognition": "^2.0.0",
     "@types/uuid": "^10.0.0",
     "axios": "^1.8.4",
-    "llama.rn": "^0.11.0",
+    "llama.rn": "0.11.2",
     "react": "19.0.0",
     "react-native": "0.78.1",
     "react-native-chart-kit": "^6.12.0",

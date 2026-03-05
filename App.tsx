@@ -38,13 +38,10 @@ import StagesScreen from "./src/screens/StagesScreen";
 import PersonasLibraryScreen from "./src/screens/PersonasLibraryScreen";
 import PersonaEditorScreen from "./src/screens/PersonaEditorScreen";
 import ModelSettingsScreen from "./src/screens/ModelSettingsScreen";
-import CodeLibLibraryScreen from "./src/screens/CodeLibLibraryScreen";
-import CodeLibEditorScreen from "./src/screens/CodeLibEditorScreen";
 import InfoScreen from "./src/screens/InfoScreen";
 import DiagnosticsScreen from "./src/screens/DiagnosticsScreen";
 import { Persona, getPersonas } from "./src/services/personaService";
 import { ModelInfo } from "./src/components/ModelCard";
-import { CodeLibFunction } from "./src/services/codelibService";
 
 // Services
 import {
@@ -105,12 +102,10 @@ function AppContent(): React.JSX.Element {
   const [userInput, setUserInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedGGUF, setSelectedGGUF] = useState<string | null>(null);
-  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "codelib" | "codelibEditor" | "info" | "diagnostics";
+  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "info" | "diagnostics";
   const [currentPage, setCurrentPage] = useState<PageType>("conversation");
   const [editingPersona, setEditingPersona] = useState<Persona | null | undefined>(undefined);
   const [selectedModelForSettings, setSelectedModelForSettings] = useState<ModelInfo | null>(null);
-  const [editingCodeLibFunction, setEditingCodeLibFunction] = useState<CodeLibFunction | null | undefined>(undefined);
-  const [testingCodeLibFunction, setTestingCodeLibFunction] = useState<CodeLibFunction | null>(null);
   const [tokensPerSecond, setTokensPerSecond] = useState<number[]>([]);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
@@ -707,46 +702,6 @@ function AppContent(): React.JSX.Element {
             onBack={() => {
               setSelectedModelForSettings(null);
               setCurrentPage("modelSelection");
-            }}
-          />
-        </Animated.View>
-      )}
-
-      {currentPage === "codelib" && (
-        <Animated.View 
-          style={[{ flex: 1 }, pageTransitionStyle]}
-          collapsable={false}
-        >
-          <CodeLibLibraryScreen
-            onBack={() => setCurrentPage("settings")}
-            onEditFunction={(func) => {
-              setEditingCodeLibFunction(func);
-              setCurrentPage("codelibEditor");
-            }}
-            onTestFunction={(func) => {
-              setTestingCodeLibFunction(func);
-              // Could open a test modal or navigate to test screen
-            }}
-          />
-        </Animated.View>
-      )}
-
-      {currentPage === "codelibEditor" && editingCodeLibFunction !== undefined && (
-        <Animated.View 
-          style={[{ flex: 1 }, pageTransitionStyle]}
-          collapsable={false}
-        >
-          <CodeLibEditorScreen
-            function={editingCodeLibFunction}
-            onSave={async (savedFunction) => {
-              const { saveCodeLibFunction } = await import("./src/services/codelibService");
-              await saveCodeLibFunction(savedFunction);
-              setEditingCodeLibFunction(undefined);
-              setCurrentPage("codelib");
-            }}
-            onCancel={() => {
-              setEditingCodeLibFunction(undefined);
-              setCurrentPage("codelib");
             }}
           />
         </Animated.View>

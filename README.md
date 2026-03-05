@@ -261,7 +261,7 @@ No environment variables are required. The app uses:
 
 ## Development Commands
 
-### Available Scripts
+### Available Scripts 
  
 - `npm start`: Start Metro bundler
 - `npm run android`: Build and run on Android device/emulator
@@ -473,6 +473,20 @@ Comprehensive error handling is implemented throughout:
 - Storage location: `RNFS.DocumentDirectoryPath` (app-specific directory)
 - Models are accessible after app restart
 - Background download limitations may apply
+
+**Acceleration (OpenCL / Hexagon NPU)**
+
+The app supports GPU/NPU acceleration via llama.rn 0.11.0, controlled per-model in Model Settings (GPU Layers):
+
+- **OpenCL (GPU)**: Qualcomm Adreno 700+ devices. Requires Q4_0 or Q6_K quantized models. The app manifest includes `libOpenCL.so` (required=false).
+- **Hexagon (NPU)**: Qualcomm SM8450+ (Snapdragon 8 Gen 1 or newer) with HTP. The app manifest includes `libcdsprpc.so` (required=false).
+
+Set GPU Layers (n_gpu_layers) > 0 in Model Settings for each model. The app performs a runtime device check via `getBackendDevicesInfo()` and automatically:
+- Prefers Hexagon NPU (`devices: ['HTP0']`) when HTP is available
+- Allows up to 99 GPU layers on capable devices (previously capped at 8)
+- Logs `gpu`, `reasonNoGPU`, and `devices` after model load for verification
+
+In DEV mode, use Diagnostics (long-press Settings title) → "Check acceleration" to see backend devices.
 
 #### iOS
 

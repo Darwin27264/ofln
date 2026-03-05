@@ -2550,27 +2550,22 @@ export default function ConversationScreen({
                 // Add width constraints for direct mode to prevent overflow
                 containerStyle.push(styles.messageDirect);
               }
+              // Only render the bubble shell when there is something to show
+              // inside it (attachments, content, or a loading indicator).
+              // The thinking toggle lives outside the bubble so it never
+              // causes the bubble to render as a lone dark pill.
+              const hasBubbleContent =
+                (msg.role === "user" && msg.attachments && msg.attachments.length > 0) ||
+                (msg.content && msg.content.trim().length > 0) ||
+                (msg.role === "assistant" &&
+                  (!msg.content || msg.content.trim().length === 0) &&
+                  isGenerating &&
+                  index === conversation.slice(1).length - 1);
+
               return (
                 <View key={index} style={styles.messageWrapper}>
+                  {hasBubbleContent && (
                   <View style={[containerStyle, isAssistantDirect ? { maxWidth: "100%" } : {}]}>
-                    {msg.thought && (
-                      <TouchableOpacity
-                        onPress={() => toggleThought(index + 1)}
-                        style={styles.toggleButton}
-                      >
-                        <Text style={styles.toggleText}>
-                          {msg.showThought ? "▼ Hide Thought" : "▶ Show Thought"}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                    {msg.showThought && msg.thought && (
-                      <View style={styles.thoughtContainer}>
-                        <Text style={styles.thoughtTitle}>
-                          Model's Reasoning:
-                        </Text>
-                        <Text style={styles.thoughtText}>{msg.thought}</Text>
-                      </View>
-                    )}
                     {msg.role === "user" && msg.attachments && msg.attachments.length > 0 && (
                       <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 8, gap: 6 }}>
                         {msg.attachments.map((att, i) =>
@@ -2592,7 +2587,9 @@ export default function ConversationScreen({
                         flexShrink: 1, 
                         width: "100%", 
                         maxWidth: "100%",
-                        overflow: "hidden",
+                        // overflow:hidden removed — causes height collapse on
+                        // Android when Markdown renders long content inside a
+                        // constrained flex container.
                       }}>
                         <Markdown
                           style={{ 
@@ -2603,18 +2600,13 @@ export default function ConversationScreen({
                               lineHeight: 24,
                               margin: 0,
                               padding: 0,
-                              flexWrap: "wrap",
-                              overflow: "hidden",
                             },
                             paragraph: {
-                              flexWrap: "wrap",
                               marginTop: 0,
                               marginBottom: 0,
                               padding: 0,
-                              overflow: "hidden",
                             },
                             text: {
-                              flexWrap: "wrap",
                               lineHeight: 24,
                               margin: 0,
                               padding: 0,
@@ -2634,6 +2626,25 @@ export default function ConversationScreen({
                       </View>
                     ) : null}
                   </View>
+                  )}
+                  {/* Thinking toggle sits OUTSIDE the bubble so it never
+                      renders as a lone dark pill when there is no content. */}
+                  {msg.thought && msg.role === "assistant" && (
+                    <TouchableOpacity
+                      onPress={() => toggleThought(index + 1)}
+                      style={styles.toggleButton}
+                    >
+                      <Text style={styles.toggleText}>
+                        {msg.showThought ? "▼ Hide Thinking" : "▶ Show Thinking"}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  {msg.showThought && msg.thought && (
+                    <View style={styles.thoughtContainer}>
+                      <Text style={styles.thoughtTitle}>Thinking Process:</Text>
+                      <Text style={styles.thoughtText}>{msg.thought}</Text>
+                    </View>
+                  )}
                   {msg.role === "assistant" && msg.content.trim().length > 0 && (
                     <View style={{
                       flexDirection: "row",

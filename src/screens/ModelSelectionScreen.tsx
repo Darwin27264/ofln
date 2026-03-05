@@ -89,65 +89,90 @@ const REPUTABLE_AUTHORS = [
 // Popular models optimized for mobile (pre-selected quantization)
 const POPULAR_MODELS: ModelInfo[] = [
   {
-    id: "qwen25-05b",
-    name: "Qwen2.5 0.5B Instruct",
-    repoId: "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
-    fileName: "qwen2.5-0.5b-instruct-q4_k_m.gguf",
-    size: "~0.5GB",
+    id: "qwen35-4b-q40",
+    name: "Qwen3.5 4B Instruct (Q4_0)",
+    repoId: "unsloth/Qwen3.5-4B-GGUF",
+    fileName: "Qwen3.5-4B-Q4_0.gguf",
+    size: "2.41 GB",
     description:
-      "Fastest usable assistant for mobile. Great for quick replies, summaries, rewrites.",
-    tags: ["instruct", "tiny", "fast"],
+      "Top pick for capable phones. Hybrid thinking mode, strong reasoning and coding, multimodal-ready. Needs ~3.5 GB RAM.",
+    author: "unsloth",
+    tags: ["instruct", "thinking", "code", "q4_0"],
+  },
+  {
+    id: "qwen35-2b-q40",
+    name: "Qwen3.5 2B Instruct (Q4_0)",
+    repoId: "unsloth/Qwen3.5-2B-GGUF",
+    fileName: "Qwen3.5-2B-Q4_0.gguf",
+    size: "1.13 GB",
+    description:
+      "Best all-round mobile pick. Thinking-capable, fast, and compact — outperforms older 3B models at a fraction of the size.",
+    author: "unsloth",
+    tags: ["instruct", "thinking", "small", "q4_0"],
   },
   {
     id: "qwen25-15b",
     name: "Qwen2.5 1.5B Instruct",
     repoId: "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
     fileName: "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-    size: "1.12GB",
+    size: "1.12 GB",
     description:
-      "Best general-purpose small model for mobile. Strong instruction-following and structured output.",
-    tags: ["instruct", "small", "general", "json"],
+      "Solid everyday assistant from Alibaba. Excellent instruction-following, JSON output, and function calling in a lean 1.1 GB file.",
+    author: "Qwen",
+    tags: ["instruct", "json", "general", "q4_k_m"],
   },
   {
     id: "smollm2-17b",
     name: "SmolLM2 1.7B Instruct",
     repoId: "HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF",
     fileName: "smollm2-1.7b-instruct-q4_k_m.gguf",
-    size: "~1.06GB",
-    description: "Reliable mobile daily driver with good capability per GB.",
-    tags: ["instruct", "small", "compact"],
-  },
-  {
-    id: "llama32-1b-q40",
-    name: "Llama 3.2 1B Instruct (Q4_0)",
-    repoId: "bartowski/Llama-3.2-1B-Instruct-GGUF",
-    fileName: "Llama-3.2-1B-Instruct-Q4_0.gguf",
-    size: "773MB",
+    size: "0.98 GB",
     description:
-      "Very fast Llama-family model. bartowski quant (llama.cpp native). Q4_0 is the safest choice if you ever use Android OpenCL/Adreno.",
-    tags: ["instruct", "small", "fast", "q4_0"],
+      "HuggingFace's compact daily driver. Under 1 GB, low RAM usage, ideal for budget or older devices.",
+    author: "HuggingFaceTB",
+    tags: ["instruct", "compact", "low-ram", "q4_k_m"],
   },
   {
     id: "phi35-mini",
     name: "Phi-3.5 Mini Instruct",
     repoId: "bartowski/Phi-3.5-mini-instruct-GGUF",
     fileName: "Phi-3.5-mini-instruct-Q4_K_M.gguf",
-    size: "~2.3GB",
+    size: "2.39 GB",
     description:
-      "Most capable option here for reasoning/problem-solving. Heavier but worth it on modern phones.",
-    tags: ["instruct", "reasoning"],
+      "Microsoft's 3.8B reasoning specialist. Best logic, math, and long-context comprehension in this list — needs ~3 GB RAM.",
+    author: "bartowski",
+    tags: ["instruct", "reasoning", "math", "q4_k_m"],
   },
   {
     id: "deepseek-r1d-15b-q40",
     name: "DeepSeek R1 Distill Qwen 1.5B (Q4_0)",
     repoId: "bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
     fileName: "DeepSeek-R1-Distill-Qwen-1.5B-Q4_0.gguf",
-    size: "1.07GB",
+    size: "1.07 GB",
     description:
-      "Reasoning-style small model. Better at step-by-step tasks than most tiny general models.",
-    tags: ["reasoning", "thinking", "small", "q4_0"],
+      "Dedicated chain-of-thought reasoner in just 1.1 GB. Distilled from DeepSeek R1 for step-by-step math, logic, and analysis.",
+    author: "bartowski",
+    tags: ["reasoning", "thinking", "math", "q4_0"],
   },
 ];
+
+/**
+ * Parse a HuggingFace URL into a repo ID and optional file name.
+ * Supports formats:
+ *   https://huggingface.co/author/model
+ *   https://huggingface.co/author/model/tree/main
+ *   https://huggingface.co/author/model/blob/main/file.gguf
+ *   https://huggingface.co/author/model/resolve/main/file.gguf
+ */
+function parseHuggingFaceUrl(url: string): { repoId: string; fileName?: string } | null {
+  url = url.trim();
+  const hfRegex = /^https?:\/\/huggingface\.co\/([^\/\s]+\/[^\/\s]+?)(?:\/(?:tree|blob|resolve)\/[^\/\s]+(?:\/(.+?))?)?(?:\?.*)?$/;
+  const match = url.match(hfRegex);
+  if (!match) return null;
+  const repoId = match[1];
+  const fileName = match[2]?.toLowerCase().endsWith('.gguf') ? match[2] : undefined;
+  return { repoId, fileName };
+}
 
 export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const { theme } = useTheme();
@@ -188,6 +213,12 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const [selectedAuthor, setSelectedAuthor] = useState<string | null>(null);
   const [customAuthor, setCustomAuthor] = useState<string>("");
   const [showAuthorInput, setShowAuthorInput] = useState<boolean>(false);
+
+  // Custom URL modal state
+  const [showCustomUrlModal, setShowCustomUrlModal] = useState(false);
+  const [isCustomUrlModalExiting, setIsCustomUrlModalExiting] = useState(false);
+  const [customUrlInput, setCustomUrlInput] = useState("");
+  const [isFetchingCustomUrl, setIsFetchingCustomUrl] = useState(false);
   
   // Use filtering hook for optimized model filtering
   const { filteredModels: filteredHfModels } = useModelFilter({
@@ -225,6 +256,9 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   // Quantization modal pop-in animation (matches CustomAlert pattern)
   const quantModalOpacity = useRef(new Animated.Value(0)).current;
   const quantModalScale = useRef(new Animated.Value(0.92)).current;
+
+  const customUrlModalOpacity = useRef(new Animated.Value(0)).current;
+  const customUrlModalScale = useRef(new Animated.Value(0.92)).current;
 
   useEffect(() => {
     if (showQuantSelector && !isQuantModalExiting) {
@@ -272,6 +306,53 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       }
     }
   }, [showQuantSelector, isQuantModalExiting]);
+
+  useEffect(() => {
+    if (showCustomUrlModal && !isCustomUrlModalExiting) {
+      customUrlModalOpacity.setValue(0);
+      customUrlModalScale.setValue(0.92);
+      Animated.parallel([
+        Animated.timing(customUrlModalOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.spring(customUrlModalScale, {
+          toValue: 1,
+          tension: 100,
+          friction: 14,
+          overshootClamping: true,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else if (isCustomUrlModalExiting) {
+      Animated.parallel([
+        Animated.timing(customUrlModalOpacity, {
+          toValue: 0,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.timing(customUrlModalScale, {
+          toValue: 0.92,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setShowCustomUrlModal(false);
+        setIsCustomUrlModalExiting(false);
+      });
+    }
+  }, [showCustomUrlModal, isCustomUrlModalExiting, customUrlModalOpacity, customUrlModalScale]);
+
+  const closeCustomUrlModal = useCallback((animate = true) => {
+    if (showCustomUrlModal && !isCustomUrlModalExiting) {
+      if (animate) {
+        setIsCustomUrlModalExiting(true);
+      } else {
+        setShowCustomUrlModal(false);
+      }
+    }
+  }, [showCustomUrlModal, isCustomUrlModalExiting]);
 
   // Dropdown state for model cards
   const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
@@ -1181,6 +1262,121 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     }
   }, [downloadedModels, loadModel, context, setContext, setSelectedGGUF, setCurrentPage, handleDownloadModel, checkDownloadedModels]);
 
+  const handleCustomUrlSubmit = useCallback(async () => {
+    const parsed = parseHuggingFaceUrl(customUrlInput);
+
+    if (!parsed) {
+      showAlert(
+        "Invalid URL",
+        "Please enter a valid HuggingFace model URL.\n\nExamples:\nhttps://huggingface.co/author/model\nhttps://huggingface.co/author/model/blob/main/file.gguf",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
+    setIsFetchingCustomUrl(true);
+
+    try {
+      const response = await axios.get(
+        `https://huggingface.co/api/models/${parsed.repoId}`,
+        { timeout: 15000, validateStatus: (status: number) => status < 500 }
+      );
+
+      if (response.status === 401 || response.status === 403) {
+        showAlert("Access Denied", "This model requires authentication and cannot be downloaded.", [{ text: "OK" }]);
+        return;
+      }
+
+      if (response.status === 404) {
+        showAlert("Not Found", "Model not found. Please check the URL and try again.", [{ text: "OK" }]);
+        return;
+      }
+
+      if (!response.data) {
+        showAlert("Error", "Could not fetch model information.", [{ text: "OK" }]);
+        return;
+      }
+
+      const siblings = response.data.siblings || [];
+      const ggufFiles = siblings.filter((f: any) =>
+        f?.rfilename?.toLowerCase().endsWith('.gguf')
+      );
+
+      if (ggufFiles.length === 0) {
+        showAlert("No GGUF Files", "This repository does not contain any GGUF model files.", [{ text: "OK" }]);
+        return;
+      }
+
+      const repoName = parsed.repoId.split("/").pop() || parsed.repoId;
+      const author = parsed.repoId.split("/")[0] || "";
+
+      const availableQuants: QuantizationOption[] = ggufFiles
+        .filter((f: any) => f && f.rfilename)
+        .map((f: any) => {
+          const filename = f.rfilename || "";
+          const quantMatch = filename.match(/(q[0-9]_[km]|q[0-9]_[0-9]|q[0-9]k_[ms]|q[0-9]k_m|q[0-9]k_s)/i);
+          const quantization = quantMatch ? quantMatch[0].toUpperCase() : "UNKNOWN";
+          return { fileName: f.rfilename, size: f.size || 0, quantization };
+        })
+        .sort((a: QuantizationOption, b: QuantizationOption) => {
+          const quantOrder: { [key: string]: number } = {
+            "Q2_K": 1, "Q3_K_M": 2, "Q3_K_S": 2, "Q4_0": 3, "Q4_K_S": 4,
+            "Q4_K_M": 5, "Q5_0": 6, "Q5_K_S": 6, "Q5_K_M": 7, "Q8_0": 8
+          };
+          return (quantOrder[b.quantization] || 0) - (quantOrder[a.quantization] || 0);
+        });
+
+      let targetFileName: string;
+      let showQuants: QuantizationOption[] | undefined;
+
+      if (parsed.fileName) {
+        const matchedFile = ggufFiles.find((f: any) => f.rfilename === parsed.fileName);
+        if (matchedFile) {
+          targetFileName = matchedFile.rfilename;
+          showQuants = undefined;
+        } else {
+          const preferredFile = ggufFiles.find((f: any) => f.rfilename?.toLowerCase().includes("q4_k_m"))
+            || ggufFiles.find((f: any) => f.rfilename?.toLowerCase().includes("q4_k_s"))
+            || ggufFiles[0];
+          targetFileName = preferredFile.rfilename;
+          showQuants = availableQuants.length > 1 ? availableQuants : undefined;
+        }
+      } else {
+        const preferredFile = ggufFiles.find((f: any) => f.rfilename?.toLowerCase().includes("q4_k_m"))
+          || ggufFiles.find((f: any) => f.rfilename?.toLowerCase().includes("q4_k_s"))
+          || ggufFiles.find((f: any) => f.rfilename?.toLowerCase().includes("q5_k_m"))
+          || ggufFiles[0];
+        targetFileName = preferredFile.rfilename;
+        showQuants = availableQuants.length > 1 ? availableQuants : undefined;
+      }
+
+      const targetFile = ggufFiles.find((f: any) => f.rfilename === targetFileName);
+      const fileSize = targetFile?.size || 0;
+      const sizeGB = fileSize > 0 ? (fileSize / 1024 / 1024 / 1024).toFixed(2) : undefined;
+
+      const modelInfo: ModelInfo = {
+        id: parsed.repoId,
+        name: prettifyModelName(repoName),
+        repoId: parsed.repoId,
+        fileName: targetFileName,
+        size: sizeGB ? `${sizeGB}GB` : undefined,
+        author: author,
+        availableQuants: showQuants,
+      };
+
+      closeCustomUrlModal(false);
+      setCustomUrlInput("");
+      handleModelDownload(modelInfo);
+    } catch (error: any) {
+      const errorMsg = error?.response?.status
+        ? `HTTP ${error.response.status}`
+        : error?.message || "Unknown error";
+      showAlert("Error", `Failed to fetch model information: ${errorMsg}`, [{ text: "OK" }]);
+    } finally {
+      setIsFetchingCustomUrl(false);
+    }
+  }, [customUrlInput, closeCustomUrlModal, handleModelDownload]);
+
   /**
    * Render a model card with proper props
    * Uses the extracted ModelCard component for better performance
@@ -1503,6 +1699,40 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
               }}
             >
               Local
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Custom HuggingFace URL */}
+        <View style={{ marginBottom: 12 }}>
+          <TouchableOpacity
+            onPress={() => setShowCustomUrlModal(true)}
+            style={{
+              backgroundColor: theme.colors.primary,
+              borderRadius: 16,
+              paddingVertical: 16,
+              paddingHorizontal: 20,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.2,
+              shadowRadius: 8,
+              elevation: 4,
+            }}
+          >
+            <Icon name="link" size={24} color={theme.colors.primaryText} />
+            <Text
+              style={{
+                color: theme.colors.primaryText,
+                fontSize: 16,
+                fontWeight: "600",
+                fontFamily: "Poppins",
+                marginLeft: 8,
+              }}
+            >
+              Import from URL
             </Text>
           </TouchableOpacity>
         </View>
@@ -2119,6 +2349,160 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         </TouchableWithoutFeedback>
       </Modal>
 
+      {/* Custom URL Modal */}
+      <Modal
+        visible={showCustomUrlModal || isCustomUrlModalExiting}
+        transparent={true}
+        animationType="none"
+        onRequestClose={closeCustomUrlModal}
+      >
+        <TouchableWithoutFeedback onPress={closeCustomUrlModal}>
+          <Animated.View
+            style={{
+              flex: 1,
+              backgroundColor: "rgba(0, 0, 0, 0.5)",
+              opacity: customUrlModalOpacity,
+              justifyContent: "center",
+              alignItems: "center",
+              padding: 20,
+            }}
+          >
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <Animated.View
+                style={{
+                  backgroundColor: theme.colors.card,
+                  borderRadius: 20,
+                  padding: 24,
+                  width: "100%",
+                  maxWidth: 500,
+                  opacity: customUrlModalOpacity,
+                  transform: [{ scale: customUrlModalScale }],
+                }}
+              >
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <Text
+                    style={{
+                      fontSize: 20,
+                      fontWeight: "600",
+                      color: theme.colors.text,
+                      fontFamily: "Poppins",
+                    }}
+                  >
+                    Import from URL
+                  </Text>
+                  <TouchableOpacity
+                    onPress={closeCustomUrlModal}
+                    style={{ padding: 4 }}
+                  >
+                    <Icon name="close" size={24} color={theme.colors.text} />
+                  </TouchableOpacity>
+                </View>
+
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: theme.colors.textSecondary,
+                    fontFamily: "Poppins",
+                    marginBottom: 16,
+                    lineHeight: 20,
+                  }}
+                >
+                  Paste a HuggingFace model URL to browse and download GGUF files.
+                </Text>
+
+                <TextInput
+                  style={{
+                    backgroundColor: theme.colors.surface,
+                    borderRadius: 12,
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    borderWidth: 1,
+                    borderColor: theme.colors.border,
+                    color: theme.colors.text,
+                    fontFamily: "Poppins",
+                    fontSize: 14,
+                    marginBottom: 12,
+                  }}
+                  placeholder="https://huggingface.co/author/model-name"
+                  placeholderTextColor={theme.colors.textTertiary}
+                  value={customUrlInput}
+                  onChangeText={setCustomUrlInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  onSubmitEditing={handleCustomUrlSubmit}
+                  editable={!isFetchingCustomUrl}
+                />
+
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: theme.colors.textTertiary,
+                    fontFamily: "Poppins",
+                    marginBottom: 16,
+                    lineHeight: 16,
+                  }}
+                >
+                  Supports repo URLs and direct file links:{"\n"}
+                  huggingface.co/author/model{"\n"}
+                  huggingface.co/author/model/blob/main/file.gguf
+                </Text>
+
+                <TouchableOpacity
+                  onPress={handleCustomUrlSubmit}
+                  disabled={!customUrlInput.trim() || isFetchingCustomUrl}
+                  style={{
+                    backgroundColor: customUrlInput.trim() && !isFetchingCustomUrl
+                      ? theme.colors.primary
+                      : theme.colors.surface,
+                    borderRadius: 12,
+                    paddingVertical: 14,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: !customUrlInput.trim() || isFetchingCustomUrl ? 0.5 : 1,
+                  }}
+                >
+                  {isFetchingCustomUrl ? (
+                    <>
+                      <ActivityIndicator size="small" color={theme.colors.primaryText} style={{ marginRight: 8 }} />
+                      <Text
+                        style={{
+                          color: theme.colors.primaryText,
+                          fontSize: 16,
+                          fontWeight: "600",
+                          fontFamily: "Poppins",
+                        }}
+                      >
+                        Fetching...
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Icon
+                        name="search"
+                        size={20}
+                        color={customUrlInput.trim() ? theme.colors.primaryText : theme.colors.text}
+                      />
+                      <Text
+                        style={{
+                          color: customUrlInput.trim() ? theme.colors.primaryText : theme.colors.text,
+                          fontSize: 16,
+                          fontWeight: "600",
+                          fontFamily: "Poppins",
+                          marginLeft: 8,
+                        }}
+                      >
+                        Fetch Model
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </Animated.View>
+            </TouchableWithoutFeedback>
+          </Animated.View>
+        </TouchableWithoutFeedback>
+      </Modal>
 
     </View>
   );

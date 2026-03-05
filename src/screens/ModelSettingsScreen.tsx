@@ -15,6 +15,7 @@ import {
   Modal,
   Pressable,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
@@ -40,7 +41,7 @@ const metricExplanations: { [key: string]: { title: string; explanation: string 
   },
   gpuLayers: {
     title: "GPU Layers (n_gpu_layers)",
-    explanation: "What it is:\nControls how many layers of the neural network run on the GPU instead of CPU.\n\nEffects of tuning:\n• Higher values (4-8): Faster generation speed, but requires more GPU memory\n• Lower values (0-2): Uses less GPU memory, but generation is slower\n• 0: All processing on CPU (slowest but most compatible)\n• Recommended: Start with 1-2 and increase if you have GPU memory available"
+    explanation: "What it is:\nControls how many layers of the neural network run on the GPU/NPU instead of CPU.\n\nEffects of tuning:\n• Higher values (16-99): Faster generation on OpenCL (Adreno 700+) or Hexagon NPU (8 Gen 1+)\n• Lower values (0-8): Uses less GPU memory, but generation is slower\n• 0: All processing on CPU (slowest but most compatible)\n• Recommended: Use 99 on capable Android devices with acceleration enabled in Settings"
   },
   temperature: {
     title: "Temperature",
@@ -70,6 +71,7 @@ export default function ModelSettingsScreen({
 }: ModelSettingsScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const insets = useSafeAreaInsets();
 
   const [modelSettings, setModelSettings] = useState<ModelSettings | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -168,7 +170,9 @@ export default function ModelSettingsScreen({
           flex: 1,
         }}
         showsVerticalScrollIndicator={true}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{
+          paddingBottom: 48 + insets.bottom,
+        }}
       >
         {/* System Prompt */}
         <View style={{ marginBottom: 24 }}>
@@ -297,34 +301,70 @@ export default function ModelSettingsScreen({
               {modelSettings.n_gpu_layers}
             </Text>
           </View>
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            {[0, 1, 2, 4, 8].map((value) => (
-              <TouchableOpacity
-                key={value}
-                onPress={() => setModelSettings({ ...modelSettings, n_gpu_layers: value })}
-                style={{
-                  flex: 1,
-                  backgroundColor: modelSettings.n_gpu_layers === value ? theme.colors.primary : theme.colors.surface,
-                  paddingVertical: 10,
-                  paddingHorizontal: 12,
-                  borderRadius: 8,
-                  alignItems: "center",
-                  borderWidth: 1,
-                  borderColor: modelSettings.n_gpu_layers === value ? theme.colors.primary : theme.colors.border,
-                }}
-              >
-                <Text
+          <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {[0, 1, 2, 4, 8].map((value) => (
+                <TouchableOpacity
+                  key={value}
+                  onPress={() => setModelSettings({ ...modelSettings, n_gpu_layers: value })}
                   style={{
-                    fontSize: 14,
-                    fontWeight: "600",
-                    color: modelSettings.n_gpu_layers === value ? theme.colors.primaryText : theme.colors.text,
-                    fontFamily: "Poppins",
+                    flex: 1,
+                    backgroundColor: modelSettings.n_gpu_layers === value ? theme.colors.primary : theme.colors.surface,
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
+                    borderRadius: 8,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderWidth: 1,
+                    borderColor: modelSettings.n_gpu_layers === value ? theme.colors.primary : theme.colors.border,
                   }}
                 >
-                  {value}
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: "600",
+                      color: modelSettings.n_gpu_layers === value ? theme.colors.primaryText : theme.colors.text,
+                      fontFamily: "Poppins",
+                    }}
+                    numberOfLines={1}
+                  >
+                    {value}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {[16, 32, 99].map((value) => (
+                <TouchableOpacity
+                  key={value}
+                  onPress={() => setModelSettings({ ...modelSettings, n_gpu_layers: value })}
+                  style={{
+                    flex: 1,
+                    minWidth: 60,
+                    backgroundColor: modelSettings.n_gpu_layers === value ? theme.colors.primary : theme.colors.surface,
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
+                    borderRadius: 8,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderWidth: 1,
+                    borderColor: modelSettings.n_gpu_layers === value ? theme.colors.primary : theme.colors.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: "600",
+                      color: modelSettings.n_gpu_layers === value ? theme.colors.primaryText : theme.colors.text,
+                      fontFamily: "Poppins",
+                    }}
+                    numberOfLines={1}
+                  >
+                    {value}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         </View>
 
@@ -626,7 +666,7 @@ export default function ModelSettingsScreen({
         </View>
 
         {/* Action Buttons */}
-        <View style={{ flexDirection: "row", gap: 8, marginTop: 8, marginBottom: 24 }}>
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 8, marginBottom: 12 }}>
           <TouchableOpacity
             onPress={handleResetSettings}
             style={{

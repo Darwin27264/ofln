@@ -14,14 +14,14 @@ export interface ModelSettings {
 }
 
 export const DEFAULT_SETTINGS: ModelSettings = {
-  systemPrompt: "This is a conversation between user and assistant, a friendly chatbot.",
-  n_ctx: 1536, // Recommended for Q4 models
+  systemPrompt: "You are a helpful assistant. Keep responses concise and focused — match the length of your reply to the complexity of the question. Avoid repeating information already given in the conversation.",
+  n_ctx: 2048, // Enough headroom for multi-turn chats without overflow
   n_gpu_layers: 1,
   temperature: 0.65, // Recommended for Q4 models
   top_p: 0.90, // Recommended for Q4 models
   top_k: 40, // Recommended for Q4 models
-  repeat_penalty: 1.15, // Recommended for Q4 models
-  n_predict: 192, // Recommended max_new_tokens for Q4 models
+  repeat_penalty: 1.20, // Stronger penalty reduces repetition in long chats
+  n_predict: 256, // Slightly more room than 192; still conservative for phone inference
 };
 
 const MODEL_SETTINGS_KEY_PREFIX = "@model_settings_";

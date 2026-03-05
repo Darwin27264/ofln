@@ -199,6 +199,18 @@ export const buildPersonaSystemPrompt = (
     }
   }
 
+  // Strength-based response guidance: controls how strongly the persona
+  // influences verbosity. Low strength stays brief, high strength can be
+  // more expressive — but all strengths avoid rambling on simple messages.
+  const strengthGuidance =
+    persona.personaStrength === "high"
+      ? "Express yourself fully in character, but always match response length to the complexity of the question — short questions deserve short answers."
+      : persona.personaStrength === "low"
+      ? "Stay in character subtly. Keep responses brief and natural."
+      : "Stay in character. Keep responses concise and natural — match your reply length to how complex the question actually is.";
+
+  personaParts.push(strengthGuidance);
+
   const personaContent = personaParts.join("\n\n");
   const defaultPrompt = "This is a conversation between user and assistant, a friendly chatbot.";
   const isDefaultPrompt = !baseSystemPrompt || baseSystemPrompt.trim() === defaultPrompt;
