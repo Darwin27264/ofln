@@ -43,7 +43,7 @@ import DiagnosticsScreen from "./src/screens/DiagnosticsScreen";
 import { Persona, getPersonas } from "./src/services/personaService";
 import { ModelInfo } from "./src/components/ModelCard";
 
-// Services
+// Services (legacy llama.rn — kept for backward compat)
 import {
   loadModel,
   stopGeneration,
@@ -52,6 +52,10 @@ import {
   type SendMessageOptions,
 } from "./src/services/llamaService";
 import { validateLocalModels, LocalModelInfo } from "./src/services/localModelService";
+
+// Vercel AI SDK integration layer
+import { llamaProvider } from "./src/providers/llamaProvider";
+import type { ModelStatus } from "./src/types/ai";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -112,6 +116,16 @@ function AppContent(): React.JSX.Element {
   const [downloadedModels, setDownloadedModels] = useState<string[]>([]);
   const [localModels, setLocalModels] = useState<LocalModelInfo[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+
+  // AI SDK provider status — tracks readiness of the Vercel AI SDK model.
+  // The provider is NOT auto-loaded alongside the legacy path to avoid
+  // double memory usage.  Screens that adopt useAIChat should call
+  // llamaProvider.loadModel() explicitly when they need the AI SDK path.
+  const [aiModelStatus, setAiModelStatus] = useState<ModelStatus>(llamaProvider.getStatus());
+
+  useEffect(() => {
+    return llamaProvider.subscribe(setAiModelStatus);
+  }, []);
 
   const [assistantDisplayMode, setAssistantDisplayModeState] = useState<"bubble" | "direct">(
     "bubble"
@@ -371,6 +385,7 @@ function AppContent(): React.JSX.Element {
   const handleBackToModelSelection = useCallback(() => {
     setContext(null);
     releaseAllLlama();
+    llamaProvider.unloadModel();
     setConversation(INITIAL_CONVERSATION);
     setSelectedGGUF(null);
     setTokensPerSecond([]);

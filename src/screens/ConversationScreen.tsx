@@ -64,6 +64,8 @@ import { useKeyboardPadding } from "../hooks/useKeyboardPadding";
 import { Persona, getPersonas } from "../services/personaService";
 import { ANIMATION_CONFIG, EASING, ANIMATION_DURATIONS } from "../utils/animationConfig";
 import { extractTextFromImage } from "../services/ocrService";
+import { useAIChat } from "../hooks/useAIChat";
+import { llamaProvider } from "../providers/llamaProvider";
 
 type MessageAttachment = {
   type: "image";
@@ -553,7 +555,9 @@ export default function ConversationScreen({
   userInput,
   setUserInput,
   isLoading,
+  setIsLoading,
   isGenerating,
+  setIsGenerating,
   tokensPerSecond,
   setTokensPerSecond,
   scrollViewRef,
@@ -699,6 +703,92 @@ export default function ConversationScreen({
   const [loadingModelFile, setLoadingModelFile] = useState<string | null>(null);
   const [selectorTab, setSelectorTab] = useState<"models" | "personas">("models");
   const [availablePersonas, setAvailablePersonas] = useState<Persona[]>([]);
+
+  // New backend: useAIChat + llamaProvider (on-device streaming).
+  // We keep the UI state props as-is and sync them to the hook so the rest
+  // of this screen can remain largely unchanged.
+  const aiChat = useAIChat({
+    initialMessages: conversation as any,
+    modelName: selectedGGUF || "unknown",
+    persona: selectedPersona,
+    chatId: currentChatId,
+    onChatIdChange: (id) => onChatIdChange(id),
+    scrollViewRef,
+    // Prefer the native completion path for best parity with the legacy flow
+    // (thinking/reasoning params, stopCompletion behavior).
+    useNativeCompletion: true,
+  });
+
+  // Ensure the AI backend model is loaded when the selected model changes.
+  // Also release the legacy llama.rn context to avoid double-loading RAM.
+  useEffect(() => {
+    if (!selectedGGUF) return;
+
+    const modelPath = `${RNFS.DocumentDirectoryPath}/${selectedGGUF}`;
+    const alreadyReady =
+      aiChat.modelStatus.state === "ready" && aiChat.modelStatus.modelPath === modelPath;
+    if (alreadyReady) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        setIsLoadingModel(true);
+        setLoadingModelFile(selectedGGUF);
+
+        // Drop legacy context (if present) to avoid double memory use.
+        if (context && typeof context.release === "function") {
+          try {
+            context.release();
+          } catch {
+            // Ignore: legacy context release can fail on some devices
+          }
+          setContext(null);
+        }
+
+        await llamaProvider.loadModel({ modelPath });
+      } finally {
+        if (!cancelled) {
+          setIsLoadingModel(false);
+          setLoadingModelFile(null);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    selectedGGUF,
+    context,
+    setContext,
+    aiChat.modelStatus.modelPath,
+    aiChat.modelStatus.state,
+    setIsLoadingModel,
+    setLoadingModelFile,
+  ]);
+
+  // Sync hook state back into the legacy props so existing UI logic keeps working.
+  useEffect(() => {
+    setConversation(aiChat.messages as any);
+  }, [aiChat.messages, setConversation]);
+
+  useEffect(() => {
+    if (userInput !== aiChat.input) {
+      aiChat.setInput(userInput);
+    }
+  }, [userInput, aiChat.input, aiChat.setInput]);
+
+  useEffect(() => {
+    setIsLoading(aiChat.isLoading);
+  }, [aiChat.isLoading, setIsLoading]);
+
+  useEffect(() => {
+    setIsGenerating(aiChat.isGenerating);
+  }, [aiChat.isGenerating, setIsGenerating]);
+
+  useEffect(() => {
+    setTokensPerSecond(aiChat.tokensPerSecond);
+  }, [aiChat.tokensPerSecond, setTokensPerSecond]);
 
   // Pending image attachment (local state only until send)
   type PendingAttachment = {
@@ -1430,8 +1520,11 @@ export default function ConversationScreen({
           setPendingAttachment(null);
         }
 
-        const contentForHistory = displayContent || (sendOptions ? "(Image attached)" : "");
-        await handleSendMessageCompletion(conversation, contentForHistory, sendOptions);
+        // Keep hook input in sync just before submit to avoid stale value races.
+        aiChat.setInput(displayContent);
+        // Submit via the new backend. The hook will create the user message
+        // + assistant placeholder and stream tokens into the last message.
+        await aiChat.handleSubmit(sendOptions as any);
         // Scroll to bottom after message is sent
         requestAnimationFrame(() => {
           scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -1800,12 +1893,24 @@ export default function ConversationScreen({
     
     // Stop any ongoing generation
     if (isGenerating) {
-      await stopGeneration();
+      aiChat.stop();
     }
-    
-    // Regenerate from the user message
-    await handleSendMessageCompletion(newConversation, userMessageContent);
-  }, [context, conversation, isGenerating, stopGeneration, handleSendMessageCompletion, setConversation, setTokensPerSecond]);
+
+    // Regenerate by re-submitting the user message content.
+    // Note: This re-adds the user message as the last turn (same visible UX),
+    // and then streams a fresh assistant response.
+    setConversation(newConversation.slice(0, userMessageIndex));
+    setUserInput(userMessageContent);
+    aiChat.setInput(userMessageContent);
+    await aiChat.handleSubmit();
+  }, [
+    conversation,
+    isGenerating,
+    aiChat,
+    setConversation,
+    setUserInput,
+    setTokensPerSecond,
+  ]);
 
   const sendButtonDisabled = !userInput.trim() && !pendingAttachment;
 

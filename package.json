@@ -18,15 +18,18 @@
     "android:test-release": "npm run android:build-release && npm run android:install-release"
   },
   "dependencies": {
+    "@react-native-ai/llama": "^0.12.0",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-clipboard/clipboard": "^1.16.3",
     "@react-native-documents/picker": "^10.1.7",
     "@react-native-ml-kit/text-recognition": "^2.0.0",
     "@types/uuid": "^10.0.0",
+    "ai": "^6.0.0",
     "axios": "^1.8.4",
     "llama.rn": "0.11.2",
     "react": "19.0.0",
     "react-native": "0.78.1",
+    "react-native-blob-util": "^0.21.0",
     "react-native-chart-kit": "^6.12.0",
     "react-native-fs": "^2.20.0",
     "react-native-gesture-handler": "^2.25.0",
@@ -41,6 +44,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@babel/plugin-transform-export-namespace-from": "^7.27.1",
     "@babel/preset-env": "^7.25.3",
     "@babel/runtime": "^7.25.0",
     "@react-native-community/cli": "15.0.1",
