@@ -29,6 +29,22 @@ import type {
 
 // ── Model Detection ────────────────────────────────────────────────────────────
 
+/**
+ * Patterns for models whose message format accepts images via a Qwen-VL
+ * -compatible schema (`{ type: 'image', image: base64 }` content parts).
+ *
+ * Excluded on purpose (as of llama.rn 0.11.2):
+ *   • Gemma 3 4B and Gemma 3n E2B/E4B — capable of vision but require a
+ *     separate mmproj projector file which the app's downloader does not
+ *     yet fetch. Attempting to send images through Qwen's content-part
+ *     schema would corrupt the chat template. These models fall back
+ *     cleanly to OCR / document-text extraction via
+ *     `documentParsingService.extractTextFromAttachment`.
+ *   • Llama 3.2 Vision — uses Meta's own vision format.
+ *
+ * Add a new entry ONLY after verifying the model's chat template accepts
+ * the exact content-parts schema emitted by `formatMessagesForVision`.
+ */
 const VISION_MODEL_PATTERNS = [
   /qwen3[\.\-]?5?\s*vl/i,
   /qwen3[\.\-]?vl/i,
@@ -40,9 +56,9 @@ const VISION_MODEL_PATTERNS = [
 ];
 
 /**
- * Check whether a model name suggests native vision-language support.
- * When true, images can be embedded directly in the message payload
- * rather than being OCR'd to text.
+ * Check whether a model name suggests native vision-language support
+ * compatible with this app's multimodal pipeline. When true, images can
+ * be embedded directly in the message payload rather than being OCR'd.
  */
 export function isVisionModel(modelName: string): boolean {
   return VISION_MODEL_PATTERNS.some((pattern) => pattern.test(modelName));

@@ -588,19 +588,34 @@ export const handleSendMessageCompletion = async (
     ];
 
     // ── Model family detection ────────────────────────────────────────────
-    // Qwen3+ (including Qwen3.5, QwQ) have a Jinja-based thinking toggle
-    // that can be controlled via llama.rn's `enable_thinking` param.
-    // DeepSeek R1 models expose native reasoning tokens.
-    // Qwen2.5 and earlier do NOT have thinking mode.
+    // Families that toggle thinking via llama.rn's Jinja `enable_thinking`
+    // param are grouped under `isJinjaThinkingModel`. Only Qwen3 currently
+    // has a template-level toggle that our streaming layer can drive.
+    //
+    // Families that emit literal <think>…</think> spans in the token
+    // stream (either always, or conditionally) are grouped under
+    // `supportsThinkTags`. Those include:
+    //   • Qwen3 / Qwen3.5 / QwQ — native thinking models
+    //   • DeepSeek R1 and its distills — always-on reasoning
+    //   • SmolLM3 — optional /think reasoning mode (chat template emits
+    //     <think> blocks when reasoning_mode=/think; we parse them the
+    //     same way regardless)
+    //
+    // Gemma 3 / Gemma 3n and Phi-4 Mini intentionally NOT included — they
+    // do not produce <think> spans despite being capable reasoners, and
+    // forcing the parser on them would corrupt normal output containing
+    // literal "<think>" text (e.g. when summarising chat logs).
     const normalizedModelName = selectedModel.toLowerCase();
     const isQwen3ThinkingModel =
-      // "qwen3" matches qwen3, qwen3.5, etc. — but NOT qwen2.5 / qwen2 / qwen1
-      /qwen3/.test(normalizedModelName) || normalizedModelName.includes("qwq");
+      // "qwen3" matches qwen3, qwen3.5, qwen3-4b-instruct-2507 — but NOT
+      // qwen2.5 / qwen2 / qwen1. The negative lookahead guards against a
+      // hypothetical "qwen3n" suffix.
+      /qwen3(?![a-z])/.test(normalizedModelName) || normalizedModelName.includes("qwq");
     const isDeepSeekR1 =
       normalizedModelName.includes("deepseek-r1") ||
-      normalizedModelName.includes("r1d");
-    // Any model family where thinking/reasoning blocks can occur
-    const supportsThinkTags = isQwen3ThinkingModel || isDeepSeekR1;
+      /\br1d\b/.test(normalizedModelName);
+    const isSmolLM3 = /smollm3/.test(normalizedModelName);
+    const supportsThinkTags = isQwen3ThinkingModel || isDeepSeekR1 || isSmolLM3;
 
     // ── Query complexity heuristic ────────────────────────────────────────
     // For Qwen3 thinking models we decide whether to enable thinking at the
@@ -634,9 +649,19 @@ export const handleSendMessageCompletion = async (
     //   streaming (instead of leaving them inline in `data.token`).
     //   Defaults to 'none' in llama.rn which is why reasoning_content was
     //   always empty before.
+    // `enable_thinking` is a Qwen-specific Jinja flag. Do NOT send it for
+    // SmolLM3 — its template reads /think or /no_think from the system
+    // message instead and will raise on an unknown template variable.
     const enableThinking = isQwen3ThinkingModel ? isComplexQuery : undefined;
+    // Ask llama.cpp to surface reasoning tokens in `reasoning_content`
+    // whenever we expect thinking output. DeepSeek R1 is always-on.
+    // SmolLM3 defaults to /think in its template so treat it as always-on
+    // unless the user explicitly negated via their system prompt (we do
+    // not parse that case — stripping still works via the XML fallback).
     const reasoningFormat: 'auto' | 'none' =
-      (isQwen3ThinkingModel && isComplexQuery) || isDeepSeekR1 ? 'auto' : 'none';
+      (isQwen3ThinkingModel && isComplexQuery) || isDeepSeekR1 || isSmolLM3
+        ? 'auto'
+        : 'none';
 
     // Placeholder for assistant's response
     setConversation((prev) => [

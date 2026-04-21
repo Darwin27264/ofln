@@ -78,16 +78,30 @@ interface ModelCardProps {
 const quantizationCache = new Map<string, string | null>();
 
 /**
- * Extract quantization from fileName (e.g., "Q4_K_M", "Q5_K_M")
- * Uses caching to avoid repeated regex operations
+ * Extract quantization from a GGUF file name, e.g. "Q4_K_M", "Q5_K_S", "Q4_0".
+ * Results are cached to avoid repeated regex work.
+ *
+ * Keep in sync with `src/utils/modelUtils.ts#extractQuantization` and
+ * `src/services/modelInfoService.ts#detectQuantFromFilename`.
  */
 function extractQuantization(fileName: string): string | null {
   if (quantizationCache.has(fileName)) {
     return quantizationCache.get(fileName) || null;
   }
-  
-  const quantMatch = fileName.match(/(q[0-9]_[km]|q[0-9]_[0-9]|q[0-9]k_[ms]|q[0-9]k_m|q[0-9]k_s|q[0-9]_0)/i);
-  const result = quantMatch ? quantMatch[0].toUpperCase() : null;
+
+  const patterns: RegExp[] = [
+    /q[0-9]_k_[msl]/i,
+    /q[0-9]_k/i,
+    /q[0-9]_[01]/i,
+  ];
+  let result: string | null = null;
+  for (const pattern of patterns) {
+    const match = fileName.match(pattern);
+    if (match) {
+      result = match[0].toUpperCase();
+      break;
+    }
+  }
   quantizationCache.set(fileName, result);
   return result;
 }
@@ -118,24 +132,47 @@ function formatPublishedDate(dateString: string): string {
 }
 
 /**
- * Determine if a model is a thinking/reasoning model
- * Thinking models show their reasoning process (e.g., DeepSeek R1)
+ * Determine if a model supports a "thinking" / chain-of-thought mode.
+ *
+ * Keep this in sync with the canonical implementation in
+ * `src/utils/modelUtils.ts#isThinkingModel`. The duplication exists
+ * because ModelCard is memoized on its own props and depends on the
+ * model object reference — importing the util would pull in the cache
+ * Map which we do not want to share across screens.
  */
 function isThinkingModel(model: ModelInfo): boolean {
   const modelId = model.id.toLowerCase();
+  const fileName = (model.fileName || '').toLowerCase();
   const description = (model.description || '').toLowerCase();
-  
-  const thinkingModelIds = ['r1', 'deepseek-r1', 'r1d'];
-  const thinkingDescriptionKeywords = ['distilled reasoning', 'reasoning (slower'];
-  
-  if (thinkingModelIds.some(id => modelId.includes(id))) {
+  const tags = (model.tags || []).map((t) => t.toLowerCase());
+  const haystack = `${modelId} ${fileName}`;
+
+  const thinkingFamilyPatterns: RegExp[] = [
+    /\br1\b/,
+    /\br1d\b/,
+    /deepseek-r1/,
+    /qwen3(?![a-z])/,
+    /qwq/,
+    /smollm3/,
+  ];
+
+  if (thinkingFamilyPatterns.some((p) => p.test(haystack))) {
     return true;
   }
-  
-  if (thinkingDescriptionKeywords.some(keyword => description.includes(keyword))) {
+
+  if (tags.includes('thinking') || tags.includes('reasoning')) {
     return true;
   }
-  
+
+  const thinkingDescriptionKeywords = [
+    'distilled reasoning',
+    'reasoning (slower',
+    'chain-of-thought',
+  ];
+  if (thinkingDescriptionKeywords.some((k) => description.includes(k))) {
+    return true;
+  }
+
   return false;
 }
 

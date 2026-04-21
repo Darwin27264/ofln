@@ -588,8 +588,13 @@ export default function ConversationScreen({
   const styles = createStyles(theme.colors);
   const insets = useSafeAreaInsets();
   const { keyboardHeight: keyboardPadding, animatedHeight, syncKeyboardState } = useKeyboardPadding();
-  const [initialLayoutHeight, setInitialLayoutHeight] = useState<number | null>(null);
-  const [currentLayoutHeight, setCurrentLayoutHeight] = useState<number | null>(null);
+  // Layout measurements live in refs (not state) because they're read inside the
+  // keyboard-padding animated listener on every frame of the keyboard animation.
+  // Storing them in state would force a re-render on every layout tick during
+  // keyboard open/close, which cascades through the animated padding effect and
+  // can trigger React's "Maximum update depth exceeded" guard.
+  const initialLayoutHeightRef = useRef<number | null>(null);
+  const currentLayoutHeightRef = useRef<number | null>(null);
   
   // Detect Samsung devices for keyboard padding adjustments
   // Samsung devices often have different keyboard behavior that requires extra padding
@@ -643,9 +648,8 @@ export default function ConversationScreen({
     }
   }, []);
   
-  // Animated padding value for smooth transitions
-  // Initialize with 12px (no keyboard state) to prevent jump
-  const animatedPadding = useRef(new Animated.Value(12)).current;
+  // Animated padding value for smooth transitions above the keyboard.
+  // Initialize with 12px (no keyboard state) to prevent jump on first render.
   const animatedBottomPadding = useRef(new Animated.Value(12)).current;
 
   // Chat history state
@@ -1946,36 +1950,33 @@ export default function ConversationScreen({
 
   const handleLayout = useCallback((event: LayoutChangeEvent) => {
     const { height } = event.nativeEvent.layout;
-    if (initialLayoutHeight === null) setInitialLayoutHeight(height);
-    setCurrentLayoutHeight(height);
-  }, [initialLayoutHeight]);
-
-  // Calculate how much the window has actually resized (when adjustResize works)
-  const heightLoss =
-    initialLayoutHeight !== null && currentLayoutHeight !== null
-      ? Math.max(0, initialLayoutHeight - currentLayoutHeight)
-      : 0;
-
-  // Determine if window resize is insufficient to account for keyboard
-  // This handles Samsung and other OEMs where adjustResize may not work perfectly
-  const isKeyboardVisible = keyboardPadding > 0;
-  const hasLayoutMeasurements = initialLayoutHeight !== null && currentLayoutHeight !== null;
-  
-  // Stricter threshold: only treat resize as sufficient when window actually shrank by at least
-  // the full keyboard height. Otherwise we risk the input bar staying behind the keyboard.
-  const windowResizeSufficient =
-    Platform.OS === "android" &&
-    hasLayoutMeasurements &&
-    heightLoss >= keyboardPadding;
-  const windowResizeInsufficient =
-    Platform.OS === "android" &&
-    isKeyboardVisible &&
-    (!hasLayoutMeasurements || heightLoss < keyboardPadding);
+    if (initialLayoutHeightRef.current === null) initialLayoutHeightRef.current = height;
+    currentLayoutHeightRef.current = height;
+  }, []);
 
   const NO_KEYBOARD_PADDING = 12;
   const MIN_PADDING_RATIO = 0.20; // Raised from 0.10 so we always push at least 20% of keyboard when visible
+  // Stable callback: reads layout measurements from refs each call so the value
+  // stays current without invalidating its identity (and therefore without
+  // re-running the keyboard padding effect every time the window resizes).
   const calculatePaddingMultiplier = useCallback((keyboardH: number) => {
     if (keyboardH <= 0) return NO_KEYBOARD_PADDING;
+
+    const initialH = initialLayoutHeightRef.current;
+    const currentH = currentLayoutHeightRef.current;
+    const hasLayoutMeasurements = initialH !== null && currentH !== null;
+    const heightLoss = hasLayoutMeasurements ? Math.max(0, initialH - currentH) : 0;
+    const isKeyboardVisible = keyboardH > 0;
+
+    // Stricter threshold: only treat resize as sufficient when window actually
+    // shrank by at least the full keyboard height. Otherwise the input bar may
+    // sit behind the keyboard.
+    const windowResizeSufficient =
+      Platform.OS === "android" && hasLayoutMeasurements && heightLoss >= keyboardH;
+    const windowResizeInsufficient =
+      Platform.OS === "android" &&
+      isKeyboardVisible &&
+      (!hasLayoutMeasurements || heightLoss < keyboardH);
 
     let padding: number;
     if (windowResizeInsufficient) {
@@ -1998,7 +1999,7 @@ export default function ConversationScreen({
     // When keyboard is visible on Android, never use less than MIN_PADDING_RATIO so input stays above keyboard
     const result = Math.max(padding, keyboardH * MIN_PADDING_RATIO);
     return Math.max(result, NO_KEYBOARD_PADDING);
-  }, [windowResizeInsufficient, windowResizeSufficient, heightLoss, hasLayoutMeasurements, isSamsungDevice]);
+  }, [isSamsungDevice]);
 
   const paddingAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const targetPaddingRef = useRef(12);
@@ -2011,20 +2012,12 @@ export default function ConversationScreen({
       targetPaddingRef.current = padding;
 
       if (paddingAnimationRef.current) paddingAnimationRef.current.stop();
-      paddingAnimationRef.current = Animated.parallel([
-        Animated.timing(animatedPadding, {
-          toValue: padding,
-          duration: PADDING_ANIM_DURATION,
-          easing: EASING.STANDARD,
-          useNativeDriver: false,
-        }),
-        Animated.timing(animatedBottomPadding, {
-          toValue: padding,
-          duration: PADDING_ANIM_DURATION,
-          easing: EASING.STANDARD,
-          useNativeDriver: false,
-        }),
-      ]);
+      paddingAnimationRef.current = Animated.timing(animatedBottomPadding, {
+        toValue: padding,
+        duration: PADDING_ANIM_DURATION,
+        easing: EASING.STANDARD,
+        useNativeDriver: false,
+      });
       paddingAnimationRef.current.start(() => {
         paddingAnimationRef.current = null;
       });
@@ -2033,7 +2026,6 @@ export default function ConversationScreen({
     const listenerId = animatedHeight.addListener(({ value }) => updatePadding(value));
     const initialPadding = calculatePaddingMultiplier(keyboardPadding);
     targetPaddingRef.current = initialPadding;
-    animatedPadding.setValue(initialPadding);
     animatedBottomPadding.setValue(initialPadding);
 
     return () => {
@@ -2041,7 +2033,7 @@ export default function ConversationScreen({
       paddingAnimationRef.current?.stop();
       paddingAnimationRef.current = null;
     };
-  }, [animatedHeight, animatedPadding, animatedBottomPadding, calculatePaddingMultiplier, keyboardPadding]);
+  }, [animatedHeight, animatedBottomPadding, calculatePaddingMultiplier, keyboardPadding]);
 
   return (
     <KeyboardAvoidingView
@@ -2058,7 +2050,7 @@ export default function ConversationScreen({
             <Ionicons name="reorder-two-outline" size={23} color={theme.colors.text} />
           </TouchableOpacity>
           <TouchableOpacity 
-            style={[styles.topLeftPill, { left: 73, maxWidth: screenWidth * 0.4, minHeight: 42, paddingRight: 8 }]} 
+            style={[styles.topLeftPill, { left: 73, maxWidth: screenWidth * 0.4, minHeight: 42, paddingRight: selectedPersona ? 8 : 12 }]} 
             onPress={openModelSelector}
           >
             <Ionicons name="cube-outline" size={20} color={theme.colors.text} style={{ marginRight: 6 }} />
@@ -2074,22 +2066,23 @@ export default function ConversationScreen({
             >
               {selectedGGUF ? prettifyModelName(selectedGGUF) : "No model"}
             </Text>
-            <Animated.View 
-              style={{
-                width: 24,
-                height: 24,
-                borderRadius: 12,
-                backgroundColor: '#007AFF',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginLeft: 8,
-                opacity: personaIndicatorOpacity,
-              }}
-              pointerEvents={selectedPersona ? 'auto' : 'none'}
-              collapsable={false}
-            >
-              <Ionicons name="person" size={14} color="#FFFFFF" />
-            </Animated.View>
+            {selectedPersona && (
+              <Animated.View 
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 12,
+                  backgroundColor: '#007AFF',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: 8,
+                  opacity: personaIndicatorOpacity,
+                }}
+                collapsable={false}
+              >
+                <Ionicons name="person" size={14} color="#FFFFFF" />
+              </Animated.View>
+            )}
           </TouchableOpacity>
           {isTemporaryMode && hasStartedChat && (
             <Text style={{

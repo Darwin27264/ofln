@@ -15,6 +15,7 @@ import axios from "axios";
 import { ModelInfo, prettifyModelName } from "../utils/modelUtils";
 
 // Reputable Hugging Face authors for GGUF models
+// Keep in sync with `REPUTABLE_AUTHORS` in screens/ModelSelectionScreen.tsx.
 const REPUTABLE_AUTHORS = [
   "TheBloke",
   "bartowski",
@@ -31,18 +32,31 @@ const REPUTABLE_AUTHORS = [
   "KBlueLeaf",
   "second-state",
   "city96",
+  // Vendor-official and first-party publishers
+  "google",
+  "HuggingFaceTB",
 ];
 
 // Mobile-friendly quantization patterns
+// Order is not significant — the first match wins via `Array.some`.
+// Patterns intentionally exclude IQ*/UD-* unsloth "dynamic" variants and
+// bfloat16/F16 to avoid surfacing files that are either experimental or
+// too large for phone RAM. Keep conservative — users can still paste a
+// custom HuggingFace URL to reach exotic quantizations.
 const MOBILE_QUANT_PATTERNS = [
   /q4_k_m/i,
+  /q4_k_s/i,
   /q4_0/i,
+  /q4_1/i,
   /q5_k_m/i,
+  /q5_k_s/i,
   /q5_0/i,
+  /q6_k/i,
   /q8_0/i,
   /q2_k/i,
   /q3_k_s/i,
   /q3_k_m/i,
+  /q3_k_l/i,
 ];
 
 interface UseHuggingFaceModelsOptions {
@@ -89,11 +103,27 @@ export function useHuggingFaceModels(
   }, []);
 
   /**
-   * Extract quantization info from file
+   * Extract quantization info from a GGUF filename.
+   *
+   * Matches, in priority order:
+   *   • K-quant with suffix:   Q4_K_M, Q4_K_S, Q4_K_L, Q5_K_M, Q3_K_L, ...
+   *   • K-quant plain:         Q2_K, Q6_K
+   *   • Legacy bit_0/1 quants: Q4_0, Q4_1, Q5_0, Q5_1, Q8_0
+   *
+   * Previous regex incorrectly truncated "Q4_K_M" → "Q4_K", breaking the
+   * "Recommended" badge in the quantization selector.
    */
   const extractQuantizationFromFile = useCallback((fileName: string): string | null => {
-    const match = fileName.match(/(q[0-9]_[km]|q[0-9]_[0-9]|q[0-9]k_[ms]|q[0-9]k_m|q[0-9]k_s|q[0-9]_0)/i);
-    return match ? match[0].toUpperCase() : null;
+    const patterns: RegExp[] = [
+      /q[0-9]_k_[msl]/i,   // Q4_K_M / Q4_K_S / Q4_K_L
+      /q[0-9]_k/i,         // Q2_K / Q6_K
+      /q[0-9]_[01]/i,      // Q4_0 / Q4_1 / Q8_0
+    ];
+    for (const pattern of patterns) {
+      const match = fileName.match(pattern);
+      if (match) return match[0].toUpperCase();
+    }
+    return null;
   }, []);
 
   /**

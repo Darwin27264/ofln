@@ -32,22 +32,33 @@ export const getModelInfo = async (modelUri: string): Promise<LlamaModelInfo> =>
  * Best-effort quantization extraction from model info and/or file name.
  *
  * Examples:
- * - "smollm2-1.7b-instruct-q4_k_m.gguf" => "Q4_K_M"
- * - "Llama-3.2-1B-Instruct-Q4_0.gguf" => "Q4_0"
+ * - "smollm2-1.7b-instruct-q4_k_m.gguf"    => "Q4_K_M"
+ * - "Llama-3.2-1B-Instruct-Q4_0.gguf"      => "Q4_0"
  * - "deepseek-r1-distill-qwen-7b-q6_k.gguf" => "Q6_K"
+ * - "gemma-3-4b-it-qat-Q4_K_L.gguf"        => "Q4_K_L"
+ *
+ * Matches, in priority order:
+ *   • K-quant with suffix:   Q4_K_M, Q4_K_S, Q4_K_L
+ *   • K-quant plain:         Q2_K, Q6_K
+ *   • Legacy bit_0/1 quants: Q4_0, Q4_1, Q8_0
+ *
+ * CRITICAL: The "_M/_S/_L" suffix must be matched before the bare "_K"
+ * branch, otherwise "Q4_K_M" truncates to "Q4_K" and the acceleration
+ * allow-list check (`isQuantAllowedForAndroidAccel`) misclassifies.
  */
 export const detectQuantFromFilename = (fileName: string): string | null => {
   if (!fileName) return null;
-  const lower = fileName.toLowerCase();
 
-  // Common GGUF quant patterns (keep conservative)
-  const quantRegex =
-    /(q[0-9]_0|q[0-9]_1|q[0-9]_2|q[0-9]_3|q[0-9]_4|q[0-9]_5|q[0-9]_6|q[0-9]_7|q[0-9]_8|q[0-9]_9|q[0-9]_k_m|q[0-9]_k_s|q[0-9]k_m|q[0-9]k_s)/i;
-
-  const match = lower.match(quantRegex);
-  if (!match) return null;
-
-  return match[0].toUpperCase();
+  const patterns: RegExp[] = [
+    /q[0-9]_k_[msl]/i,
+    /q[0-9]_k/i,
+    /q[0-9]_[01]/i,
+  ];
+  for (const pattern of patterns) {
+    const match = fileName.match(pattern);
+    if (match) return match[0].toUpperCase();
+  }
+  return null;
 };
 
 /**

@@ -269,12 +269,20 @@ async function _runStream(
   aiMessages = trimConversation(aiMessages, settings.n_ctx, settings.n_predict);
 
   // ── Thinking / reasoning config ─────────────────────────────────────────
+  // Keep these regexes in sync with the corresponding block in
+  // llamaService.ts#handleSendMessageCompletion so both inference paths
+  // agree on which models emit <think> spans.
   const inputText = sendOptions?.textForPrompt || userInput;
-  const isQwen3 = isQwen35Model(modelName) || /qwen3/i.test(modelName) || modelName.toLowerCase().includes('qwq');
+  const lowerName = modelName.toLowerCase();
+  const isQwen3 =
+    isQwen35Model(modelName) ||
+    /qwen3(?![a-z])/i.test(modelName) ||
+    lowerName.includes('qwq');
   const isDeepSeekR1 =
-    modelName.toLowerCase().includes('deepseek-r1') ||
-    modelName.toLowerCase().includes('r1d');
+    lowerName.includes('deepseek-r1') || /\br1d\b/.test(lowerName);
+  const isSmolLM3 = /smollm3/i.test(modelName);
   const complex = isComplexQuery(inputText);
+  // `enable_thinking` is Qwen-specific; do not forward for SmolLM3.
   const enableThinking = isQwen3 ? complex : undefined;
 
   // ── Stream via Vercel AI SDK ────────────────────────────────────────────
@@ -294,7 +302,7 @@ async function _runStream(
       abortSignal: signal,
     });
 
-    const supportsThinkTags = isQwen3 || isDeepSeekR1;
+    const supportsThinkTags = isQwen3 || isDeepSeekR1 || isSmolLM3;
     let inThinkBlock = false;
 
     for await (const delta of textStream) {
@@ -394,17 +402,21 @@ export async function nativeCompletion(
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
 ): Promise<CompletionResult> {
-  const isQwen3 = isQwen35Model(modelName) || /qwen3/i.test(modelName) || modelName.toLowerCase().includes('qwq');
+  const lowerName = modelName.toLowerCase();
+  const isQwen3 =
+    isQwen35Model(modelName) ||
+    /qwen3(?![a-z])/i.test(modelName) ||
+    lowerName.includes('qwq');
   const isDeepSeekR1 =
-    modelName.toLowerCase().includes('deepseek-r1') ||
-    modelName.toLowerCase().includes('r1d');
-  const supportsThinkTags = isQwen3 || isDeepSeekR1;
+    lowerName.includes('deepseek-r1') || /\br1d\b/.test(lowerName);
+  const isSmolLM3 = /smollm3/i.test(modelName);
+  const supportsThinkTags = isQwen3 || isDeepSeekR1 || isSmolLM3;
 
   const userText = messages[messages.length - 1]?.content || '';
   const complex = isComplexQuery(userText);
   const enableThinking = isQwen3 ? complex : undefined;
   const reasoningFormat: 'auto' | 'none' =
-    (isQwen3 && complex) || isDeepSeekR1 ? 'auto' : 'none';
+    (isQwen3 && complex) || isDeepSeekR1 || isSmolLM3 ? 'auto' : 'none';
 
   const startTime = Date.now();
   let fullText = '';

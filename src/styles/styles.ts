@@ -180,10 +180,10 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   inputBar: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 30,
+    borderRadius: 24,
     paddingLeft: 16,
     paddingRight: 4,
     paddingVertical: 2,
@@ -203,7 +203,9 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.transparent,
     fontSize: 16,
     color: colors.text,
-    paddingVertical: 1,
+    paddingTop: 10,
+    paddingBottom: 10,
+    maxHeight: 140,
     fontFamily: "Poppins",
   },
   sendIconButton: {

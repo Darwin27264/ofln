@@ -46,19 +46,32 @@ export function prettifyModelName(fileName: string): string {
 }
 
 /**
- * Extract quantization from fileName (e.g., "Q4_K_M", "Q5_K_M")
- * Uses caching to avoid repeated regex operations
- * 
- * @param fileName - Model file name
- * @returns Quantization string or null if not found
+ * Extract quantization from a GGUF file name, e.g. "Q4_K_M", "Q5_K_S", "Q4_0".
+ * Results are cached to avoid repeated regex work.
+ *
+ * Matches, in priority order:
+ *   • K-quant with suffix:   Q4_K_M, Q4_K_S, Q4_K_L, Q5_K_M, ...
+ *   • K-quant plain:         Q2_K, Q6_K
+ *   • Legacy bit_0/1 quants: Q4_0, Q4_1, Q5_0, Q5_1, Q8_0
  */
 export function extractQuantization(fileName: string): string | null {
   if (quantizationCache.has(fileName)) {
     return quantizationCache.get(fileName) || null;
   }
-  
-  const quantMatch = fileName.match(/(q[0-9]_[km]|q[0-9]_[0-9]|q[0-9]k_[ms]|q[0-9]k_m|q[0-9]k_s|q[0-9]_0)/i);
-  const result = quantMatch ? quantMatch[0].toUpperCase() : null;
+
+  const patterns: RegExp[] = [
+    /q[0-9]_k_[msl]/i,
+    /q[0-9]_k/i,
+    /q[0-9]_[01]/i,
+  ];
+  let result: string | null = null;
+  for (const pattern of patterns) {
+    const match = fileName.match(pattern);
+    if (match) {
+      result = match[0].toUpperCase();
+      break;
+    }
+  }
   quantizationCache.set(fileName, result);
   return result;
 }
@@ -89,30 +102,55 @@ export function formatPublishedDate(dateString: string): string {
 }
 
 /**
- * Determine if a model is a thinking/reasoning model
- * Thinking models show their reasoning process (e.g., DeepSeek R1)
- * 
- * @param model - Model info object
- * @returns True if model is a thinking model
+ * Determine if a model supports a "thinking" / chain-of-thought mode
+ * where reasoning tokens are surfaced separately from the visible answer.
+ *
+ * Detection sources (in order, first match wins):
+ *   1. Model ID / fileName substring match for known reasoning families:
+ *      - DeepSeek R1 distills (R1, r1d)
+ *      - Qwen3 family (qwen3, qwen3.5, qwen3-4b-instruct-2507)
+ *      - QwQ reasoning line
+ *      - SmolLM3 (optional /think reasoning mode)
+ *   2. Explicit "thinking" tag in model.tags
+ *   3. Description keywords
+ *
+ * Note: Gemma 3 / Gemma 3n and Phi-4 Mini do NOT emit <think> blocks
+ * despite being strong at reasoning — they should return false here so
+ * the UI doesn't show a reasoning-specific icon/affordance.
  */
 export function isThinkingModel(model: ModelInfo): boolean {
   const modelId = model.id.toLowerCase();
+  const fileName = (model.fileName || '').toLowerCase();
   const description = (model.description || '').toLowerCase();
-  
-  // Check for specific thinking model identifiers
-  const thinkingModelIds = ['r1', 'deepseek-r1', 'r1d'];
-  const thinkingDescriptionKeywords = ['distilled reasoning', 'reasoning (slower'];
-  
-  // Check if model ID contains thinking model identifiers
-  if (thinkingModelIds.some(id => modelId.includes(id))) {
+  const tags = (model.tags || []).map((t) => t.toLowerCase());
+  const haystack = `${modelId} ${fileName}`;
+
+  const thinkingFamilyPatterns: RegExp[] = [
+    /\br1\b/,
+    /\br1d\b/,
+    /deepseek-r1/,
+    /qwen3(?![a-z])/, // qwen3, qwen3.5, qwen3-4b-...  (NOT qwen3n or qwen2.5)
+    /qwq/,
+    /smollm3/,
+  ];
+
+  if (thinkingFamilyPatterns.some((p) => p.test(haystack))) {
     return true;
   }
-  
-  // Check if description contains thinking-specific keywords
-  if (thinkingDescriptionKeywords.some(keyword => description.includes(keyword))) {
+
+  if (tags.includes('thinking') || tags.includes('reasoning')) {
     return true;
   }
-  
+
+  const thinkingDescriptionKeywords = [
+    'distilled reasoning',
+    'reasoning (slower',
+    'chain-of-thought',
+  ];
+  if (thinkingDescriptionKeywords.some((k) => description.includes(k))) {
+    return true;
+  }
+
   return false;
 }
 
