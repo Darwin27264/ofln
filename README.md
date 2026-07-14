@@ -19,32 +19,70 @@ A React Native mobile application for running Large Language Models (LLMs) offli
 
 ### High-Level Overview
 
-OFLN follows a modular architecture with clear separation of concerns:
+OFLN is a **fully on-device** React Native app. There is no cloud inference backend: after GGUF models are downloaded (or imported), chat runs entirely on the phone via **llama.cpp** (`llama.rn`). Network use is limited to HuggingFace browse/download.
 
-- **Screens**: Main UI components representing different app sections (ModelSelection, Conversation, Settings, Stages)
-- **Components**: Reusable UI components with optimized rendering (ModelCard, CustomAlert, ProgressBar)
-- **Services**: Business logic and data management (llamaService, chatHistoryService, localModelService)
-- **Hooks**: Custom React hooks for shared logic (useHuggingFaceModels, useModelFilter)
-- **Utils**: Utility functions for common operations (modelUtils)
-- **Context**: Global state management (Theme, Alerts)
+```
+HF URL / local GGUF
+        │
+        ▼
+RNFS DocumentDirectoryPath/*.gguf
+        │
+        ├─(download / model switch)──► llamaService.initLlama   [legacy path]
+        │
+        └─(Conversation open)────────► llamaProvider.prepare    [active chat path]
+                                              │
+User message (+ optional ML Kit OCR)
+        │
+        ▼
+useAIChat.handleSubmit (useNativeCompletion: true)
+        │
+        ▼
+nativeContext.completion (streaming tokens)
+        │
+        ▼
+UI patches + optional <think> blocks + AsyncStorage chat save + usage_log.json
+```
+
+Layering:
+
+- **Screens**: ModelSelection, Conversation, Settings, Stages, Personas, Diagnostics
+- **Providers**: `llamaProvider` — active `@react-native-ai/llama` load/unload for chat
+- **Services**: download, settings, chat history, acceleration gating, vision/OCR, usage
+- **Hooks**: `useAIChat` (chat + streaming), HuggingFace browse, filters
+- **Native**: Custom app code is UI/shell only; inference natives ship inside `llama.rn`
+
+### Dual Inference Stack
+
+The app currently has **two model-load paths** that share the same settings/acceleration logic:
+
+| Path | Module | When used |
+|------|--------|-----------|
+| **Active (chat)** | `src/providers/llamaProvider.ts` + `useAIChat` | Conversation screen loads the model, runs completion, streams tokens |
+| **Legacy** | `src/services/llamaService.ts` (`initLlama`) | Still used on download complete / some model switches in ModelSelection |
+
+Conversation avoids holding both contexts: it **releases the legacy context** before calling `llamaProvider.loadModel()`. Chat generation prefers **native `context.completion()`** (`useNativeCompletion: true`) for thinking/reasoning param parity. An alternate Vercel AI SDK `streamText()` path exists in `aiChatService` but is not the default UI path.
 
 ### Core Technologies
 
-- **React Native 0.78.1**: Mobile framework for cross-platform development
-- **TypeScript**: Type safety and improved developer experience
-- **llama.rn**: Native LLM inference engine for on-device model execution
-- **AsyncStorage**: Persistent local storage for chat history and settings
-- **React Native FS**: File system operations for model file management
-- **Axios**: HTTP client for model downloads from HuggingFace
+- **React Native 0.78.1** / **React 19**: Cross-platform UI (New Architecture **required**)
+- **TypeScript**: Type safety across app code
+- **llama.rn (0.11.2)**: Native llama.cpp bindings (GGUF inference)
+- **@react-native-ai/llama**: Language-model provider used by `llamaProvider`
+- **ai (Vercel AI SDK)**: `streamText` orchestration available alongside native completion
+- **AsyncStorage**: Chat history, model settings, personas, local-import metadata
+- **react-native-fs (RNFS)**: Model download/storage under DocumentDirectory
+- **Axios**: HuggingFace catalog/metadata requests
+- **@react-native-ml-kit/text-recognition**: On-device OCR for image attachments (vision fallback)
 
 ### State Management
 
 The application uses a combination of:
 
-- **React Context API**: For theme and global alert management (ThemeContext, CustomAlertProvider)
+- **React Context API**: Theme and global alert management (ThemeContext, CustomAlertProvider)
 - **Local State**: Component-level state with `useState` for UI state
-- **Refs**: For values that don't trigger re-renders (animation state, scroll tracking)
-- **AsyncStorage**: For persistent data (chat history, model settings, local models metadata)
+- **Refs**: Values that don't trigger re-renders (animation state, scroll tracking, generation buffers)
+- **AsyncStorage**: Persistent data (chat history, model settings, local models metadata)
+- **Provider singleton**: `llamaProvider` holds ready/loading status + native context handle for chat
 
 ### Design Principles
 
@@ -59,66 +97,69 @@ The codebase follows these principles:
   - Centralized animation configurations
   - Reusable components (ModelCard, BottomSheet, CustomAlert)
   - Common utilities for model name formatting, date parsing
+  - Acceleration / quant gating shared by provider and legacy loader
 - **Keep It Simple Stupid (KISS)**: Simple, readable code over complex abstractions
-  - Clear function names and structure
-  - Minimal nesting and complexity
-  - Straightforward data flow
 - **Performance First**: Optimized for mobile devices with 60fps animations and efficient rendering
-  - Native driver for all animations
-  - Memoization for expensive computations
-  - Efficient re-render prevention
 
 ### Code Quality
 
 The codebase maintains high code quality through:
 
-- **Comprehensive Documentation**: All functions, components, and complex logic have clear, professional documentation
-- **Type Safety**: Full TypeScript coverage with proper type definitions and interfaces
-- **Error Handling**: Comprehensive try-catch blocks with graceful error recovery and user feedback
-- **Edge Case Coverage**: Extensive validation and handling of edge cases throughout the application
-- **Consistent Patterns**: Standardized animation configurations, error handling, and component structure
-- **Maintainability**: Clear separation of concerns, modular architecture, and reusable components
-- **Performance Monitoring**: Built-in performance tracking and metrics collection
+- **Documentation**: Key services and complex inference paths have professional comments
+- **Type Safety**: TypeScript coverage with shared types in `src/types/ai.ts`
+- **Error Handling**: Try-catch with graceful recovery and user feedback
+- **Consistent Patterns**: Standardized animations, error handling, and component structure
+- **Performance Monitoring**: Tokens/sec and usage logs via `usageTracker` + Stages screen
 
 ## Project Structure
 
 ```
 src/
-├── api/                    # API client functions
-│   └── model.ts           # HuggingFace model download API
-├── components/             # Reusable UI components
-│   ├── BottomSheet.tsx    # Unified bottom sheet component
-│   ├── CustomAlert.tsx    # Custom alert dialog component
-│   ├── ModelCard.tsx      # Model card with animations (memoized)
-│   ├── PersonaCard.tsx   # Persona card component
-│   └── ProgressBar.tsx    # Download progress indicator
-├── context/               # React Context providers
-│   └── ThemeContext.tsx   # Theme management (light/dark mode)
-├── hooks/                 # Custom React hooks
-│   ├── useHuggingFaceModels.ts  # HuggingFace API integration
-│   ├── useKeyboardPadding.ts    # Keyboard height tracking
-│   └── useModelFilter.ts        # Model filtering logic
-├── screens/               # Main screen components
-│   ├── ConversationScreen.tsx   # Chat interface with history
-│   ├── ModelSelectionScreen.tsx # Model browser and management
-│   ├── ModelSettingsScreen.tsx  # Per-model configuration UI
-│   ├── PersonaEditorScreen.tsx # Persona creation/editing
-│   ├── PersonasLibraryScreen.tsx # Persona library management
-│   ├── SettingsScreen.tsx      # App settings and navigation
-│   └── StagesScreen.tsx         # Performance analytics
-├── services/              # Business logic services
-│   ├── chatHistoryService.ts    # Chat persistence and management
-│   ├── llamaService.ts          # Model loading and inference
-│   ├── localModelService.ts     # Local model file management
-│   ├── modelSettingsService.ts   # Per-model configuration
-│   ├── personaService.ts        # Persona management
-│   └── usageTracker.ts          # Performance metrics tracking
-├── styles/                # Style definitions
-│   └── styles.ts          # Theme-aware style factory
-└── utils/                 # Utility functions
-    ├── animationConfig.ts # Centralized animation configurations
-    ├── modelUtils.ts      # Model name formatting, quantization extraction
-    └── systemBars.ts      # System bar theme management
+├── api/
+│   └── model.ts                    # GGUF download via RNFS (progress + cancel)
+├── components/                     # Reusable UI (ModelCard, BottomSheet, ProgressBar, …)
+├── context/
+│   └── ThemeContext.tsx
+├── hooks/
+│   ├── useAIChat.ts                # Chat hook → native completion / streamText
+│   ├── useHuggingFaceModels.ts
+│   ├── useKeyboardPadding.ts
+│   └── useModelFilter.ts
+├── providers/
+│   └── llamaProvider.ts            # Active @react-native-ai/llama load/unload
+├── screens/
+│   ├── ConversationScreen.tsx      # Chat UI + provider load on model select
+│   ├── ModelSelectionScreen.tsx    # Browse / download / local import
+│   ├── ModelSettingsScreen.tsx
+│   ├── DiagnosticsScreen.tsx       # DEV: smoke test + accel device dump
+│   ├── InfoScreen.tsx
+│   ├── PersonaEditorScreen.tsx
+│   ├── PersonasLibraryScreen.tsx
+│   ├── SettingsScreen.tsx
+│   └── StagesScreen.tsx
+├── services/
+│   ├── accelerationCapabilityService.ts  # OpenCL / Hexagon detection (Android)
+│   ├── aiChatService.ts            # streamChat + nativeCompletion orchestration
+│   ├── chatHistoryService.ts
+│   ├── deviceEnv.ts                # Emulator heuristic
+│   ├── documentParsingService.ts   # Attachments / PDF text extraction
+│   ├── llamaService.ts             # Legacy initLlama load + completion helpers
+│   ├── localModelService.ts
+│   ├── modelInfoService.ts         # Quant detect + Android accel allowlist
+│   ├── modelSettingsService.ts
+│   ├── ocrService.ts               # ML Kit OCR
+│   ├── personaService.ts
+│   ├── usageTracker.ts
+│   └── visionService.ts            # Vision model detection / message formatting
+├── styles/
+│   └── styles.ts
+├── types/
+│   └── ai.ts                       # Shared chat / provider types
+└── utils/
+    ├── animationConfig.ts
+    ├── errorLogger.ts
+    ├── modelUtils.ts
+    └── systemBars.ts
 ```
 
 ## Key Features
@@ -129,7 +170,7 @@ src/
 - **Download Models**: Download GGUF models optimized for mobile devices
 - **Local Models**: Add models from device storage via file picker
 - **Model Settings**: Per-model configuration (temperature, context window, GPU layers)
-- **Quantization Support**: Support for multiple quantization formats (Q2_K, Q4_K_M, Q5_K_M, etc.)
+- **Quantization Support**: Support for multiple quantization formats (Q2_K, Q4_K_M, Q5_K_M, etc.); Android accel allowlist is `Q4_0` / `Q6_K`
 
 ### Chat Interface
 
@@ -137,7 +178,9 @@ src/
 - **Multiple Conversations**: Manage multiple chat sessions
 - **Pin/Unpin**: Pin important conversations for quick access
 - **Custom Titles**: Rename conversations with custom titles
-- **Real-time Streaming**: Tokens streamed in real-time as they're generated
+- **Real-time Streaming**: Tokens streamed from native `completion()` as they generate
+- **Reasoning Models**: Parses `<think>` / reasoning streams for Qwen3, DeepSeek-R1, SmolLM3, QwQ
+- **Image / Document Attachments**: Vision models get multimodal formatting; others use ML Kit OCR / text extraction
 - **Performance Metrics**: Track tokens per second for each response
 - **Temporary Mode**: Conversations that aren't saved to history
 
@@ -146,7 +189,7 @@ src/
 - **Tokens Per Second**: Real-time monitoring of generation speed
 - **Inference Time**: Track time taken for each inference
 - **Performance Levels**: Automatic classification (High/Medium/Low)
-- **Usage Logs**: Detailed logs for performance analysis
+- **Usage Logs**: Detailed logs under DocumentDirectory (`usage_log.json`)
 - **Visual Analytics**: Charts and graphs in Stages screen
 
 ### Theme Support
@@ -159,39 +202,42 @@ src/
 
 ### Model Download Flow
 
-1. User selects a model from ModelSelectionScreen
-2. App checks if model already exists locally (via RNFS)
-3. If not, initiates download with progress tracking
-4. Download progress updates UI in real-time via callback
-5. On completion, model is validated and added to downloaded models list
-6. Model can be loaded into memory for inference
+1. User selects a curated or HuggingFace search result in ModelSelectionScreen
+2. App builds `https://huggingface.co/{repoId}/resolve/main/{file}` and downloads via `src/api/model.ts` (`RNFS.downloadFile`)
+3. Destination: `{RNFS.DocumentDirectoryPath}/{fileName}.gguf`
+4. Progress callbacks update the UI; cancellation uses an RNFS job + custom cancellation token (partial files are deleted — not resumed)
+5. On success, downloaded models are discovered by listing `*.gguf` in DocumentDirectory
+6. Local imports copy a picked GGUF into DocumentDirectory; metadata lives in AsyncStorage (`@local_models`)
+7. Download complete may still call legacy `llamaService.loadModel`; opening Conversation then **reloads** via `llamaProvider`
 
-**Error Handling**: Network failures, storage full, and file corruption are handled gracefully with user-friendly error messages.
+**Quantization**: Not converted in-app. Users download GGUF variants (UI prefers mobile-friendly quants). Android GPU/NPU acceleration is allowlisted for **`Q4_0` and `Q6_K` only**.
 
-### Chat Flow
-
-1. User sends a message via ConversationScreen
-2. Message is added to conversation array (with system message)
-3. System prompt is updated with model-specific settings
-4. LLM inference begins with streaming tokens
-5. Tokens are accumulated and displayed in real-time
-6. Thinking blocks (for reasoning models) are parsed and displayed separately
-7. On completion, conversation is saved to AsyncStorage (debounced)
-8. Performance metrics are recorded to usage_log.json
-
-**Edge Cases**: Empty messages, missing context, generation errors, and stop word handling are all managed.
+**Error Handling**: Network failures, storage full, and missing files are handled with user-facing errors.
 
 ### Model Loading Flow
 
-1. User selects a downloaded model
-2. App loads model-specific settings from AsyncStorage
-3. Model file path is validated (file exists check)
-4. Previous model context is released (if any) to prevent memory leaks
-5. llama.rn initializes model with settings (n_ctx, n_gpu_layers)
-6. Context is created and stored in App state
-7. User can begin chatting
+1. User selects a downloaded / imported `.gguf`
+2. Per-model settings load from AsyncStorage (`@model_settings_{fileName}`), with defaults if missing
+3. Path is validated; previous contexts are released
+4. **Conversation path (active)**: `llamaProvider.loadModel` → `@react-native-ai/llama` `languageModel` + `prepare()` → status `ready`; native handle via `getNativeContext()`
+5. **Legacy path**: `llamaService.loadModel` → `initLlama({ model, n_ctx, n_gpu_layers, use_mlock, devices? })`
+6. Both paths share Android gating: emulator → CPU; non-allowlisted quant → CPU; else OpenCL/HTP with preferred `devices` and layer caps
+7. Leaving conversation releases both (`releaseAllLlama` + `llamaProvider.unloadModel`)
 
-**Memory Management**: Previous models are always released before loading new ones to prevent memory leaks on mobile devices.
+Defaults (see `modelSettingsService`): `n_ctx` 2048, `n_gpu_layers` 1, `temperature` 0.65, `top_p` 0.90, `top_k` 40, `repeat_penalty` 1.20, `n_predict` 256. On Android, `use_mlock` is forced off and `n_ctx` is capped at 2048 in the provider.
+
+### Chat Flow
+
+1. User sends a message from ConversationScreen (optional image → ML Kit OCR when not a native vision model)
+2. `useAIChat.handleSubmit` runs with `useNativeCompletion: true`
+3. Ensures `llamaProvider.isReady()`, then `nativeCompletion(nativeContext, …)`
+4. Native `context.completion` streams tokens; UI updates via throttled patches
+5. Thinking/reasoning content is split out for supported reasoning models; Qwen may set `enable_thinking` only for “complex” prompts
+6. Stop uses AbortController and/or `ctx.stopCompletion()`
+7. Chat is persisted via `chatHistoryService` → AsyncStorage (`@chat_history`, max 100)
+8. Metrics recorded via `recordUsage` → `usage_log.json`
+
+**Alternate path**: `streamChat` → Vercel `streamText({ model: llamaProvider.getLanguageModel() })` — available for AI SDK DX, not the default Conversation setting.
 
 ### Chat History Flow
 
@@ -203,6 +249,13 @@ src/
 
 **Performance**: History loading is deferred until panel opens, and grouping is memoized for efficiency.
 
+### Vision / Attachments Flow
+
+1. Image or document attached in Conversation
+2. If model name matches known VL patterns (Qwen VL, LLaVA, MiniCPM-V, InternVL, Phi-3.5 Vision), messages are formatted for multimodal completion
+3. Otherwise, OCR (`ocrService`) or document text extraction is injected into the prompt
+4. Note: some VL setups (e.g. Gemma projector/`mmproj`) are not auto-downloaded — those fall back to OCR
+
 ## Installation & Setup
 
 ### Prerequisites
@@ -212,6 +265,7 @@ src/
 - **Android Studio**: For Android development (with Android SDK)
 - **Xcode**: For iOS development (macOS only, with CocoaPods)
 - **Java Development Kit**: For Android builds
+- **New Architecture enabled**: Required by current `llama.rn` (≥0.10). Already set: `android/gradle.properties` (`newArchEnabled=true`) and `ios/Podfile` (`RCT_NEW_ARCH_ENABLED=1`)
 
 ### Initial Setup
 
@@ -257,7 +311,8 @@ src/
 No environment variables are required. The app uses:
 - Default React Native configuration
 - AsyncStorage for local persistence
-- RNFS DocumentDirectoryPath for model storage
+- RNFS DocumentDirectoryPath for model storage (`*.gguf`)
+- On-device llama.cpp only for inference (no cloud LLM API)
 
 ## Development Commands
 
@@ -300,7 +355,7 @@ No environment variables are required. The app uses:
 
 ### Unit Testing
 
-The project uses Jest for unit testing. Test files are located alongside source files with `.test.ts` or `.test.tsx` extensions.
+The project uses Jest. Current coverage is thin (smoke test under `__tests__/`); add colocated `*.test.ts(x)` files as you extend services.
 
 ```bash
 npm test
@@ -373,10 +428,10 @@ The application uses a centralized animation configuration system for consistenc
 
 ### Network Optimizations
 
-- **Request Cancellation**: Download requests can be cancelled via AbortController
+- **Request Cancellation**: Model downloads cancel via RNFS job id + cancellation token (partial file removed)
 - **Progress Tracking**: Efficient progress updates without blocking UI thread
 - **Error Recovery**: Network errors are handled gracefully with retry options
-- **Timeout Handling**: API requests have appropriate timeouts (8-15 seconds)
+- **Timeout Handling**: HuggingFace API/metadata requests have appropriate timeouts (8-15 seconds)
 
 ### Mobile-Specific Optimizations
 
@@ -455,7 +510,8 @@ Comprehensive error handling is implemented throughout:
 - Context window size (n_ctx) directly affects memory usage
 - GPU layers (n_gpu_layers) can help but may not be available on all devices
 - Monitor memory usage during inference (especially on lower-end devices)
-- use_mlock: true prevents memory swapping but requires sufficient RAM
+- `use_mlock` is forced **off** on Android; on iOS the loader may try it when RAM allows
+- Android provider caps `n_ctx` at 2048 for stability
 
 ### Network Requirements
 
@@ -463,7 +519,7 @@ Comprehensive error handling is implemented throughout:
 - Large models may take significant time to download (30 minutes to hours)
 - Consider Wi-Fi for large downloads to avoid data charges
 - Download progress is tracked but may not be 100% accurate
-- Network interruptions are handled with error messages
+- Network interruptions are handled with error messages; cancel deletes the partial file (true resume is not implemented)
 
 ### Platform Differences
 
@@ -473,20 +529,19 @@ Comprehensive error handling is implemented throughout:
 - Storage location: `RNFS.DocumentDirectoryPath` (app-specific directory)
 - Models are accessible after app restart
 - Background download limitations may apply
+- `android:largeHeap="true"` is set to help with large GGUF loads
 
 **Acceleration (OpenCL / Hexagon NPU)**
 
-The app supports GPU/NPU acceleration via llama.rn 0.11.0, controlled per-model in Model Settings (GPU Layers):
+GPU/NPU acceleration is handled by llama.rn and gated in app code (`accelerationCapabilityService` + quant allowlist):
 
-- **OpenCL (GPU)**: Qualcomm Adreno 700+ devices. Requires Q4_0 or Q6_K quantized models. The app manifest includes `libOpenCL.so` (required=false).
-- **Hexagon (NPU)**: Qualcomm SM8450+ (Snapdragon 8 Gen 1 or newer) with HTP. The app manifest includes `libcdsprpc.so` (required=false).
+- **OpenCL (GPU)**: Qualcomm Adreno 700+ devices. Requires **Q4_0 or Q6_K** quantized models.
+- **Hexagon (NPU)**: Qualcomm SM8450+ (Snapdragon 8 Gen 1 or newer) with HTP; app prefers `devices: ['HTP0']` when HTP is present.
+- Set GPU Layers (`n_gpu_layers`) > 0 in Model Settings. Emulators and non-allowlisted quants force CPU (`n_gpu_layers = 0`).
+- Runtime check uses `getBackendDevicesInfo()`; capable devices may allow up to 99 layers (capped by settings).
+- Manifest note: `AndroidManifest.xml` currently does **not** declare `uses-native-library` for `libOpenCL.so` / `libcdsprpc.so` — a comment notes llama.rn can still load them at runtime when present on device.
 
-Set GPU Layers (n_gpu_layers) > 0 in Model Settings for each model. The app performs a runtime device check via `getBackendDevicesInfo()` and automatically:
-- Prefers Hexagon NPU (`devices: ['HTP0']`) when HTP is available
-- Allows up to 99 GPU layers on capable devices (previously capped at 8)
-- Logs `gpu`, `reasonNoGPU`, and `devices` after model load for verification
-
-In DEV mode, use Diagnostics (long-press Settings title) → "Check acceleration" to see backend devices.
+In DEV mode, long-press Settings title → Diagnostics → "Check acceleration" to dump backend devices.
 
 #### iOS
 
@@ -494,6 +549,7 @@ In DEV mode, use Diagnostics (long-press Settings title) → "Check acceleration
 - Storage location: App's document directory
 - Models persist across app updates
 - Background download limitations apply (downloads pause when app backgrounds)
+- App-level acceleration service reports Android-only; Metal/GPU offload (when available) comes from llama.rn/llama.cpp defaults when `n_gpu_layers > 0`
 
 ### Error Handling
 
@@ -519,7 +575,7 @@ The application handles numerous edge cases to ensure robust operation:
 - **Invalid Model Files**: Corrupted files are detected and can be removed
 - **App Backgrounding**: Downloads pause when app goes to background (platform limitation)
 - **Memory Pressure**: Low memory situations handled with context release
-- **Network Interruption**: Download progress saved, can resume (future enhancement)
+- **Network Interruption**: Cancel removes partial downloads; true resume is not implemented yet
 - **Empty Conversations**: Empty message arrays are validated before processing
 - **Missing Context**: Model context validation before all operations
 - **Animation Conflicts**: Animation cancellation prevents overlapping animations
@@ -530,10 +586,12 @@ The application handles numerous edge cases to ensure robust operation:
 
 ### Security Considerations
 
-- Models are stored locally on device (no cloud storage)
+- Models are stored locally on device (no cloud storage of weights)
 - Chat history is stored locally (not synced to cloud)
-- No user data is transmitted to external servers (except HuggingFace for model downloads)
+- Inference never leaves the device
+- HuggingFace is contacted only for catalog/search and GGUF downloads
 - File system access is sandboxed per platform requirements
+- OCR uses on-device ML Kit (no cloud vision API)
 
 ## Troubleshooting
 
