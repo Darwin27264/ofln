@@ -2,8 +2,17 @@
 
 A React Native mobile application for running Large Language Models (LLMs) offline on mobile devices. The app enables users to download, manage, and interact with AI models locally without requiring an internet connection after initial setup.
 
+## Design system
+
+**UI/UX source of truth:** [`DESIGN.md`](./DESIGN.md)
+
+That file defines themes, colors, page transitions, animation timings, alerts/overlays, layout patterns, and portable design rules. Agents and contributors working on this repo should read it before changing look-and-feel.
+
+**Keep it current:** if you make a **significant design change** (tokens, motion, overlays, navigation chrome, typography, spacing language, or shared component look), update [`DESIGN.md`](./DESIGN.md) in the same change so the next agent inherits an accurate spec.
+
 ## Table of Contents
 
+- [Design system](#design-system)
 - [Architecture](#architecture)
 - [Project Structure](#project-structure)
 - [Key Features](#key-features)
@@ -14,6 +23,7 @@ A React Native mobile application for running Large Language Models (LLMs) offli
 - [Performance Optimizations](#performance-optimizations)
 - [Special Considerations](#special-considerations)
 - [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
 
 ## Architecture
 
@@ -769,4 +779,6 @@ npm run android:uninstall
 
 ## Contributing
 
-[Add contributing guidelines here]
+- Prefer focused PRs; match existing TypeScript / React Native patterns.
+- For visual or interaction work, follow [`DESIGN.md`](./DESIGN.md).
+- **Agents:** after any significant design change (themes/tokens, page transitions, animation durations, popups/overlays, shared layout chrome, typography, or spacing language), update [`DESIGN.md`](./DESIGN.md) in the same change so future agents keep a correct design source of truth.
