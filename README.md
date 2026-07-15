@@ -554,7 +554,7 @@ GPU/NPU acceleration is handled by llama.rn 0.12.x and gated in app code (`accel
 - Manifest note: `AndroidManifest.xml` currently does **not** declare `uses-native-library` for `libOpenCL.so` / `libcdsprpc.so` — a comment notes llama.rn can still load them at runtime when present on device.
 - **Gemma 4** GGUFs need llama.rn ≥ 0.12.5 (Gemma MTP / gemma4 architecture).
 
-In DEV mode, long-press Settings title → Diagnostics → "Check acceleration" to dump backend devices.
+In Diagnostics → **Check acceleration** to dump backend devices (Android).
 
 #### iOS
 

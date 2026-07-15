@@ -1,5 +1,5 @@
-// DiagnosticsScreen.tsx — error logs & environment diagnostics
-import React, { useEffect, useState } from "react";
+// DiagnosticsScreen.tsx — logs, acceleration check, and llama.rn smoke tests
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -12,20 +12,57 @@ import {
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import Clipboard from "@react-native-clipboard/clipboard";
+import { initLlama, getBackendDevicesInfo } from "llama.rn";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { getFullLogContent, getErrorLogPath, clearErrorLog } from "../utils/errorLogger";
 import { showAlert } from "../components/CustomAlert";
+import { getAccelerationConfig } from "../services/accelerationCapabilityService";
+import { checkFileExists } from "../services/llamaService";
+import { DEFAULT_SETTINGS } from "../services/modelSettingsService";
 
 interface Props {
   onBack: () => void;
+  /** Absolute path to a GGUF used by the smoke test (optional). */
+  modelPath: string | null;
 }
 
-export default function DiagnosticsScreen({ onBack }: Props) {
+function SectionLabel({ label, color }: { label: string; color: string }) {
+  return (
+    <Text
+      style={{
+        fontSize: 13,
+        fontWeight: "600",
+        color,
+        fontFamily: "Poppins",
+        marginBottom: 10,
+        marginTop: 8,
+        letterSpacing: 0.3,
+        textTransform: "uppercase",
+      }}
+    >
+      {label}
+    </Text>
+  );
+}
+
+export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
   const [errorLogVisible, setErrorLogVisible] = useState(false);
-  const [errorLogContent, setErrorLogContent] = useState<string>("");
+  const [errorLogContent, setErrorLogContent] = useState("");
+  const [testLogLines, setTestLogLines] = useState<string[]>([
+    "Results from acceleration and smoke tests appear here.",
+  ]);
+  const [running, setRunning] = useState(false);
+  const testScrollRef = useRef<ScrollView>(null);
+
+  const appendTestLog = (msg: string) => {
+    if (__DEV__) {
+      console.log("[ofln diagnostics]", msg);
+    }
+    setTestLogLines((prev) => [...prev, msg]);
+  };
 
   const handleViewLogs = async () => {
     try {
@@ -40,7 +77,7 @@ export default function DiagnosticsScreen({ onBack }: Props) {
   const handleClearErrorLog = () => {
     showAlert(
       "Clear Error Log",
-      "Are you sure you want to clear the error log?",
+      "Are you sure you want to clear the error log? This cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -79,6 +116,150 @@ export default function DiagnosticsScreen({ onBack }: Props) {
     );
   };
 
+  const runAccelCheck = async () => {
+    if (Platform.OS !== "android") {
+      appendTestLog("Acceleration check: Android only.");
+      return;
+    }
+    setTestLogLines((prev) => [...prev, "--- Acceleration check ---"]);
+    try {
+      const config = await getAccelerationConfig();
+      appendTestLog(config.summary);
+      const raw = await getBackendDevicesInfo();
+      raw.forEach((d, i) => appendTestLog(`  [${i}] ${d.deviceName} (${d.backend})`));
+    } catch (e) {
+      appendTestLog("Error: " + (e instanceof Error ? e.message : String(e)));
+    }
+  };
+
+  const runSmokeTest = async () => {
+    if (running || !modelPath) return;
+    setRunning(true);
+    setTestLogLines((prev) => [...prev, "--- Smoke test started ---"]);
+
+    try {
+      const exists = await checkFileExists(modelPath);
+      if (!exists) {
+        appendTestLog("Error: Model file not found at path.");
+        return;
+      }
+      appendTestLog("Model file found.");
+
+      const nCtx = 512;
+      const nGpuLayers = 0;
+
+      appendTestLog("Initializing context...");
+      let ctx = await initLlama({
+        model: modelPath,
+        use_mlock: false,
+        n_ctx: nCtx,
+        n_gpu_layers: nGpuLayers,
+      });
+      appendTestLog("Context created.");
+
+      const stopWords = ["</s>", "<|end|>", "<|im_end|>", "user:", "assistant:"];
+
+      let tokenCount = 0;
+      const stoppedRef = { current: false };
+      appendTestLog("Running first completion (will stop after 3 tokens)...");
+      const p1 = ctx.completion(
+        {
+          messages: [{ role: "user", content: "Reply with exactly one word: Hi." }],
+          n_predict: 30,
+          temperature: DEFAULT_SETTINGS.temperature,
+          top_p: DEFAULT_SETTINGS.top_p,
+          top_k: DEFAULT_SETTINGS.top_k,
+          stop: stopWords,
+        },
+        () => {
+          tokenCount++;
+          if (tokenCount >= 3 && !stoppedRef.current) {
+            stoppedRef.current = true;
+            ctx.stopCompletion();
+          }
+        },
+      );
+      await p1;
+      appendTestLog("Stopped after " + tokenCount + " token(s).");
+
+      appendTestLog("Running second completion (full)...");
+      await ctx.completion({
+        messages: [{ role: "user", content: "Reply with exactly one word: Bye." }],
+        n_predict: 20,
+        temperature: DEFAULT_SETTINGS.temperature,
+        top_p: DEFAULT_SETTINGS.top_p,
+        top_k: DEFAULT_SETTINGS.top_k,
+        stop: stopWords,
+      });
+      appendTestLog("Second completion done.");
+
+      await ctx.release();
+      appendTestLog("Context released.");
+
+      appendTestLog("Re-initializing context...");
+      ctx = await initLlama({
+        model: modelPath,
+        use_mlock: false,
+        n_ctx: nCtx,
+        n_gpu_layers: nGpuLayers,
+      });
+      appendTestLog("Running third completion...");
+      await ctx.completion({
+        messages: [{ role: "user", content: "Reply with exactly one word: Done." }],
+        n_predict: 20,
+        temperature: DEFAULT_SETTINGS.temperature,
+        top_p: DEFAULT_SETTINGS.top_p,
+        top_k: DEFAULT_SETTINGS.top_k,
+        stop: stopWords,
+      });
+      await ctx.release();
+      appendTestLog("Reload completion done. Smoke test passed.");
+    } catch (e) {
+      appendTestLog("Error: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setRunning(false);
+      setTestLogLines((prev) => [...prev, "--- Smoke test finished ---"]);
+    }
+  };
+
+  const confirmSmokeTest = () => {
+    if (running) return;
+
+    if (!modelPath) {
+      showAlert(
+        "No model available",
+        "Load or download a model first, then open Diagnostics again to run the smoke test.",
+        [{ text: "OK" }],
+      );
+      return;
+    }
+
+    showAlert(
+      "Run smoke test?",
+      "This can take a while — often one to several minutes, depending on the model and device.\n\nIt will:\n• Load the model into memory again\n• Run three short completions (stop mid-stream, full reply, reload)\n• Use extra RAM while it runs\n\nIf a chat model is already loaded, the app may get slow or unstable until the test finishes. Stay on this screen until it completes.\n\nOnly continue if you mean to debug.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Run anyway",
+          style: "destructive",
+          onPress: () => {
+            void runSmokeTest();
+          },
+        },
+      ],
+    );
+  };
+
+  const confirmAccelCheck = () => {
+    if (Platform.OS !== "android") {
+      showAlert("Android only", "Acceleration detection is only available on Android.", [
+        { text: "OK" },
+      ]);
+      return;
+    }
+    void runAccelCheck();
+  };
+
   useEffect(() => {
     if (!errorLogVisible || Platform.OS !== "android") return;
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -115,32 +296,37 @@ export default function DiagnosticsScreen({ onBack }: Props) {
             fontFamily: "Poppins",
           }}
         >
-          View app environment details and error logs when model loading or chat fails.
+          View error logs and run on-device checks when model loading or chat fails.
         </Text>
+
+        {/* 1. Logs */}
+        <SectionLabel label="Logs" color={theme.colors.textSecondary} />
 
         <TouchableOpacity
           onPress={handleViewLogs}
           style={{
             backgroundColor: theme.colors.card,
-            borderRadius: 12,
+            borderRadius: 14,
             borderWidth: 1,
             borderColor: theme.colors.border,
-            padding: 16,
+            paddingVertical: 22,
+            paddingHorizontal: 18,
             flexDirection: "row",
             alignItems: "center",
             marginBottom: 12,
+            minHeight: 88,
           }}
         >
           <Ionicons
             name="document-text-outline"
-            size={24}
+            size={30}
             color={theme.colors.text}
-            style={{ marginRight: 12 }}
+            style={{ marginRight: 14 }}
           />
           <View style={{ flex: 1 }}>
             <Text
               style={{
-                fontSize: 16,
+                fontSize: 18,
                 fontWeight: "600",
                 color: theme.colors.text,
                 fontFamily: "Poppins",
@@ -151,7 +337,7 @@ export default function DiagnosticsScreen({ onBack }: Props) {
             </Text>
             <Text
               style={{
-                fontSize: 12,
+                fontSize: 13,
                 color: theme.colors.textSecondary,
                 fontFamily: "Poppins",
               }}
@@ -159,10 +345,10 @@ export default function DiagnosticsScreen({ onBack }: Props) {
               App environment and error logs
             </Text>
           </View>
-          <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+          <Ionicons name="chevron-forward" size={22} color={theme.colors.textSecondary} />
         </TouchableOpacity>
 
-        <View style={{ flexDirection: "row", gap: 8 }}>
+        <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
           <TouchableOpacity
             onPress={handleCopyLogPath}
             style={{
@@ -214,6 +400,144 @@ export default function DiagnosticsScreen({ onBack }: Props) {
               Clear Log
             </Text>
           </TouchableOpacity>
+        </View>
+
+        {/* 2. Acceleration */}
+        <SectionLabel label="Acceleration" color={theme.colors.textSecondary} />
+
+        <TouchableOpacity
+          onPress={confirmAccelCheck}
+          style={{
+            backgroundColor: theme.colors.card,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            padding: 16,
+            flexDirection: "row",
+            alignItems: "center",
+            marginBottom: 20,
+            opacity: Platform.OS === "android" ? 1 : 0.55,
+          }}
+        >
+          <Ionicons
+            name="hardware-chip-outline"
+            size={24}
+            color={theme.colors.text}
+            style={{ marginRight: 12 }}
+          />
+          <View style={{ flex: 1 }}>
+            <Text
+              style={{
+                fontSize: 16,
+                fontWeight: "600",
+                color: theme.colors.text,
+                fontFamily: "Poppins",
+                marginBottom: 4,
+              }}
+            >
+              Check acceleration
+            </Text>
+            <Text
+              style={{
+                fontSize: 12,
+                color: theme.colors.textSecondary,
+                fontFamily: "Poppins",
+              }}
+            >
+              {Platform.OS === "android"
+                ? "OpenCL / Hexagon NPU detection"
+                : "Android only"}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+        </TouchableOpacity>
+
+        {/* 3. Smoke test */}
+        <SectionLabel label="Smoke test" color={theme.colors.textSecondary} />
+
+        <TouchableOpacity
+          onPress={confirmSmokeTest}
+          disabled={running}
+          style={{
+            backgroundColor: modelPath && !running ? theme.colors.card : theme.colors.surface,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            padding: 16,
+            flexDirection: "row",
+            alignItems: "center",
+            marginBottom: 20,
+            opacity: running ? 0.7 : 1,
+          }}
+        >
+          <Ionicons
+            name={running ? "hourglass-outline" : "play-circle-outline"}
+            size={24}
+            color={theme.colors.text}
+            style={{ marginRight: 12 }}
+          />
+          <View style={{ flex: 1 }}>
+            <Text
+              style={{
+                fontSize: 16,
+                fontWeight: "600",
+                color: theme.colors.text,
+                fontFamily: "Poppins",
+                marginBottom: 4,
+              }}
+            >
+              {running ? "Running…" : "Run llama.rn smoke test"}
+            </Text>
+            <Text
+              style={{
+                fontSize: 12,
+                color: theme.colors.textSecondary,
+                fontFamily: "Poppins",
+              }}
+            >
+              {modelPath
+                ? "Confirms first — may take several minutes"
+                : "Load a model first"}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+        </TouchableOpacity>
+
+        {/* 4. Live test output */}
+        <SectionLabel label="Test output" color={theme.colors.textSecondary} />
+
+        <View
+          style={{
+            backgroundColor: theme.colors.card,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            padding: 16,
+            minHeight: 140,
+            maxHeight: 280,
+          }}
+        >
+          <ScrollView
+            ref={testScrollRef}
+            nestedScrollEnabled
+            onContentSizeChange={() =>
+              testScrollRef.current?.scrollToEnd({ animated: true })
+            }
+          >
+            {testLogLines.map((line, i) => (
+              <Text
+                key={i}
+                style={{
+                  fontFamily: "monospace",
+                  fontSize: 12,
+                  color: theme.colors.text,
+                  marginBottom: 2,
+                }}
+              >
+                {line}
+              </Text>
+            ))}
+          </ScrollView>
         </View>
       </ScrollView>
 
@@ -315,17 +639,17 @@ export default function DiagnosticsScreen({ onBack }: Props) {
               onPress={handleCopyLogContent}
               style={{
                 flex: 1,
-                backgroundColor: theme.colors.primary + "22",
+                backgroundColor: theme.colors.surface,
                 borderRadius: 12,
                 padding: 12,
                 alignItems: "center",
               }}
             >
-              <Ionicons name="copy-outline" size={20} color={theme.colors.primary} />
+              <Ionicons name="copy-outline" size={20} color={theme.colors.text} />
               <Text
                 style={{
                   fontSize: 12,
-                  color: theme.colors.primary,
+                  color: theme.colors.text,
                   fontFamily: "Poppins",
                   marginTop: 4,
                 }}

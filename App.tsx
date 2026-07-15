@@ -40,7 +40,6 @@ import PersonaEditorScreen from "./src/screens/PersonaEditorScreen";
 import ModelSettingsScreen from "./src/screens/ModelSettingsScreen";
 import InfoScreen from "./src/screens/InfoScreen";
 import DiagnosticsScreen from "./src/screens/DiagnosticsScreen";
-import DevDiagnosticsScreen from "./src/screens/DevDiagnosticsScreen";
 import { Persona, getPersonas } from "./src/services/personaService";
 import { ModelInfo } from "./src/components/ModelCard";
 
@@ -117,7 +116,7 @@ function AppContent(): React.JSX.Element {
   const [userInput, setUserInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedGGUF, setSelectedGGUF] = useState<string | null>(null);
-  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "info" | "diagnostics" | "devDiagnostics";
+  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "info" | "diagnostics";
   const [currentPage, setCurrentPage] = useState<PageType>("conversation");
   const [editingPersona, setEditingPersona] = useState<Persona | null | undefined>(undefined);
   const [selectedModelForSettings, setSelectedModelForSettings] = useState<ModelInfo | null>(null);
@@ -485,7 +484,6 @@ function AppContent(): React.JSX.Element {
           onGoToPersonas={() => setCurrentPage("personas")}
           onGoToInfo={() => setCurrentPage("info")}
           onGoToDiagnostics={() => setCurrentPage("diagnostics")}
-          onOpenDevDiagnostics={__DEV__ ? () => setCurrentPage("devDiagnostics") : undefined}
           />
         </PageFadeIn>
       )}
@@ -493,14 +491,6 @@ function AppContent(): React.JSX.Element {
       {currentPage === "diagnostics" && (
         <PageFadeIn key="diagnostics">
           <DiagnosticsScreen
-            onBack={() => setCurrentPage("settings")}
-          />
-        </PageFadeIn>
-      )}
-
-      {__DEV__ && currentPage === "devDiagnostics" && (
-        <PageFadeIn key="devDiagnostics">
-          <DevDiagnosticsScreen
             onBack={() => setCurrentPage("settings")}
             modelPath={
               selectedGGUF

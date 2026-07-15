@@ -1,6 +1,6 @@
 // SettingsScreen.tsx
 import React, { useRef, useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, Pressable, Animated, Easing } from "react-native";
+import { View, Text, TouchableOpacity, Animated, Easing } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
@@ -17,8 +17,6 @@ interface Props {
   onGoToPersonas: () => void;
   onGoToInfo: () => void;
   onGoToDiagnostics: () => void;
-  /** DEV-only: open llama smoke-test (long-press on Settings title) */
-  onOpenDevDiagnostics?: () => void;
 }
 
 export default function SettingsScreen({
@@ -30,7 +28,6 @@ export default function SettingsScreen({
   onGoToPersonas,
   onGoToInfo,
   onGoToDiagnostics,
-  onOpenDevDiagnostics,
 }: Props) {
   const { theme, toggleTheme, isDark, isTransitioning } = useTheme();
   const styles = createStyles(theme.colors);
@@ -163,17 +160,7 @@ export default function SettingsScreen({
         }
       ]}
     >
-      {__DEV__ && onOpenDevDiagnostics ? (
-        <Pressable
-          onLongPress={onOpenDevDiagnostics}
-          delayLongPress={600}
-          style={{ marginBottom: 40 }}
-        >
-          <Text style={[styles.settingsTitle]}>Settings</Text>
-        </Pressable>
-      ) : (
-        <Text style={[styles.settingsTitle, { marginBottom: 40 }]}>Settings</Text>
-      )}
+      <Text style={[styles.settingsTitle, { marginBottom: 40 }]}>Settings</Text>
       <View style={{ marginBottom: 0 }}>
         <View style={{ flexDirection: "row", marginBottom: 10, height: 145 }}>
           <TouchableOpacity style={{ flex: 1, marginRight: 5 }} onPress={onOpenStats}>
