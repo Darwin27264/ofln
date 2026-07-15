@@ -16,7 +16,6 @@
  */
 
 import RNFS from 'react-native-fs';
-import { Platform } from 'react-native';
 import type {
   ChatMessage,
   MessageAttachment,
@@ -26,6 +25,10 @@ import type {
   AIMessage,
   FormattedVisionMessage,
 } from '../types/ai';
+import {
+  normalizeMediaToFile,
+  cleanupNormalizedMedia,
+} from './mediaNormalizeService';
 
 // ── Model Detection ────────────────────────────────────────────────────────────
 
@@ -33,8 +36,8 @@ import type {
  * Patterns for models whose message format accepts images via a Qwen-VL
  * -compatible schema (`{ type: 'image', image: base64 }` content parts).
  *
- * Excluded on purpose (as of llama.rn 0.11.2):
- *   • Gemma 3 4B and Gemma 3n E2B/E4B — capable of vision but require a
+ * Excluded on purpose (as of llama.rn 0.12.x):
+ *   • Gemma 3 / Gemma 3n / Gemma 4 — capable of vision but require a
  *     separate mmproj projector file which the app's downloader does not
  *     yet fetch. Attempting to send images through Qwen's content-part
  *     schema would corrupt the chat template. These models fall back
@@ -77,25 +80,15 @@ export function isQwen35Model(modelName: string): boolean {
 
 /**
  * Read a local image file and return its base64 representation.
- * Handles file://, content:// (Android), and bare paths.
+ * Handles file://, content:// (Android), and bare paths via mediaNormalizeService.
  */
 export async function imageToBase64(uri: string): Promise<string> {
-  const trimmed = uri.trim();
-
-  // Android content:// URIs: copy to a temp file first because
-  // RNFS.readFile doesn't reliably support content:// for base64.
-  if (Platform.OS === 'android' && trimmed.startsWith('content://')) {
-    const tempPath = `${RNFS.CachesDirectoryPath}/vision_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    await RNFS.copyFile(trimmed, tempPath);
-    try {
-      return await RNFS.readFile(tempPath, 'base64');
-    } finally {
-      RNFS.unlink(tempPath).catch(() => {});
-    }
+  const media = await normalizeMediaToFile(uri);
+  try {
+    return await RNFS.readFile(media.path, 'base64');
+  } finally {
+    await cleanupNormalizedMedia(media);
   }
-
-  const path = trimmed.startsWith('file://') ? trimmed.replace('file://', '') : trimmed;
-  return RNFS.readFile(path, 'base64');
 }
 
 /**

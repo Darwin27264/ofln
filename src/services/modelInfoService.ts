@@ -13,7 +13,11 @@ export const getModelInfo = async (modelUri: string): Promise<LlamaModelInfo> =>
     const info = await loadLlamaModelInfo(modelUri);
     if (__DEV__) {
       // eslint-disable-next-line no-console
-      console.log("[ModelInfo] Loaded model info", { modelUri, info });
+      const keys =
+        info && typeof info === "object"
+          ? Object.keys(info as Record<string, unknown>).slice(0, 12)
+          : [];
+      console.log("[ModelInfo] Loaded model info", { modelUri, keys });
     }
     return info;
   } catch (error) {

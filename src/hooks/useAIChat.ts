@@ -55,6 +55,8 @@ export interface UseAIChatOptions {
    * or when enable_thinking / reasoning_format are needed.
    */
   useNativeCompletion?: boolean;
+  /** Called when send is blocked because no model is loaded. */
+  onModelNotReady?: () => void;
 }
 
 export interface UseAIChatReturn {
@@ -91,6 +93,15 @@ const SYSTEM_MESSAGE: ChatMessage = {
   content: 'This is a conversation between user and assistant, a friendly chatbot.',
 };
 
+function tokensPerSecondFromMessages(messages: ChatMessage[]): number[] {
+  return messages
+    .filter(
+      (m): m is ChatMessage & { tokensPerSecond: number } =>
+        m.role === 'assistant' && typeof m.tokensPerSecond === 'number',
+    )
+    .map((m) => m.tokensPerSecond);
+}
+
 // ── Hook Implementation ────────────────────────────────────────────────────────
 
 export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
@@ -102,6 +113,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     onChatIdChange,
     scrollViewRef,
     useNativeCompletion: preferNative = false,
+    onModelNotReady,
   } = options;
 
   // State
@@ -138,12 +150,22 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     return llamaProvider.subscribe(setModelStatus);
   }, []);
 
-  // Sync initialMessages when they change externally (e.g. loading from history)
+  // Sync messages from parent only when the chat identity changes (history load /
+  // new chat). Syncing on every `initialMessages` reference change races with
+  // ConversationScreen writing `aiChat.messages` back into `conversation` and
+  // triggers "Maximum update depth exceeded".
+  const lastSyncedChatIdRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (initialMessages) {
-      setMessages(initialMessages);
+    const chatKey = externalChatId ?? null;
+    if (lastSyncedChatIdRef.current === chatKey) {
+      return;
     }
-  }, [initialMessages]);
+    lastSyncedChatIdRef.current = chatKey;
+    if (initialMessages && initialMessages.length > 0) {
+      setMessages(initialMessages);
+      setTokensPerSecond(tokensPerSecondFromMessages(initialMessages));
+    }
+  }, [externalChatId, initialMessages]);
 
   // ── Auto-scroll helper ──────────────────────────────────────────────────
 
@@ -202,11 +224,22 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
 
   const handleSubmit = useCallback(
     async (sendOptions?: SendOptions) => {
-      const hasAttachments = sendOptions?.attachments && sendOptions.attachments.length > 0;
-      if (!hasAttachments && !input.trim()) return;
+      const hasAttachments = !!(sendOptions?.attachments && sendOptions.attachments.length > 0);
+      // Prefer explicit text — ConversationScreen owns userInput and setInput is async.
+      const typed =
+        (typeof sendOptions?.text === 'string' ? sendOptions.text : input).trim();
+      if (!hasAttachments && !typed) return;
 
-      if (!llamaProvider.isReady()) {
+      const noModelSelected = !modelName || modelName === 'unknown';
+      if (!llamaProvider.isReady() || noModelSelected) {
+        onModelNotReady?.();
         setError(new Error('Model not loaded'));
+        if (__DEV__) {
+          console.warn('[useAIChat] handleSubmit blocked: model not ready', {
+            status: llamaProvider.getStatus(),
+            modelName,
+          });
+        }
         return;
       }
 
@@ -215,7 +248,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
       setIsGenerating(true);
       setCurrentThought('');
 
-      const displayContent = input.trim() || (hasAttachments ? '(Image attached)' : '');
+      const displayContent = typed || (hasAttachments ? '(Image attached)' : '');
 
       // Add user message to conversation
       const userMessage: ChatMessage = {
@@ -243,7 +276,9 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
           // Native llama.rn completion path
           const nativeContext = llamaProvider.getNativeContext();
           if (!nativeContext) {
-            throw new Error('Native context not available');
+            throw new Error(
+              'Native context not available. Try switching the model off and on again.',
+            );
           }
 
           const settings = await getModelSettings(modelName).catch(() => DEFAULT_SETTINGS);
@@ -292,13 +327,22 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
           );
 
           // Finalise assistant message
+          const finalText =
+            result.text.trim().length > 0
+              ? result.text
+              : result.thought
+                ? ""
+                : "(No response from model. Try sending again.)";
           setMessages((prev) => {
             const updated = [...prev];
             const last = updated[updated.length - 1];
             updated[updated.length - 1] = {
               ...last,
-              content: result.text,
+              content: finalText,
               thought: result.thought || last.thought,
+              // Auto-expand thinking when the bubble would otherwise be empty.
+              showThought: !!(result.thought && !finalText.trim()),
+              tokensPerSecond: result.tokensPerSecond,
             };
             return updated;
           });
@@ -307,7 +351,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
           const { result, abort } = streamChat(
             {
               messages: messagesRef.current,
-              userInput: input,
+              userInput: displayContent,
               modelName,
               persona,
               sendOptions,
@@ -333,13 +377,21 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
           const completionResult = await result;
 
           // Finalise assistant message
+          const streamText =
+            completionResult.text.trim().length > 0
+              ? completionResult.text
+              : completionResult.thought
+                ? ""
+                : "(No response from model. Try sending again.)";
           setMessages((prev) => {
             const updated = [...prev];
             const last = updated[updated.length - 1];
             updated[updated.length - 1] = {
               ...last,
-              content: completionResult.text,
+              content: streamText,
               thought: completionResult.thought || last.thought,
+              showThought: !!(completionResult.thought && !streamText.trim()),
+              tokensPerSecond: completionResult.tokensPerSecond,
             };
             return updated;
           });
@@ -383,7 +435,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
         abortRef.current = null;
       }
     },
-    [input, messages, modelName, persona, scrollToEnd, onChatIdChange, preferNative],
+    [input, messages, modelName, persona, scrollToEnd, onChatIdChange, preferNative, onModelNotReady],
   );
 
   // ── Stop generation ─────────────────────────────────────────────────────

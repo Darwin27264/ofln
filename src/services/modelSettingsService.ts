@@ -14,7 +14,11 @@ export interface ModelSettings {
 }
 
 export const DEFAULT_SETTINGS: ModelSettings = {
-  systemPrompt: "You are a helpful assistant. Keep responses concise and focused — match the length of your reply to the complexity of the question. Avoid repeating information already given in the conversation.",
+  systemPrompt:
+    "You are a helpful assistant. " +
+    "For simple questions, reply in 1–3 short sentences with the answer only. " +
+    "Never write chain-of-thought, planning, or phrases like \"Thinking in English\", \"I need to\", or \"Wait,\". " +
+    "Do not repeat facts already given in this conversation.",
   n_ctx: 2048, // Enough headroom for multi-turn chats without overflow
   n_gpu_layers: 1,
   temperature: 0.65, // Recommended for Q4 models

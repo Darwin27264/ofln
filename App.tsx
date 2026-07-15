@@ -40,6 +40,7 @@ import PersonaEditorScreen from "./src/screens/PersonaEditorScreen";
 import ModelSettingsScreen from "./src/screens/ModelSettingsScreen";
 import InfoScreen from "./src/screens/InfoScreen";
 import DiagnosticsScreen from "./src/screens/DiagnosticsScreen";
+import DevDiagnosticsScreen from "./src/screens/DevDiagnosticsScreen";
 import { Persona, getPersonas } from "./src/services/personaService";
 import { ModelInfo } from "./src/components/ModelCard";
 
@@ -62,8 +63,18 @@ type Message = {
   content: string;
   thought?: string;
   showThought?: boolean;
+  tokensPerSecond?: number;
   attachments?: Array<{ type: "image"; uri: string; width?: number; height?: number; fileName?: string }>;
 };
+
+function tokensPerSecondFromMessages(messages: Message[]): number[] {
+  return messages
+    .filter(
+      (m): m is Message & { tokensPerSecond: number } =>
+        m.role === "assistant" && typeof m.tokensPerSecond === "number",
+    )
+    .map((m) => m.tokensPerSecond);
+}
 
 function AppContent(): React.JSX.Element {
   const { theme } = useTheme();
@@ -106,7 +117,7 @@ function AppContent(): React.JSX.Element {
   const [userInput, setUserInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedGGUF, setSelectedGGUF] = useState<string | null>(null);
-  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "info" | "diagnostics";
+  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "info" | "diagnostics" | "devDiagnostics";
   const [currentPage, setCurrentPage] = useState<PageType>("conversation");
   const [editingPersona, setEditingPersona] = useState<Persona | null | undefined>(undefined);
   const [selectedModelForSettings, setSelectedModelForSettings] = useState<ModelInfo | null>(null);
@@ -427,7 +438,7 @@ function AppContent(): React.JSX.Element {
     
     setConversation(messages);
     setCurrentChatId(chatId);
-    setTokensPerSecond([]); // Reset tokens per second for new chat
+    setTokensPerSecond(tokensPerSecondFromMessages(messages));
     setCurrentPage("conversation");
   }, []);
 
@@ -634,17 +645,29 @@ function AppContent(): React.JSX.Element {
           onGoToModelSelection={() => setCurrentPage("modelSelection")}
           onGoToPersonas={() => setCurrentPage("personas")}
           onGoToInfo={() => setCurrentPage("info")}
-          onOpenDiagnostics={__DEV__ ? () => setCurrentPage("diagnostics") : undefined}
+          onGoToDiagnostics={() => setCurrentPage("diagnostics")}
+          onOpenDevDiagnostics={__DEV__ ? () => setCurrentPage("devDiagnostics") : undefined}
           />
         </Animated.View>
       )}
 
-      {__DEV__ && currentPage === "diagnostics" && (
+      {currentPage === "diagnostics" && (
         <Animated.View 
           style={[{ flex: 1 }, pageTransitionStyle]}
           collapsable={false}
         >
           <DiagnosticsScreen
+            onBack={() => setCurrentPage("settings")}
+          />
+        </Animated.View>
+      )}
+
+      {__DEV__ && currentPage === "devDiagnostics" && (
+        <Animated.View 
+          style={[{ flex: 1 }, pageTransitionStyle]}
+          collapsable={false}
+        >
+          <DevDiagnosticsScreen
             onBack={() => setCurrentPage("settings")}
             modelPath={
               selectedGGUF

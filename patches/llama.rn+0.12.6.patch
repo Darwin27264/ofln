@@ -1,0 +1,98 @@
+diff --git a/node_modules/llama.rn/android/src/main/rnllama/CMakeLists.txt b/node_modules/llama.rn/android/src/main/rnllama/CMakeLists.txt
+index a0843c6..44ff9e4 100644
+--- a/node_modules/llama.rn/android/src/main/rnllama/CMakeLists.txt
++++ b/node_modules/llama.rn/android/src/main/rnllama/CMakeLists.txt
+@@ -5,6 +5,10 @@ project(rnllama)
+ option(HEXAGON_SDK_ROOT "Hexagon SDK root directory" OFF)
+ option(HEXAGON_TOOLS_ROOT "Hexagon SDK toolchain directory" OFF)
+ 
++# Android CMake often cannot resolve Python from PATH; allow explicit override.
++if(DEFINED ENV{Python3_EXECUTABLE} AND EXISTS "$ENV{Python3_EXECUTABLE}")
++  set(Python3_EXECUTABLE "$ENV{Python3_EXECUTABLE}" CACHE FILEPATH "Python3 interpreter" FORCE)
++endif()
+ find_package(Python3 REQUIRED)
+ set(CMAKE_CXX_STANDARD 17)
+ # Use CMAKE_CURRENT_SOURCE_DIR to work correctly both standalone and as subdirectory
+diff --git a/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp b/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp
+index abd3f10..fd535b9 100644
+--- a/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp
++++ b/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp
+@@ -273,15 +273,48 @@ namespace rnllama_jsi {
+         model.setProperty(runtime, "is_recurrent", llama_model_is_recurrent(ctx->model));
+         model.setProperty(runtime, "is_hybrid", llama_model_is_hybrid(ctx->model));
+ 
+-        // Metadata
++        // Metadata — skip oversized fields. Qwen3.5+ chat_template / tokenizer tables
++        // exceed the old 16KB stack buffer; truncating mid-UTF-8 makes
++        // jsi::String::createFromUtf8 throw → JS sees Error("Unknown error")
++        // even though loadModel already succeeded.
+         jsi::Object metadata(runtime);
+         int metaCount = llama_model_meta_count(ctx->model);
+         for (int i = 0; i < metaCount; ++i) {
+             char key[256];
+             llama_model_meta_key_by_index(ctx->model, i, key, sizeof(key));
+-            char val[16384];
+-            llama_model_meta_val_str_by_index(ctx->model, i, val, sizeof(val));
+-            metadata.setProperty(runtime, key, jsi::String::createFromUtf8(runtime, val));
++            std::string keyStr(key);
++            if (
++                keyStr.find("tokenizer.ggml.tokens") != std::string::npos ||
++                keyStr.find("tokenizer.ggml.token_type") != std::string::npos ||
++                keyStr.find("tokenizer.ggml.merges") != std::string::npos ||
++                keyStr.find("tokenizer.ggml.scores") != std::string::npos ||
++                keyStr.find("chat_template") != std::string::npos
++            ) {
++                continue;
++            }
++
++            // Probe required length (API returns needed size when buf is too small /
++            // or the written length). Allocate on heap for safety.
++            int32_t needed = llama_model_meta_val_str_by_index(ctx->model, i, nullptr, 0);
++            size_t bufSize = 4096;
++            if (needed > 0) {
++                bufSize = (size_t)needed + 1;
++            } else if (needed < 0) {
++                bufSize = (size_t)(-needed) + 1;
++            }
++            // Cap individual metadata values exposed to JS
++            if (bufSize > 65536) {
++                continue;
++            }
++
++            std::vector<char> val(bufSize, 0);
++            llama_model_meta_val_str_by_index(ctx->model, i, val.data(), val.size());
++            try {
++                metadata.setProperty(runtime, key, jsi::String::createFromUtf8(runtime, val.data()));
++            } catch (...) {
++                // Skip invalid UTF-8 / non-stringifiable values rather than failing init
++                continue;
++            }
+         }
+         model.setProperty(runtime, "metadata", metadata);
+ 
+@@ -628,12 +661,19 @@ namespace rnllama_jsi {
+                              result.setProperty(rt, "reasonNoGPU", jsi::String::createFromUtf8(rt, reasonNoGPU));
+                              result.setProperty(rt, "systemInfo", jsi::String::createFromUtf8(rt, system_info));
+ 
+-                             // Model metadata and chat template capabilities
+-                             long ctxPtr = g_llamaContexts.get(contextId);
+-                             if (ctxPtr) {
+-                                 auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
+-                                 result.setProperty(rt, "model", createModelDetails(rt, ctx));
+-                             }
++                                // Model metadata and chat template capabilities
++                                long ctxPtr = g_llamaContexts.get(contextId);
++                                if (ctxPtr) {
++                                    auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
++                                    try {
++                                        result.setProperty(rt, "model", createModelDetails(rt, ctx));
++                                    } catch (...) {
++                                        // Never fail init after a successful loadModel because
++                                        // metadata marshalling threw (e.g. huge/invalid UTF-8).
++                                        jsi::Object minimal(rt);
++                                        result.setProperty(rt, "model", minimal);
++                                    }
++                                }
+ 
+                              // Maintain shape expected by TypeScript
+                              result.setProperty(rt, "devices", toJsStringArray(rt, usedDevices));

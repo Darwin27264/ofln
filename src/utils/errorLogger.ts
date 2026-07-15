@@ -238,8 +238,13 @@ export const logError = async (
     await RNFS.appendFile(errorLogFile, logEntry, "utf8");
     
     // Also log to console for immediate visibility
-    console.error(`[${category}] ${message}`, error || "");
-    
+    if (level === "ERROR") {
+      console.error(`[${category}] ${message}`, error || "");
+    } else if (level === "WARN") {
+      console.warn(`[${category}] ${message}`, error || context || "");
+    } else {
+      console.log(`[${category}] ${message}`, context || "");
+    }    
     // Keep log file size manageable (max 1MB, keep last 1000 lines)
     try {
       const fileExists = await RNFS.exists(errorLogFile);

@@ -64,6 +64,7 @@ import { useKeyboardPadding } from "../hooks/useKeyboardPadding";
 import { Persona, getPersonas } from "../services/personaService";
 import { ANIMATION_CONFIG, EASING, ANIMATION_DURATIONS } from "../utils/animationConfig";
 import { extractTextFromImage } from "../services/ocrService";
+import { IMAGE_PICKER_OPTIONS, cleanupStaleMediaTemps } from "../services/mediaNormalizeService";
 import { useAIChat } from "../hooks/useAIChat";
 import { llamaProvider } from "../providers/llamaProvider";
 
@@ -80,6 +81,7 @@ type Message = {
   content: string;
   thought?: string;
   showThought?: boolean;
+  tokensPerSecond?: number;
   attachments?: MessageAttachment[];
 };
 
@@ -708,6 +710,14 @@ export default function ConversationScreen({
   const [selectorTab, setSelectorTab] = useState<"models" | "personas">("models");
   const [availablePersonas, setAvailablePersonas] = useState<Persona[]>([]);
 
+  const warnModelNotLoaded = useCallback(() => {
+    showAlert(
+      'No model loaded',
+      'Select and load a model before sending messages. Tap the model name at the top of the chat to choose one.',
+      [{ text: 'OK' }],
+    );
+  }, []);
+
   // New backend: useAIChat + llamaProvider (on-device streaming).
   // We keep the UI state props as-is and sync them to the hook so the rest
   // of this screen can remain largely unchanged.
@@ -721,36 +731,64 @@ export default function ConversationScreen({
     // Prefer the native completion path for best parity with the legacy flow
     // (thinking/reasoning params, stopCompletion behavior).
     useNativeCompletion: true,
+    onModelNotReady: warnModelNotLoaded,
   });
 
-  // Ensure the AI backend model is loaded when the selected model changes.
-  // Also release the legacy llama.rn context to avoid double-loading RAM.
+  // Load via llamaProvider when the selected model file changes.
+  // IMPORTANT: do NOT depend on modelStatus / legacy context — those change
+  // during loadModel and previously caused an infinite unload→reload loop
+  // that froze the UI right after the "Model loaded" toast.
+  const autoLoadInFlightRef = useRef<string | null>(null);
+  const lastAutoLoadedRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!selectedGGUF) return;
 
     const modelPath = `${RNFS.DocumentDirectoryPath}/${selectedGGUF}`;
-    const alreadyReady =
-      aiChat.modelStatus.state === "ready" && aiChat.modelStatus.modelPath === modelPath;
-    if (alreadyReady) return;
+    const status = llamaProvider.getStatus();
+    if (
+      (lastAutoLoadedRef.current === modelPath && llamaProvider.isReady()) ||
+      (status.state === "ready" && status.modelPath === modelPath)
+    ) {
+      lastAutoLoadedRef.current = modelPath;
+      return;
+    }
+    if (autoLoadInFlightRef.current === modelPath) {
+      return;
+    }
 
     let cancelled = false;
+    autoLoadInFlightRef.current = modelPath;
+
     (async () => {
       try {
         setIsLoadingModel(true);
         setLoadingModelFile(selectedGGUF);
 
-        // Drop legacy context (if present) to avoid double memory use.
-        if (context && typeof context.release === "function") {
+        // Drop any leftover legacy llama.rn context so we don't hold two models.
+        // Read via provider / prop snapshot — do not put `context` in effect deps.
+        const legacy = context;
+        if (legacy && typeof legacy.release === "function") {
           try {
-            context.release();
+            legacy.release();
           } catch {
             // Ignore: legacy context release can fail on some devices
           }
-          setContext(null);
+          if (!cancelled) setContext(null);
         }
 
-        await llamaProvider.loadModel({ modelPath });
+        const ok = await llamaProvider.loadModel({ modelPath });
+        if (cancelled) return;
+
+        if (ok) {
+          lastAutoLoadedRef.current = modelPath;
+          // Keep legacy `context` prop in sync for send-guards that still check it.
+          setContext(llamaProvider.getNativeContext());
+        }
       } finally {
+        if (autoLoadInFlightRef.current === modelPath) {
+          autoLoadInFlightRef.current = null;
+        }
         if (!cancelled) {
           setIsLoadingModel(false);
           setLoadingModelFile(null);
@@ -761,20 +799,22 @@ export default function ConversationScreen({
     return () => {
       cancelled = true;
     };
-  }, [
-    selectedGGUF,
-    context,
-    setContext,
-    aiChat.modelStatus.modelPath,
-    aiChat.modelStatus.state,
-    setIsLoadingModel,
-    setLoadingModelFile,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only selectedGGUF should (re)load
+  }, [selectedGGUF]);
 
   // Sync hook state back into the legacy props so existing UI logic keeps working.
   useEffect(() => {
     setConversation(aiChat.messages as any);
-  }, [aiChat.messages, setConversation]);
+    const fromMessages = (aiChat.messages as Message[])
+      .filter(
+        (m): m is Message & { tokensPerSecond: number } =>
+          m.role === 'assistant' && typeof m.tokensPerSecond === 'number',
+      )
+      .map((m) => m.tokensPerSecond);
+    if (fromMessages.length > 0) {
+      setTokensPerSecond(fromMessages);
+    }
+  }, [aiChat.messages, setConversation, setTokensPerSecond]);
 
   useEffect(() => {
     if (userInput !== aiChat.input) {
@@ -789,10 +829,6 @@ export default function ConversationScreen({
   useEffect(() => {
     setIsGenerating(aiChat.isGenerating);
   }, [aiChat.isGenerating, setIsGenerating]);
-
-  useEffect(() => {
-    setTokensPerSecond(aiChat.tokensPerSecond);
-  }, [aiChat.tokensPerSecond, setTokensPerSecond]);
 
   // Pending image attachment (local state only until send)
   type PendingAttachment = {
@@ -1449,17 +1485,17 @@ export default function ConversationScreen({
    * - Scroll to bottom after sending
    */
   const handleSendMessage = useCallback(async () => {
-    // Validate model is loaded
-    if (!context) {
-      showToast("Model not loaded. Please load the model first.");
+    if (!llamaProvider.isReady() || !selectedGGUF) {
+      warnModelNotLoaded();
       return;
     }
-    
+
+    const displayContent = userInput.trim();
     // Validate: need either text or an attachment
-    if (!userInput.trim() && !pendingAttachment) {
+    if (!displayContent && !pendingAttachment) {
       return;
     }
-    
+
     // Animate send icon for visual feedback
     Animated.sequence([
       Animated.timing(scaleAnim, {
@@ -1475,9 +1511,17 @@ export default function ConversationScreen({
         easing: EASING.STANDARD,
       }),
     ]).start(async () => {
+      if (!llamaProvider.isReady() || !selectedGGUF) {
+        warnModelNotLoaded();
+        return;
+      }
+
       try {
-        const displayContent = userInput.trim();
-        let sendOptions: { textForPrompt?: string; attachments?: MessageAttachment[] } | undefined;
+        let sendOptions: {
+          text: string;
+          textForPrompt?: string;
+          attachments?: MessageAttachment[];
+        } = { text: displayContent };
 
         if (pendingAttachment) {
           setIsOcrRunning(true);
@@ -1500,11 +1544,12 @@ export default function ConversationScreen({
                 fileName: pendingAttachment.fileName,
               },
             ];
-            sendOptions = { textForPrompt, attachments };
+            sendOptions = { text: displayContent, textForPrompt, attachments };
           } catch (ocrErr) {
             if (__DEV__) console.warn("OCR error:", ocrErr);
             showToast("Could not read text from image. Sending image anyway.");
             sendOptions = {
+              text: displayContent,
               textForPrompt:
                 "[Attached Image]\n(No text detected.)\n\n[User]\n" +
                 (displayContent || "(No additional text)"),
@@ -1524,21 +1569,30 @@ export default function ConversationScreen({
           setPendingAttachment(null);
         }
 
-        // Keep hook input in sync just before submit to avoid stale value races.
-        aiChat.setInput(displayContent);
-        // Submit via the new backend. The hook will create the user message
-        // + assistant placeholder and stream tokens into the last message.
-        await aiChat.handleSubmit(sendOptions as any);
-        // Scroll to bottom after message is sent
+        // Clear the input bar immediately; pass text explicitly so submit
+        // does not depend on async aiChat.setInput (that race was a silent no-op).
+        setUserInput("");
+        aiChat.setInput("");
+        await aiChat.handleSubmit(sendOptions);
         requestAnimationFrame(() => {
           scrollViewRef.current?.scrollToEnd({ animated: true });
         });
       } catch (error) {
-        console.error('Error sending message:', error);
-        showToast('Failed to send message. Please try again.');
+        console.error("Error sending message:", error);
+        showToast("Failed to send message. Please try again.");
       }
     });
-  }, [context, userInput, conversation, pendingAttachment, handleSendMessageCompletion, showToast, scaleAnim]);
+  }, [
+    selectedGGUF,
+    userInput,
+    pendingAttachment,
+    showToast,
+    warnModelNotLoaded,
+    scaleAnim,
+    aiChat.handleSubmit,
+    aiChat.setInput,
+    setUserInput,
+  ]);
 
   /**
    * Handle scroll events to determine if auto-scroll should be enabled
@@ -1645,7 +1699,7 @@ export default function ConversationScreen({
   const choosePhoto = useCallback(async () => {
     try {
       const result = await launchImageLibrary({
-        mediaType: "photo",
+        ...IMAGE_PICKER_OPTIONS,
         selectionLimit: 1,
       });
       if (result.didCancel || !result.assets?.[0]) return;
@@ -1655,10 +1709,11 @@ export default function ConversationScreen({
       setPendingAttachment({
         uri,
         fileName: asset.fileName,
-        type: asset.type,
+        type: asset.type || 'image/jpeg',
         width: asset.width,
         height: asset.height,
       });
+      void cleanupStaleMediaTemps();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const needsRebuild = /null|not found|undefined/i.test(msg);
@@ -1691,7 +1746,7 @@ export default function ConversationScreen({
         }
       }
       const result = await launchCamera({
-        mediaType: "photo",
+        ...IMAGE_PICKER_OPTIONS,
         saveToPhotos: false,
       });
       if (result.didCancel || !result.assets?.[0]) return;
@@ -1701,10 +1756,11 @@ export default function ConversationScreen({
       setPendingAttachment({
         uri,
         fileName: asset.fileName,
-        type: asset.type,
+        type: asset.type || 'image/jpeg',
         width: asset.width,
         height: asset.height,
       });
+      void cleanupStaleMediaTemps();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const needsRebuild = /null|not found|undefined/i.test(msg);
@@ -1782,7 +1838,7 @@ export default function ConversationScreen({
     setLoadingModelFile(null);
   }, [isLoadingModel]);
 
-  // Handle model switching
+  // Handle model switching — single path through llamaProvider (no legacy+provider double load).
   const handleModelSwitch = useCallback(async (modelFile: string) => {
     if (isGenerating) {
       showAlert(
@@ -1792,32 +1848,30 @@ export default function ConversationScreen({
       );
       return;
     }
-    
+
     setIsLoadingModel(true);
     setLoadingModelFile(modelFile);
-    // Don't close the panel - keep it open to show loading
-    
+
     try {
       const modelPath = `${RNFS.DocumentDirectoryPath}/${modelFile}`;
-      const success = await loadModel(modelPath, context, setContext);
+      const success = await llamaProvider.loadModel({ modelPath });
       if (success) {
+        lastAutoLoadedRef.current = modelPath;
         setSelectedGGUF(modelFile);
+        setContext(llamaProvider.getNativeContext());
         showToast("Model loaded");
         await checkDownloadedModels();
-        setIsLoadingModel(false);
-        setLoadingModelFile(null);
       } else {
         showToast("Failed to load the model");
-        setIsLoadingModel(false);
-        setLoadingModelFile(null);
       }
     } catch (error) {
       console.error("Error switching model:", error);
       showToast("Failed to switch model");
+    } finally {
       setIsLoadingModel(false);
       setLoadingModelFile(null);
     }
-  }, [isGenerating, context, loadModel, setContext, setSelectedGGUF, checkDownloadedModels, showToast, closeModelSelector]);
+  }, [isGenerating, setContext, setSelectedGGUF, checkDownloadedModels, showToast]);
 
 
   // Handle Android back button
@@ -1836,8 +1890,8 @@ export default function ConversationScreen({
 
   // Regenerate assistant message
   const handleRegenerateMessage = useCallback(async (messageIndex: number) => {
-    if (!context) {
-      showToast("Model not loaded. Please load the model first.");
+    if (!llamaProvider.isReady() || !selectedGGUF) {
+      warnModelNotLoaded();
       return;
     }
 
@@ -1883,18 +1937,6 @@ export default function ConversationScreen({
     // Update conversation state
     setConversation(newConversation);
     
-    // Calculate tokensPerSecond index for the assistant message being regenerated
-    // tokensPerSecond[0] corresponds to the first assistant message (display index 1)
-    // tokensPerSecond[1] corresponds to the second assistant message (display index 3)
-    // So tokensPerSecondIndex = Math.floor(messageIndex / 2)
-    const tokensPerSecondIndex = Math.floor(messageIndex / 2);
-    
-    // Remove tokensPerSecond entries for removed assistant messages
-    setTokensPerSecond((prev: number[]) => {
-      // Remove from tokensPerSecondIndex onwards (inclusive)
-      return prev.slice(0, tokensPerSecondIndex);
-    });
-    
     // Stop any ongoing generation
     if (isGenerating) {
       aiChat.stop();
@@ -1913,7 +1955,9 @@ export default function ConversationScreen({
     aiChat,
     setConversation,
     setUserInput,
-    setTokensPerSecond,
+    selectedGGUF,
+    warnModelNotLoaded,
+    showToast,
   ]);
 
   const sendButtonDisabled = !userInput.trim() && !pendingAttachment;
@@ -2303,7 +2347,7 @@ export default function ConversationScreen({
                     >
                       <Ionicons name="camera-outline" size={18} color={theme.colors.text} />
                       <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
-                        Take a photo
+                        Take photo (OCR)
                       </Text>
                     </TouchableOpacity>
                   </Animated.View>
@@ -2328,7 +2372,7 @@ export default function ConversationScreen({
                     >
                       <Ionicons name="image-outline" size={18} color={theme.colors.text} />
                       <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
-                        Select an image
+                        Gallery (OCR text)
                       </Text>
                     </TouchableOpacity>
                   </Animated.View>
@@ -2658,7 +2702,11 @@ export default function ConversationScreen({
                 (msg.role === "assistant" &&
                   (!msg.content || msg.content.trim().length === 0) &&
                   isGenerating &&
-                  index === conversation.slice(1).length - 1);
+                  index === conversation.slice(1).length - 1) ||
+                (msg.role === "assistant" &&
+                  !!msg.thought &&
+                  (!msg.content || msg.content.trim().length === 0) &&
+                  !isGenerating);
 
               return (
                 <View key={index} style={styles.messageWrapper}>
@@ -2680,6 +2728,15 @@ export default function ConversationScreen({
                     )}
                     {msg.role === "assistant" && (!msg.content || msg.content.trim().length === 0) && isGenerating && index === conversation.slice(1).length - 1 ? (
                       <ThinkingIndicator theme={theme} />
+                    ) : msg.role === "assistant" && (!msg.content || msg.content.trim().length === 0) && msg.thought ? (
+                      <Text style={{ 
+                        fontSize: 14, 
+                        fontFamily: "Poppins",
+                        color: theme.colors.textTertiary,
+                        fontStyle: "italic",
+                      }}>
+                        Reasoning complete — expand Thinking below for details, or regenerate for a shorter answer.
+                      </Text>
                     ) : msg.content ? (
                       <View style={{ 
                         flexShrink: 1, 
@@ -2747,57 +2804,62 @@ export default function ConversationScreen({
                     <View style={{
                       flexDirection: "row",
                       alignItems: "center",
-                      justifyContent: "space-between",
                       marginTop: 12,
                       gap: 8,
                     }}>
-                      <View style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 8,
-                      }}>
-                        <TouchableOpacity
-                          onPress={() => handleCopyMessage(msg.content)}
-                          style={{
-                            padding: 6,
-                            borderRadius: 16,
-                            backgroundColor: theme.colors.glass,
-                            borderWidth: 1,
-                            borderColor: theme.colors.border,
-                          }}
-                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                        >
-                          <Ionicons 
-                            name="copy-outline" 
-                            size={16} 
-                            color={theme.colors.text} 
-                          />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => handleRegenerateMessage(index)}
-                          disabled={isGenerating}
-                          style={{
-                            padding: 6,
-                            borderRadius: 16,
-                            backgroundColor: theme.colors.glass,
-                            borderWidth: 1,
-                            borderColor: theme.colors.border,
-                            opacity: isGenerating ? 0.5 : 1,
-                          }}
-                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                        >
-                          <Ionicons 
-                            name="refresh-outline" 
-                            size={16} 
-                            color={theme.colors.text} 
-                          />
-                        </TouchableOpacity>
-                      </View>
-                      {tokensPerSecond[Math.floor(index / 2)] !== undefined && (
-                        <Text style={styles.tokenInfo}>
-                          {tokensPerSecond[Math.floor(index / 2)]} tokens/s
-                        </Text>
-                      )}
+                      <TouchableOpacity
+                        onPress={() => handleCopyMessage(msg.content)}
+                        style={{
+                          padding: 6,
+                          borderRadius: 16,
+                          backgroundColor: theme.colors.glass,
+                          borderWidth: 1,
+                          borderColor: theme.colors.border,
+                        }}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons 
+                          name="copy-outline" 
+                          size={16} 
+                          color={theme.colors.text} 
+                        />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => handleRegenerateMessage(index)}
+                        disabled={isGenerating}
+                        style={{
+                          padding: 6,
+                          borderRadius: 16,
+                          backgroundColor: theme.colors.glass,
+                          borderWidth: 1,
+                          borderColor: theme.colors.border,
+                          opacity: isGenerating ? 0.5 : 1,
+                        }}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons 
+                          name="refresh-outline" 
+                          size={16} 
+                          color={theme.colors.text} 
+                        />
+                      </TouchableOpacity>
+                      {(() => {
+                        const assistantTurnIndex =
+                          conversation
+                            .slice(1, index + 2)
+                            .filter((m) => m.role === "assistant").length - 1;
+                        const turnTps =
+                          typeof msg.tokensPerSecond === "number"
+                            ? msg.tokensPerSecond
+                            : assistantTurnIndex >= 0
+                              ? tokensPerSecond[assistantTurnIndex]
+                              : undefined;
+                        return typeof turnTps === "number" && turnTps > 0 ? (
+                          <Text style={[styles.tokenInfo, { marginTop: 0 }]}>
+                            {turnTps} tokens/s
+                          </Text>
+                        ) : null;
+                      })()}
                     </View>
                   )}
                 </View>
@@ -2850,7 +2912,7 @@ export default function ConversationScreen({
                           textAlign: 'left',
                           lineHeight: 24,
                         }}>
-                          Conversations in temporary mode are not saved. This chat will not appear in your history.
+                          Conversations in temporary mode are not saved. This chat will not appear in history. Photos still run on-device OCR before the model sees them.
                         </Text>
                       </View>
                     </Animated.View>
@@ -2928,13 +2990,18 @@ export default function ConversationScreen({
               />
               <View style={{ flex: 1 }}>
                 <Text style={styles.attachmentLabel} numberOfLines={1}>
-                  {pendingAttachment.fileName || "Image attached"}
+                  {pendingAttachment.fileName || "Image ready"}
                 </Text>
                 {isOcrRunning && (
                   <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4, gap: 6 }}>
                     <ActivityIndicator size="small" color={theme.colors.primary} />
-                    <Text style={[styles.attachmentLabel, { fontSize: 12 }]}>Reading image…</Text>
+                    <Text style={[styles.attachmentLabel, { fontSize: 12 }]}>Extracting text on-device…</Text>
                   </View>
+                )}
+                {!isOcrRunning && (
+                  <Text style={[styles.attachmentLabel, { fontSize: 12, marginTop: 2 }]}>
+                    Text will be read with OCR when you send
+                  </Text>
                 )}
               </View>
               <TouchableOpacity

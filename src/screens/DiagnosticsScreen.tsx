@@ -1,154 +1,74 @@
-/**
- * DEV-only Diagnostics screen: llama.rn smoke test.
- * Reachable via long-press on Settings title. Not shown in production.
- */
-import React, { useState, useRef } from "react";
-import { View, Text, ScrollView, TouchableOpacity, Platform } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+// DiagnosticsScreen.tsx — error logs & environment diagnostics
+import React, { useState } from "react";
+import { View, Text, TouchableOpacity, ScrollView, Modal, TextInput } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
-import { initLlama, getBackendDevicesInfo } from "llama.rn";
-import { getAccelerationConfig } from "../services/accelerationCapabilityService";
+import Clipboard from "@react-native-clipboard/clipboard";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
-import { checkFileExists } from "../services/llamaService";
-import { DEFAULT_SETTINGS } from "../services/modelSettingsService";
+import { getFullLogContent, getErrorLogPath, clearErrorLog } from "../utils/errorLogger";
+import { showAlert } from "../components/CustomAlert";
 
 interface Props {
   onBack: () => void;
-  modelPath: string | null;
 }
 
-export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
+export default function DiagnosticsScreen({ onBack }: Props) {
   const { theme, isTransitioning } = useTheme();
   const styles = createStyles(theme.colors);
-  const insets = useSafeAreaInsets();
-  const [logLines, setLogLines] = useState<string[]>(["Diagnostics (DEV only). Tap a button below to run tests."]);
-  const [running, setRunning] = useState(false);
-  const scrollRef = useRef<ScrollView>(null);
+  const [errorLogVisible, setErrorLogVisible] = useState(false);
+  const [errorLogContent, setErrorLogContent] = useState<string>("");
 
-  const log = (msg: string) => {
-    if (__DEV__) {
-      console.log("[ofln diagnostics]", msg);
+  const handleViewLogs = async () => {
+    try {
+      const logContent = await getFullLogContent();
+      setErrorLogContent(logContent);
+      setErrorLogVisible(true);
+    } catch {
+      showAlert("Error", "Failed to load logs.", [{ text: "OK" }]);
     }
-    setLogLines((prev) => [...prev, msg]);
   };
 
-  const runAccelCheck = async () => {
-    if (Platform.OS !== "android") {
-      log("Acceleration check: Android only.");
+  const handleClearErrorLog = () => {
+    showAlert(
+      "Clear Error Log",
+      "Are you sure you want to clear the error log?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await clearErrorLog();
+              const logContent = await getFullLogContent();
+              setErrorLogContent(logContent);
+              showAlert("Success", "Error log cleared.", [{ text: "OK" }]);
+            } catch {
+              showAlert("Error", "Failed to clear error log.", [{ text: "OK" }]);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleCopyLogContent = () => {
+    if (!errorLogContent.trim()) {
+      showAlert("Empty", "There is nothing to copy yet.", [{ text: "OK" }]);
       return;
     }
-    setLogLines((prev) => [...prev, "--- Acceleration check ---"]);
-    try {
-      const config = await getAccelerationConfig();
-      log(config.summary);
-      const raw = await getBackendDevicesInfo();
-      raw.forEach((d, i) => log(`  [${i}] ${d.deviceName} (${d.backend})`));
-    } catch (e) {
-      log("Error: " + (e instanceof Error ? e.message : String(e)));
-    }
+    Clipboard.setString(errorLogContent);
+    showAlert("Copied", "Full log copied to clipboard.", [{ text: "OK" }]);
   };
 
-  const runSmokeTest = async () => {
-    if (running || !modelPath) return;
-    setRunning(true);
-    setLogLines((prev) => [...prev, "--- Smoke test started ---"]);
-
-    try {
-      const exists = await checkFileExists(modelPath);
-      if (!exists) {
-        log("Error: Model file not found at path.");
-        setRunning(false);
-        return;
-      }
-      log("Model file found.");
-
-      const fileName = modelPath.split("/").pop() || "model";
-      const nCtx = 512;
-      const nGpuLayers = 0;
-
-      log("Initializing context...");
-      let ctx = await initLlama({
-        model: modelPath,
-        use_mlock: false,
-        n_ctx: nCtx,
-        n_gpu_layers: nGpuLayers,
-      });
-      log("Context created.");
-
-      const stopWords = ["</s>", "<|end|>", "<|im_end|>", "user:", "assistant:"];
-
-      // 1) First completion — stop mid-stream after a few tokens
-      let tokenCount = 0;
-      const stoppedRef = { current: false };
-      log("Running first completion (will stop after 3 tokens)...");
-      const p1 = ctx.completion(
-        {
-          messages: [{ role: "user", content: "Reply with exactly one word: Hi." }],
-          n_predict: 30,
-          temperature: DEFAULT_SETTINGS.temperature,
-          top_p: DEFAULT_SETTINGS.top_p,
-          top_k: DEFAULT_SETTINGS.top_k,
-          stop: stopWords,
-        },
-        (data: { token: string; reasoning_content?: string }) => {
-          tokenCount++;
-          if (tokenCount >= 3 && !stoppedRef.current) {
-            stoppedRef.current = true;
-            ctx.stopCompletion();
-          }
-        }
-      );
-      await p1;
-      log("Stopped after " + tokenCount + " token(s).");
-
-      // 2) Second completion — full run
-      log("Running second completion (full)...");
-      await ctx.completion({
-        messages: [{ role: "user", content: "Reply with exactly one word: Bye." }],
-        n_predict: 20,
-        temperature: DEFAULT_SETTINGS.temperature,
-        top_p: DEFAULT_SETTINGS.top_p,
-        top_k: DEFAULT_SETTINGS.top_k,
-        stop: stopWords,
-      });
-      log("Second completion done.");
-
-      // 3) Release
-      await ctx.release();
-      log("Context released.");
-
-      // 4) Re-init and one more completion
-      log("Re-initializing context...");
-      ctx = await initLlama({
-        model: modelPath,
-        use_mlock: false,
-        n_ctx: nCtx,
-        n_gpu_layers: nGpuLayers,
-      });
-      log("Running third completion...");
-      await ctx.completion({
-        messages: [{ role: "user", content: "Reply with exactly one word: Done." }],
-        n_predict: 20,
-        temperature: DEFAULT_SETTINGS.temperature,
-        top_p: DEFAULT_SETTINGS.top_p,
-        top_k: DEFAULT_SETTINGS.top_k,
-        stop: stopWords,
-      });
-      await ctx.release();
-      log("Reload completion done. Smoke test passed.");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      log("Error: " + msg);
-    } finally {
-      setRunning(false);
-      setLogLines((prev) => [...prev, "--- Smoke test finished ---"]);
-    }
+  const handleCopyLogPath = () => {
+    const logPath = getErrorLogPath();
+    showAlert(
+      "Error Log Location",
+      `The error log is saved at:\n\n${logPath}\n\nYou can access this file using a file manager app.`,
+      [{ text: "OK" }]
+    );
   };
-
-  if (!__DEV__) {
-    return null;
-  }
 
   return (
     <View
@@ -162,125 +82,42 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
         },
       ]}
     >
-      <Text style={[styles.settingsTitle, { marginBottom: 40 }]}>Diagnostics</Text>
+      <Text style={[styles.settingsTitle, { marginBottom: 24 }]}>Diagnostics</Text>
 
       <ScrollView
-        ref={scrollRef}
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: 20 }}
-        showsVerticalScrollIndicator={true}
-        onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        showsVerticalScrollIndicator={false}
       >
-        <View
+        <Text
+          style={{
+            fontSize: 16,
+            color: theme.colors.textSecondary,
+            lineHeight: 24,
+            marginBottom: 20,
+            fontFamily: "Poppins",
+          }}
+        >
+          View app environment details and error logs when model loading or chat fails.
+        </Text>
+
+        <TouchableOpacity
+          onPress={handleViewLogs}
           style={{
             backgroundColor: theme.colors.card,
             borderRadius: 12,
             borderWidth: 1,
             borderColor: theme.colors.border,
             padding: 16,
-            minHeight: 120,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 14,
-              fontWeight: "600",
-              color: theme.colors.text,
-              fontFamily: "Poppins",
-              marginBottom: 12,
-            }}
-          >
-            Output
-          </Text>
-          <View>
-            {logLines.map((line, i) => (
-              <Text
-                key={i}
-                style={{
-                  fontFamily: "monospace",
-                  fontSize: 12,
-                  color: theme.colors.text,
-                  marginBottom: 2,
-                }}
-              >
-                {line}
-              </Text>
-            ))}
-          </View>
-        </View>
-      </ScrollView>
-
-      <View
-        style={{
-          paddingHorizontal: 0,
-          paddingBottom: 20 + insets.bottom,
-          paddingTop: 12,
-          backgroundColor: theme.colors.background,
-          gap: 12,
-        }}
-      >
-        {Platform.OS === "android" && (
-          <TouchableOpacity
-            onPress={runAccelCheck}
-            style={{
-              backgroundColor: theme.colors.card,
-              borderRadius: 12,
-              borderWidth: 1,
-              borderColor: theme.colors.border,
-              padding: 16,
-              flexDirection: "row",
-              alignItems: "center",
-            }}
-          >
-            <Ionicons
-              name="hardware-chip-outline"
-              size={24}
-              color={theme.colors.text}
-              style={{ marginRight: 12 }}
-            />
-            <View style={{ flex: 1 }}>
-              <Text
-                style={{
-                  fontSize: 16,
-                  fontWeight: "600",
-                  color: theme.colors.text,
-                  fontFamily: "Poppins",
-                  marginBottom: 4,
-                }}
-              >
-                Check acceleration
-              </Text>
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: theme.colors.textSecondary,
-                  fontFamily: "Poppins",
-                }}
-              >
-                OpenCL / Hexagon NPU detection
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
-        )}
-
-        <TouchableOpacity
-          onPress={runSmokeTest}
-          disabled={running || !modelPath}
-          style={{
-            backgroundColor: modelPath && !running ? theme.colors.primary : theme.colors.surface,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: modelPath && !running ? theme.colors.primary : theme.colors.border,
-            padding: 16,
             flexDirection: "row",
             alignItems: "center",
+            marginBottom: 12,
           }}
         >
           <Ionicons
-            name={running ? "hourglass-outline" : "play-circle-outline"}
+            name="document-text-outline"
             size={24}
-            color={modelPath && !running ? theme.colors.primaryText : theme.colors.text}
+            color={theme.colors.text}
             style={{ marginRight: 12 }}
           />
           <View style={{ flex: 1 }}>
@@ -288,38 +125,88 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
               style={{
                 fontSize: 16,
                 fontWeight: "600",
-                color: modelPath && !running ? theme.colors.primaryText : theme.colors.text,
+                color: theme.colors.text,
                 fontFamily: "Poppins",
                 marginBottom: 4,
               }}
             >
-              {running ? "Running..." : "Run llama.rn smoke test"}
+              View Logs
             </Text>
             <Text
               style={{
                 fontSize: 12,
-                color: modelPath && !running ? theme.colors.primaryText : theme.colors.textSecondary,
+                color: theme.colors.textSecondary,
                 fontFamily: "Poppins",
               }}
             >
-              {modelPath ? "Hi / Bye / Done completion test" : "Load a model first"}
+              App environment and error logs
             </Text>
           </View>
-          <Ionicons
-            name="chevron-forward"
-            size={20}
-            color={modelPath && !running ? theme.colors.primaryText : theme.colors.textSecondary}
-          />
+          <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
         </TouchableOpacity>
 
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <TouchableOpacity
+            onPress={handleCopyLogPath}
+            style={{
+              flex: 1,
+              backgroundColor: theme.colors.surface,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              padding: 12,
+              alignItems: "center",
+            }}
+          >
+            <Ionicons name="folder-outline" size={20} color={theme.colors.text} />
+            <Text
+              style={{
+                fontSize: 12,
+                color: theme.colors.text,
+                fontFamily: "Poppins",
+                marginTop: 4,
+                textAlign: "center",
+              }}
+            >
+              Log Path
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handleClearErrorLog}
+            style={{
+              flex: 1,
+              backgroundColor: theme.colors.surface,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              padding: 12,
+              alignItems: "center",
+            }}
+          >
+            <Ionicons name="trash-outline" size={20} color={theme.colors.error} />
+            <Text
+              style={{
+                fontSize: 12,
+                color: theme.colors.error,
+                fontFamily: "Poppins",
+                marginTop: 4,
+                textAlign: "center",
+              }}
+            >
+              Clear Log
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+
+      <View style={{ position: "absolute", bottom: 20, left: 15, backgroundColor: "transparent" }}>
         <TouchableOpacity
           onPress={onBack}
           style={{
             flexDirection: "row",
             alignItems: "center",
-            alignSelf: "flex-start",
             backgroundColor: theme.colors.primary,
-            marginTop: 4,
             paddingHorizontal: 16,
             paddingVertical: 8,
             borderRadius: 30,
@@ -339,6 +226,140 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
           </Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={errorLogVisible}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setErrorLogVisible(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: 20,
+              borderBottomWidth: 1,
+              borderBottomColor: theme.colors.border,
+              backgroundColor: theme.colors.card,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 20,
+                fontWeight: "600",
+                color: theme.colors.text,
+                fontFamily: "Poppins",
+              }}
+            >
+              Logs
+            </Text>
+            <TouchableOpacity onPress={() => setErrorLogVisible(false)} style={{ padding: 8 }}>
+              <Ionicons name="close" size={24} color={theme.colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={{ flex: 1, padding: 16 }}>
+            <TextInput
+              style={{
+                fontFamily: "monospace",
+                fontSize: 12,
+                color: theme.colors.text,
+                backgroundColor: theme.colors.surface,
+                borderRadius: 8,
+                padding: 12,
+                minHeight: 400,
+                textAlignVertical: "top",
+              }}
+              value={errorLogContent}
+              multiline
+              editable={false}
+              selectTextOnFocus
+            />
+          </ScrollView>
+
+          <View
+            style={{
+              flexDirection: "row",
+              padding: 16,
+              borderTopWidth: 1,
+              borderTopColor: theme.colors.border,
+              backgroundColor: theme.colors.card,
+              gap: 12,
+            }}
+          >
+            <TouchableOpacity
+              onPress={handleCopyLogContent}
+              style={{
+                flex: 1,
+                backgroundColor: theme.colors.primary + "22",
+                borderRadius: 12,
+                padding: 12,
+                alignItems: "center",
+              }}
+            >
+              <Ionicons name="copy-outline" size={20} color={theme.colors.primary} />
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: theme.colors.primary,
+                  fontFamily: "Poppins",
+                  marginTop: 4,
+                }}
+              >
+                Copy Log
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleCopyLogPath}
+              style={{
+                flex: 1,
+                backgroundColor: theme.colors.surface,
+                borderRadius: 12,
+                padding: 12,
+                alignItems: "center",
+              }}
+            >
+              <Ionicons name="folder-outline" size={20} color={theme.colors.text} />
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: theme.colors.text,
+                  fontFamily: "Poppins",
+                  marginTop: 4,
+                }}
+              >
+                Log Path
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleClearErrorLog}
+              style={{
+                flex: 1,
+                backgroundColor: theme.colors.error + "20",
+                borderRadius: 12,
+                padding: 12,
+                alignItems: "center",
+              }}
+            >
+              <Ionicons name="trash-outline" size={20} color={theme.colors.error} />
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: theme.colors.error,
+                  fontFamily: "Poppins",
+                  marginTop: 4,
+                }}
+              >
+                Clear Log
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

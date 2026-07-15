@@ -22,45 +22,65 @@ const ANDROID_EMULATOR_SUBSTRINGS = [
   "generic",
   "sdk_gphone",
   "sdk_phone",
+  "sdk_google",
+  "google_sdk",
   "emulator",
   "android sdk built for",
   "vbox",
+  "goldfish",
+  "ranchu",
   "test-keys",
 ];
 
 let cachedIsAndroidEmulator: boolean | null = null;
 
 /**
- * Extract a lightweight Android build object from React Native's PlatformConstants
- * or other available native modules, without adding new dependencies.
+ * Extract a lightweight Android build object from React Native's Platform.constants
+ * and PlatformConstants native module (same sources errorLogger uses successfully).
  */
 const getAndroidBuildInfo = (): AndroidBuildInfo | null => {
   if (Platform.OS !== "android") return null;
 
-  // React Native exposes some constants under PlatformConstants on Android
-  const platformConstants = (NativeModules.PlatformConstants ??
+  const platformConstants = (Platform.constants ?? {}) as Record<string, unknown>;
+  const nativeConstants = (NativeModules.PlatformConstants ??
     NativeModules.RNCPlatformConstants ??
-    {}) as any;
+    {}) as Record<string, unknown>;
 
-  // Some RN versions expose "Manufacturer" / "Model" etc. under PlatformConstants.
-  const buildFromPlatform: AndroidBuildInfo = {
-    BRAND: platformConstants.Manufacturer,
-    MODEL: platformConstants.Model,
-    DEVICE: platformConstants.Device,
-    PRODUCT: platformConstants.Product,
+  // Prefer Platform.constants (reliable on modern RN); fall back to NativeModules.
+  const pick = (...keys: string[]): string | undefined => {
+    for (const key of keys) {
+      const fromPlatform = platformConstants[key];
+      if (typeof fromPlatform === "string" && fromPlatform.trim()) {
+        return fromPlatform;
+      }
+      const fromNative = nativeConstants[key];
+      if (typeof fromNative === "string" && fromNative.trim()) {
+        return fromNative;
+      }
+    }
+    return undefined;
   };
 
-  // If we have at least one field, treat it as usable
+  const build: AndroidBuildInfo = {
+    BRAND: pick("Brand", "Manufacturer", "brand", "manufacturer"),
+    MODEL: pick("Model", "model"),
+    DEVICE: pick("Device", "device"),
+    PRODUCT: pick("Product", "product"),
+    FINGERPRINT: pick("Fingerprint", "fingerprint"),
+    HARDWARE: pick("Hardware", "hardware"),
+  };
+
   if (
-    buildFromPlatform.BRAND ||
-    buildFromPlatform.MODEL ||
-    buildFromPlatform.DEVICE ||
-    buildFromPlatform.PRODUCT
+    build.BRAND ||
+    build.MODEL ||
+    build.DEVICE ||
+    build.PRODUCT ||
+    build.FINGERPRINT ||
+    build.HARDWARE
   ) {
-    return buildFromPlatform;
+    return build;
   }
 
-  // Fallback: no additional info available without a dedicated device-info lib
   return null;
 };
 
@@ -70,7 +90,7 @@ const getAndroidBuildInfo = (): AndroidBuildInfo | null => {
  * Rules:
  * - Non-Android: always false.
  * - Android:
- *   - Look for known emulator substrings in MODEL / DEVICE / PRODUCT.
+ *   - Look for known emulator substrings in MODEL / DEVICE / PRODUCT / etc.
  *   - __DEV__ override: if global.__OFN_FORCE_EMULATOR === true, treat as emulator.
  *
  * This function is synchronous and avoids I/O for simplicity and reliability.
@@ -102,6 +122,8 @@ export const isAndroidEmulator = (): boolean => {
   if (build?.MODEL) haystackParts.push(build.MODEL);
   if (build?.DEVICE) haystackParts.push(build.DEVICE);
   if (build?.PRODUCT) haystackParts.push(build.PRODUCT);
+  if (build?.FINGERPRINT) haystackParts.push(build.FINGERPRINT);
+  if (build?.HARDWARE) haystackParts.push(build.HARDWARE);
 
   const haystack = haystackParts
     .filter(Boolean)
@@ -130,4 +152,3 @@ export const isAndroidEmulator = (): boolean => {
   cachedIsAndroidEmulator = detected;
   return detected;
 };
-

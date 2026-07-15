@@ -40,7 +40,7 @@ import { pick, isErrorWithCode, errorCodes } from "@react-native-documents/picke
 import { saveLocalModel, removeLocalModel, LocalModelInfo } from "../services/localModelService";
 import { ModelCard, ModelInfo } from "../components/ModelCard";
 import { useModelFilter } from "../hooks/useModelFilter";
-import { prettifyModelName } from "../utils/modelUtils";
+import { prettifyModelName, getQuantRecommendLabel } from "../utils/modelUtils";
 import { createCancellationToken, DownloadCancellationToken } from "../api/model";
 
 // Type for quantization options (used internally in this file)
@@ -98,59 +98,26 @@ const REPUTABLE_AUTHORS = [
  *    OpenCL (Adreno 700+) / Hexagon NPU — the acceleration layer in
  *    `modelInfoService.isQuantAllowedForAndroidAccel` currently
  *    allow-lists Q4_0 and Q6_K.
- *  • QAT (Quantization-Aware Training) Q4_0 builds are preferred
- *    wherever available (Gemma 3 family): Google trains the 4-bit
- *    weights directly, giving near-bf16 quality at 1/4 the memory.
- *  • Community non-gated mirrors are used for Gemma so downloads work
+ *  • Keep the curated list short (6) and cover distinct tiers:
+ *    flagship thinking, flagship general, balanced, math, multilingual, ultra-light.
+ *  • Community non-gated mirrors (Unsloth / bartowski) so downloads work
  *    without a HuggingFace auth token — the app's `downloadModel()`
  *    fetches the raw `resolve/main/...` URL unauthenticated.
+ *  • Gemma 4 requires llama.rn ≥ 0.12.5 (Gemma MTP / gemma4 arch).
  *  • All repoIds and filenames here have been verified against the
  *    HuggingFace API — do not rename without re-verifying.
  */
 const POPULAR_MODELS: ModelInfo[] = [
   {
-    id: "qwen35-4b-q40",
-    name: "Qwen3.5 4B Instruct (Q4_0)",
-    repoId: "unsloth/Qwen3.5-4B-GGUF",
-    fileName: "Qwen3.5-4B-Q4_0.gguf",
-    size: "2.41 GB",
+    id: "qwen35-08b-q40",
+    name: "Qwen3.5 0.8B Instruct (Q4_0)",
+    repoId: "unsloth/Qwen3.5-0.8B-GGUF",
+    fileName: "Qwen3.5-0.8B-Q4_0.gguf",
+    size: "0.51 GB",
     description:
-      "Flagship thinking model. Hybrid reasoning toggle, strong at code and math, multimodal-ready. Needs ~3.5 GB RAM.",
+      "Best for emulator / low-RAM testing (~0.5 GB). Loads on typical AVDs; Q4_0 acceleration-compatible on real devices.",
     author: "unsloth",
-    tags: ["instruct", "thinking", "code", "q4_0"],
-  },
-  {
-    id: "gemma3-4b-qat-q40",
-    name: "Gemma 3 4B IT (QAT, Q4_0)",
-    repoId: "unsloth/gemma-3-4b-it-qat-GGUF",
-    fileName: "gemma-3-4b-it-qat-Q4_0.gguf",
-    size: "2.37 GB",
-    description:
-      "Flagship general-purpose. Google's Quantization-Aware Training preserves near-bf16 quality at 4-bit; Q4_0 enables OpenCL / Hexagon NPU offload on capable Android devices. 128K context.",
-    author: "unsloth",
-    tags: ["instruct", "qat", "gemma", "q4_0"],
-  },
-  {
-    id: "qwen3-4b-2507-q40",
-    name: "Qwen3 4B Instruct 2507 (Q4_0)",
-    repoId: "unsloth/Qwen3-4B-Instruct-2507-GGUF",
-    fileName: "Qwen3-4B-Instruct-2507-Q4_0.gguf",
-    size: "2.29 GB",
-    description:
-      "Drop-in upgrade to Qwen3.5 4B. Refreshed July-2025 checkpoint with improved instruction following and function calling. 256K context.",
-    author: "unsloth",
-    tags: ["instruct", "thinking", "tools", "q4_0"],
-  },
-  {
-    id: "gemma3n-e2b-it-q4km",
-    name: "Gemma 3n E2B IT (Q4_K_M)",
-    repoId: "unsloth/gemma-3n-E2B-it-GGUF",
-    fileName: "gemma-3n-E2B-it-Q4_K_M.gguf",
-    size: "2.78 GB",
-    description:
-      "Flagship multimodal. Google's on-device-first MatFormer: 4.5 B total params but only ~2 GB active in RAM. Text-only mode in this app; image/audio via mmproj projector is on the roadmap.",
-    author: "unsloth",
-    tags: ["instruct", "gemma3n", "multimodal", "q4_k_m"],
+    tags: ["emulator", "low-ram", "q4_0", "instruct", "thinking"],
   },
   {
     id: "qwen35-2b-q40",
@@ -159,20 +126,42 @@ const POPULAR_MODELS: ModelInfo[] = [
     fileName: "Qwen3.5-2B-Q4_0.gguf",
     size: "1.13 GB",
     description:
-      "Balanced mobile pick. Thinking-capable, fast, and compact — outperforms older 3B models at a fraction of the size.",
+      "Balanced mobile pick. Thinking-capable and compact — good next step after 0.8B on phones or AVDs with 4GB+ RAM.",
     author: "unsloth",
     tags: ["instruct", "thinking", "small", "q4_0"],
   },
   {
-    id: "phi4-mini-q4km",
-    name: "Phi-4 Mini Instruct (Q4_K_M)",
-    repoId: "bartowski/microsoft_Phi-4-mini-instruct-GGUF",
-    fileName: "microsoft_Phi-4-mini-instruct-Q4_K_M.gguf",
-    size: "2.49 GB",
+    id: "qwen35-4b-q40",
+    name: "Qwen3.5 4B Instruct (Q4_0)",
+    repoId: "unsloth/Qwen3.5-4B-GGUF",
+    fileName: "Qwen3.5-4B-Q4_0.gguf",
+    size: "2.41 GB",
     description:
-      "Microsoft's 3.8B reasoning specialist, successor to Phi-3.5. Best math and logic in this list; 128K context, native function calling.",
+      "Flagship thinking model. Hybrid reasoning toggle, strong at code and math. Needs ~3.5 GB RAM (too large for most emulators).",
+    author: "unsloth",
+    tags: ["instruct", "thinking", "code", "q4_0"],
+  },
+  {
+    id: "gemma4-e2b-q40",
+    name: "Gemma 4 E2B IT (Q4_0)",
+    repoId: "unsloth/gemma-4-E2B-it-GGUF",
+    fileName: "gemma-4-E2B-it-Q4_0.gguf",
+    size: "3.04 GB",
+    description:
+      "Flagship general-purpose. Google's on-device-first Gemma 4 efficient tier; Q4_0 enables OpenCL / Hexagon NPU offload. Text-only here (mmproj vision not auto-downloaded).",
+    author: "unsloth",
+    tags: ["instruct", "gemma4", "q4_0"],
+  },
+  {
+    id: "phi4-mini-q40",
+    name: "Phi-4 Mini Instruct (Q4_0)",
+    repoId: "bartowski/microsoft_Phi-4-mini-instruct-GGUF",
+    fileName: "microsoft_Phi-4-mini-instruct-Q4_0.gguf",
+    size: "2.33 GB",
+    description:
+      "Microsoft's 3.8B reasoning specialist. Strong math and logic; 128K context, native function calling. Q4_0 for Android acceleration.",
     author: "bartowski",
-    tags: ["instruct", "reasoning", "math", "tools", "q4_k_m"],
+    tags: ["instruct", "reasoning", "math", "tools", "q4_0"],
   },
   {
     id: "smollm3-3b-q40",
@@ -184,28 +173,6 @@ const POPULAR_MODELS: ModelInfo[] = [
       "Compact daily driver from HuggingFace. Optional /think reasoning mode, 64K context, 8 languages. Successor to SmolLM2.",
     author: "unsloth",
     tags: ["instruct", "thinking", "multilingual", "q4_0"],
-  },
-  {
-    id: "gemma3-1b-qat-q40",
-    name: "Gemma 3 1B IT (QAT, Q4_0)",
-    repoId: "bartowski/google_gemma-3-1b-it-qat-GGUF",
-    fileName: "google_gemma-3-1b-it-qat-Q4_0.gguf",
-    size: "0.72 GB",
-    description:
-      "Ultra-light tier. Google QAT quality at just ~0.7 GB — runs on almost any Android device. 32K context, Q4_0 acceleration-compatible.",
-    author: "bartowski",
-    tags: ["instruct", "qat", "gemma", "low-ram", "q4_0"],
-  },
-  {
-    id: "deepseek-r1d-15b-q40",
-    name: "DeepSeek R1 Distill Qwen 1.5B (Q4_0)",
-    repoId: "bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
-    fileName: "DeepSeek-R1-Distill-Qwen-1.5B-Q4_0.gguf",
-    size: "1.07 GB",
-    description:
-      "Dedicated chain-of-thought reasoner in just 1.1 GB. Distilled from DeepSeek R1 for step-by-step math, logic, and analysis.",
-    author: "bartowski",
-    tags: ["reasoning", "thinking", "math", "q4_0"],
   },
 ];
 
@@ -1680,6 +1647,17 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           >
             Popular Models
           </Text>
+          <Text
+            style={{
+              fontSize: 13,
+              color: theme.colors.textSecondary,
+              fontFamily: "Poppins",
+              lineHeight: 20,
+              marginBottom: 12,
+            }}
+          >
+            Curated GGUFs for phones. Prefer Q4_0 for Android GPU/NPU. On emulator/VM start with Qwen3.5 0.8B (~0.5 GB).
+          </Text>
           {availablePopularModels.map((model, index) => {
             return (
               <View key={`${model.id}:${model.fileName}:${downloadedModelsInfo.length + index}`}>
@@ -2247,7 +2225,8 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   {selectedModelForDownload.availableQuants && selectedModelForDownload.availableQuants.length > 0 ? (
                     selectedModelForDownload.availableQuants.map((quant, index) => {
                       const sizeGB = quant.size > 0 ? (quant.size / 1024 / 1024 / 1024).toFixed(2) : "Unknown";
-                      const isRecommended = quant.quantization.includes("Q4_K_M") || quant.quantization.includes("Q4_K_S");
+                      const recommendLabel = getQuantRecommendLabel(quant.quantization);
+                      const isRecommended = recommendLabel != null;
                       
                       return (
                         <TouchableOpacity
@@ -2258,7 +2237,10 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                             
                             showAlert(
                               "Confirm Download",
-                              `Download ${selectedModelForDownload.name} (${quant.quantization})?\nSize: ${sizeGB}GB`,
+                              `Download ${selectedModelForDownload.name} (${quant.quantization})?\nSize: ${sizeGB}GB` +
+                                (recommendLabel === "Accel"
+                                  ? "\n\nThis quant can use Android GPU/NPU offload when available."
+                                  : ""),
                               [
                                 {
                                   text: "Cancel",
@@ -2360,7 +2342,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                                         fontWeight: "600",
                                       }}
                                     >
-                                      Recommended
+                                      {recommendLabel}
                                     </Text>
                                   </View>
                                 )}

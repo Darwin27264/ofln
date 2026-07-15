@@ -66,7 +66,7 @@ Conversation avoids holding both contexts: it **releases the legacy context** be
 
 - **React Native 0.78.1** / **React 19**: Cross-platform UI (New Architecture **required**)
 - **TypeScript**: Type safety across app code
-- **llama.rn (0.11.2)**: Native llama.cpp bindings (GGUF inference)
+- **llama.rn (0.12.6)**: Native llama.cpp bindings (GGUF inference; Gemma 4 / MTP support)
 - **@react-native-ai/llama**: Language-model provider used by `llamaProvider`
 - **ai (Vercel AI SDK)**: `streamText` orchestration available alongside native completion
 - **AsyncStorage**: Chat history, model settings, personas, local-import metadata
@@ -143,8 +143,10 @@ src/
 │   ├── chatHistoryService.ts
 │   ├── deviceEnv.ts                # Emulator heuristic
 │   ├── documentParsingService.ts   # Attachments / PDF text extraction
+│   ├── inferencePerfParams.ts          # Shared flash_attn / n_batch / KV cache knobs
 │   ├── llamaService.ts             # Legacy initLlama load + completion helpers
 │   ├── localModelService.ts
+│   ├── mediaNormalizeService.ts        # Image pick resize, content:// copy, OCR caps
 │   ├── modelInfoService.ts         # Quant detect + Android accel allowlist
 │   ├── modelSettingsService.ts
 │   ├── ocrService.ts               # ML Kit OCR
@@ -212,6 +214,8 @@ src/
 
 **Quantization**: Not converted in-app. Users download GGUF variants (UI prefers mobile-friendly quants). Android GPU/NPU acceleration is allowlisted for **`Q4_0` and `Q6_K` only**.
 
+**Curated popular list** (6 models in `ModelSelectionScreen.POPULAR_MODELS`): Qwen3.5 4B / 2B / 0.8B (Q4_0), Gemma 4 E2B (Q4_0, ungated Unsloth mirror), Phi-4 Mini (Q4_0), SmolLM3 3B (Q4_0). Gemma 4 requires llama.rn ≥ 0.12.5.
+
 **Error Handling**: Network failures, storage full, and missing files are handled with user-facing errors.
 
 ### Model Loading Flow
@@ -251,10 +255,18 @@ Defaults (see `modelSettingsService`): `n_ctx` 2048, `n_gpu_layers` 1, `temperat
 
 ### Vision / Attachments Flow
 
-1. Image or document attached in Conversation
-2. If model name matches known VL patterns (Qwen VL, LLaVA, MiniCPM-V, InternVL, Phi-3.5 Vision), messages are formatted for multimodal completion
-3. Otherwise, OCR (`ocrService`) or document text extraction is injected into the prompt
-4. Note: some VL setups (e.g. Gemma projector/`mmproj`) are not auto-downloaded — those fall back to OCR
+1. User picks or captures a photo — ImagePicker downscales to max edge **1600px** at JPEG quality **0.75** (`mediaNormalizeService`)
+2. On send, Android `content://` URIs are copied to app cache before ML Kit OCR runs
+3. OCR text is length-capped (~8k chars) and injected as `textForPrompt` (default chat path)
+4. If model name matches known VL patterns **and** an mmproj projector is loaded, multimodal pixels can be used; curated Gemma 4 / similar still OCR-fallback until mmproj download is wired
+5. PDFs: only modest text PDFs are scraped (size-capped); scanned PDFs return a clear refusal message instead of risking OOM
+
+### Inference performance (llama.rn 0.12.6)
+
+- `flash_attn_type: 'auto'` — lets llama.cpp pick flash attention when the backend supports it
+- `n_batch`: **512** when GPU/NPU layers > 0, else **256** (lower peak RAM on CPU phones)
+- Android: KV cache `cache_type_k/v: q8_0` to reduce memory vs f16
+- MTP speculative decoding is available in llama.rn but not enabled globally (needs model-embedded MTP / companion draft — opt-in later for Gemma 4 when mtp GGUF is paired)
 
 ## Installation & Setup
 
@@ -533,13 +545,14 @@ Comprehensive error handling is implemented throughout:
 
 **Acceleration (OpenCL / Hexagon NPU)**
 
-GPU/NPU acceleration is handled by llama.rn and gated in app code (`accelerationCapabilityService` + quant allowlist):
+GPU/NPU acceleration is handled by llama.rn 0.12.x and gated in app code (`accelerationCapabilityService` + quant allowlist):
 
 - **OpenCL (GPU)**: Qualcomm Adreno 700+ devices. Requires **Q4_0 or Q6_K** quantized models.
 - **Hexagon (NPU)**: Qualcomm SM8450+ (Snapdragon 8 Gen 1 or newer) with HTP; app prefers `devices: ['HTP0']` when HTP is present.
 - Set GPU Layers (`n_gpu_layers`) > 0 in Model Settings. Emulators and non-allowlisted quants force CPU (`n_gpu_layers = 0`).
 - Runtime check uses `getBackendDevicesInfo()`; capable devices may allow up to 99 layers (capped by settings).
 - Manifest note: `AndroidManifest.xml` currently does **not** declare `uses-native-library` for `libOpenCL.so` / `libcdsprpc.so` — a comment notes llama.rn can still load them at runtime when present on device.
+- **Gemma 4** GGUFs need llama.rn ≥ 0.12.5 (Gemma MTP / gemma4 architecture).
 
 In DEV mode, long-press Settings title → Diagnostics → "Check acceleration" to dump backend devices.
 

@@ -10,6 +10,8 @@
  * Uses caching to optimize repeated operations.
  */
 
+import { isThinkingModelForUi } from '../services/inference/modelFamily';
+
 // Cache for quantization extraction to avoid repeated regex operations
 const quantizationCache = new Map<string, string | null>();
 
@@ -105,53 +107,27 @@ export function formatPublishedDate(dateString: string): string {
  * Determine if a model supports a "thinking" / chain-of-thought mode
  * where reasoning tokens are surfaced separately from the visible answer.
  *
- * Detection sources (in order, first match wins):
- *   1. Model ID / fileName substring match for known reasoning families:
- *      - DeepSeek R1 distills (R1, r1d)
- *      - Qwen3 family (qwen3, qwen3.5, qwen3-4b-instruct-2507)
- *      - QwQ reasoning line
- *      - SmolLM3 (optional /think reasoning mode)
- *   2. Explicit "thinking" tag in model.tags
- *   3. Description keywords
- *
- * Note: Gemma 3 / Gemma 3n and Phi-4 Mini do NOT emit <think> blocks
- * despite being strong at reasoning — they should return false here so
- * the UI doesn't show a reasoning-specific icon/affordance.
+ * Canonical family detection lives in `src/services/inference/modelFamily.ts`.
  */
 export function isThinkingModel(model: ModelInfo): boolean {
-  const modelId = model.id.toLowerCase();
-  const fileName = (model.fileName || '').toLowerCase();
-  const description = (model.description || '').toLowerCase();
-  const tags = (model.tags || []).map((t) => t.toLowerCase());
-  const haystack = `${modelId} ${fileName}`;
+  return isThinkingModelForUi({
+    id: model.id,
+    fileName: model.fileName,
+    description: model.description,
+    tags: model.tags,
+  });
+}
 
-  const thinkingFamilyPatterns: RegExp[] = [
-    /\br1\b/,
-    /\br1d\b/,
-    /deepseek-r1/,
-    /qwen3(?![a-z])/, // qwen3, qwen3.5, qwen3-4b-...  (NOT qwen3n or qwen2.5)
-    /qwq/,
-    /smollm3/,
-  ];
-
-  if (thinkingFamilyPatterns.some((p) => p.test(haystack))) {
-    return true;
-  }
-
-  if (tags.includes('thinking') || tags.includes('reasoning')) {
-    return true;
-  }
-
-  const thinkingDescriptionKeywords = [
-    'distilled reasoning',
-    'reasoning (slower',
-    'chain-of-thought',
-  ];
-  if (thinkingDescriptionKeywords.some((k) => description.includes(k))) {
-    return true;
-  }
-
-  return false;
+/**
+ * Label GGUF quants in the download picker.
+ * Accel = Android OpenCL/Hexagon allowlist (Q4_0 / Q6_K).
+ * Mobile = other solid phone-sized quants.
+ */
+export function getQuantRecommendLabel(quantization: string): 'Accel' | 'Mobile' | null {
+  const q = (quantization || '').toUpperCase();
+  if (q === 'Q4_0' || q === 'Q6_K') return 'Accel';
+  if (q.includes('Q4_K_M') || q.includes('Q4_K_S')) return 'Mobile';
+  return null;
 }
 
 /**

@@ -25,6 +25,8 @@ export interface ChatMessage {
   content: string;
   thought?: string;
   showThought?: boolean;
+  /** Inference speed for this assistant turn (persisted with chat history). */
+  tokensPerSecond?: number;
   attachments?: MessageAttachment[];
   createdAt?: Date;
 }
@@ -96,6 +98,11 @@ export interface CompletionResult {
 }
 
 export interface SendOptions {
+  /**
+   * Display/user text for this send. Prefer this over relying on hook `input`
+   * state — setInput + handleSubmit in the same tick races and silently no-ops.
+   */
+  text?: string;
   textForPrompt?: string;
   attachments?: MessageAttachment[];
   signal?: AbortSignal;

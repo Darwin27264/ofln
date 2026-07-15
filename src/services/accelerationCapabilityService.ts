@@ -1,9 +1,10 @@
 /**
  * Acceleration capability detection for llama.rn on Android.
  *
- * llama.rn 0.11.2 supports:
+ * llama.rn 0.12.x supports:
  * - OpenCL (GPU): Qualcomm Adreno 700+, Q4_0 / Q6_K models
  * - Hexagon (NPU): Qualcomm SM8450+ (8 Gen 1 or newer), HTP devices
+ * - Newer arches (e.g. Gemma 4 / MTP) require ≥ 0.12.5
  *
  * Uses getBackendDevicesInfo() from llama.rn to detect available backends at runtime.
  * The manifest must include libOpenCL.so and libcdsprpc.so (required=false).

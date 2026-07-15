@@ -14,15 +14,18 @@
  *
  * The service operates on the singleton `llamaProvider` and exposes a
  * simple `streamChat()` function consumable by the `useAIChat` hook.
+ *
+ * Model-family detection, prompt heuristics, completion params, think
+ * parsing, and context trim live in `./inference` (re-exported below
+ * for backward-compatible imports).
  */
 
 import { streamText } from 'ai';
-import type { LanguageModelV1 } from 'ai';
 
 import { llamaProvider } from '../providers/llamaProvider';
 import { getModelSettings, ModelSettings, DEFAULT_SETTINGS } from './modelSettingsService';
 import { Persona, buildPersonaSystemPrompt } from './personaService';
-import { formatMessagesForVision, isVisionModel, isQwen35Model } from './visionService';
+import { formatMessagesForVision, isVisionModel } from './visionService';
 import {
   parseDocument,
   extractTextFromAttachment,
@@ -30,106 +33,27 @@ import {
 } from './documentParsingService';
 import { recordUsage, getPerformanceLevel } from './usageTracker';
 import { logError } from '../utils/errorLogger';
+import {
+  buildCompletionParams,
+  trimConversation,
+  stripThinkBlocks,
+  trimDegenerateRepetition,
+  finalizeVisibleAndThought,
+} from './inference';
+
+// Re-export heuristics for callers that imported them from this module.
+export {
+  isSimplePrompt,
+  resolveEnableThinking,
+  resolveNPredict,
+} from './inference';
 
 import type {
   ChatMessage,
-  AIMessage,
   SendOptions,
   StreamCallbacks,
   CompletionResult,
 } from '../types/ai';
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-function isComplexQuery(text: string): boolean {
-  const wordCount = text.split(/\s+/).filter(Boolean).length;
-  if (wordCount >= 20) return true;
-  if (
-    /\b(explain|analyze|analyse|compare|solve|calculate|prove|derive|implement|debug|optimize|refactor|design|summarize|summarise|translate|evaluate|critique)\b/i.test(
-      text,
-    )
-  )
-    return true;
-  if (/[+\-*/^=<>√∫∑∏≈≤≥≠]|\\[a-z]+\{/.test(text)) return true;
-  if (/```|`[^`]+`/.test(text)) return true;
-  if ((text.match(/\?/g) || []).length > 1) return true;
-  return false;
-}
-
-const STOP_WORDS = [
-  '</s>',
-  '<|end|>',
-  'user:',
-  'assistant:',
-  '<|im_end|>',
-  '<|eot_id|>',
-  '<|end▁of▁sentence|>',
-  '<|end_of_text|>',
-  '<｜end▁of▁sentence｜>',
-  '<end_of_turn>',
-  '<eos>',
-  '</eos>',
-];
-
-// ── Sliding-window Context Trim ────────────────────────────────────────────────
-
-function trimConversation(
-  messages: AIMessage[],
-  n_ctx: number,
-  n_predict: number,
-): AIMessage[] {
-  if (messages.length <= 2) return messages;
-
-  const CHARS_PER_TOKEN = 3.5;
-  let budgetChars = Math.max(0, n_ctx - n_predict - 128) * CHARS_PER_TOKEN;
-
-  const systemMsg = messages[0];
-  const currentUserMsg = messages[messages.length - 1];
-  const history = messages.slice(1, -1);
-
-  const systemLen =
-    typeof systemMsg.content === 'string'
-      ? systemMsg.content.length
-      : JSON.stringify(systemMsg.content).length;
-  const currentLen =
-    typeof currentUserMsg.content === 'string'
-      ? currentUserMsg.content.length
-      : JSON.stringify(currentUserMsg.content).length;
-
-  budgetChars -= systemLen;
-  budgetChars -= currentLen;
-
-  if (budgetChars <= 0 || history.length === 0) {
-    return [systemMsg, currentUserMsg];
-  }
-
-  const kept: AIMessage[] = [];
-  for (let i = history.length - 1; i >= 0; i--) {
-    const msgLen =
-      typeof history[i].content === 'string'
-        ? (history[i].content as string).length + 20
-        : JSON.stringify(history[i].content).length + 20;
-    if (budgetChars - msgLen < 0) break;
-    budgetChars -= msgLen;
-    kept.unshift(history[i]);
-  }
-
-  return [systemMsg, ...kept, currentUserMsg];
-}
-
-// ── Think Block Parsing ────────────────────────────────────────────────────────
-
-function stripThinkBlocks(text: string): string {
-  return text
-    .replace(/<think>.*?<\/redacted_reasoning>/gs, '')
-    .replace(/<think>.*?<\/think>/gs, '')
-    .replace(/<think>[\s\S]*$/, '')
-    .replace(/<end_of_turn>/g, '')
-    .replace(/<\/?eos>/g, '')
-    .trim();
-}
-
-// ── Main Chat Stream ───────────────────────────────────────────────────────────
 
 export interface StreamChatParams {
   messages: ChatMessage[];
@@ -268,22 +192,19 @@ async function _runStream(
   // ── Sliding-window trim ─────────────────────────────────────────────────
   aiMessages = trimConversation(aiMessages, settings.n_ctx, settings.n_predict);
 
-  // ── Thinking / reasoning config ─────────────────────────────────────────
-  // Keep these regexes in sync with the corresponding block in
-  // llamaService.ts#handleSendMessageCompletion so both inference paths
-  // agree on which models emit <think> spans.
+  // ── Thinking / reasoning config (shared builder) ────────────────────────
   const inputText = sendOptions?.textForPrompt || userInput;
-  const lowerName = modelName.toLowerCase();
-  const isQwen3 =
-    isQwen35Model(modelName) ||
-    /qwen3(?![a-z])/i.test(modelName) ||
-    lowerName.includes('qwq');
-  const isDeepSeekR1 =
-    lowerName.includes('deepseek-r1') || /\br1d\b/.test(lowerName);
-  const isSmolLM3 = /smollm3/i.test(modelName);
-  const complex = isComplexQuery(inputText);
-  // `enable_thinking` is Qwen-specific; do not forward for SmolLM3.
-  const enableThinking = isQwen3 ? complex : undefined;
+  const completion = buildCompletionParams({
+    userText: inputText,
+    modelName,
+    settings,
+  });
+  const {
+    n_predict: maxTokens,
+    temperature,
+    stop: stopSequences,
+    supportsThinkTags,
+  } = completion;
 
   // ── Stream via Vercel AI SDK ────────────────────────────────────────────
   const startTime = Date.now();
@@ -295,14 +216,13 @@ async function _runStream(
     const { textStream } = streamText({
       model,
       messages: aiMessages as any, // AI SDK message type
-      maxTokens: settings.n_predict,
-      temperature: settings.temperature,
+      maxTokens,
+      temperature,
       topP: settings.top_p,
-      stopSequences: STOP_WORDS,
+      stopSequences,
       abortSignal: signal,
     });
 
-    const supportsThinkTags = isQwen3 || isDeepSeekR1 || isSmolLM3;
     let inThinkBlock = false;
 
     for await (const delta of textStream) {
@@ -336,7 +256,9 @@ async function _runStream(
       }
 
       fullText += delta;
-      const visibleText = supportsThinkTags ? stripThinkBlocks(fullText) : fullText;
+      const visibleText = supportsThinkTags
+        ? stripThinkBlocks(fullText)
+        : fullText;
       callbacks.onToken?.(visibleText);
     }
 
@@ -344,7 +266,9 @@ async function _runStream(
     const endTime = Date.now();
     const inferenceTimeMs = endTime - startTime;
     const tps = tokenCount > 0 ? (tokenCount / inferenceTimeMs) * 1000 : 0;
-    const visibleContent = supportsThinkTags ? stripThinkBlocks(fullText) : fullText.trim();
+    const visibleContent = trimDegenerateRepetition(
+      supportsThinkTags ? stripThinkBlocks(fullText) : fullText.trim(),
+    );
 
     const completionResult: CompletionResult = {
       text: visibleContent,
@@ -402,21 +326,22 @@ export async function nativeCompletion(
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
 ): Promise<CompletionResult> {
-  const lowerName = modelName.toLowerCase();
-  const isQwen3 =
-    isQwen35Model(modelName) ||
-    /qwen3(?![a-z])/i.test(modelName) ||
-    lowerName.includes('qwq');
-  const isDeepSeekR1 =
-    lowerName.includes('deepseek-r1') || /\br1d\b/.test(lowerName);
-  const isSmolLM3 = /smollm3/i.test(modelName);
-  const supportsThinkTags = isQwen3 || isDeepSeekR1 || isSmolLM3;
-
   const userText = messages[messages.length - 1]?.content || '';
-  const complex = isComplexQuery(userText);
-  const enableThinking = isQwen3 ? complex : undefined;
-  const reasoningFormat: 'auto' | 'none' =
-    (isQwen3 && complex) || isDeepSeekR1 || isSmolLM3 ? 'auto' : 'none';
+  const completion = buildCompletionParams({
+    userText,
+    modelName,
+    settings,
+  });
+  const {
+    n_predict: nPredict,
+    temperature,
+    repeat_penalty: repeatPenalty,
+    stop,
+    enable_thinking: enableThinking,
+    reasoning_format: reasoningFormat,
+    simple,
+    supportsThinkTags,
+  } = completion;
 
   const startTime = Date.now();
   let fullText = '';
@@ -424,84 +349,196 @@ export async function nativeCompletion(
   let inThinkBlock = false;
   let tokenCount = 0;
 
-  // Map ChatMessage[] to the shape llama.rn expects
   const llamaMessages = messages.map((m) => ({
     role: m.role,
     content: m.content,
   }));
 
   interface TokenData {
-    token: string;
+    token?: string;
+    content?: string;
     reasoning_content?: string;
   }
 
-  const result = await nativeContext.completion(
+  if (__DEV__) {
+    console.log('[nativeCompletion] start', {
+      modelName,
+      n_predict: nPredict,
+      temperature,
+      enableThinking,
+      simple,
+      reasoningFormat,
+      messageCount: llamaMessages.length,
+      lastUserChars: userText.length,
+    });
+  }
+
+  await logError(
+    'Inference',
+    'nativeCompletion start',
+    undefined,
     {
-      messages: llamaMessages,
-      n_predict: settings.n_predict,
-      temperature: settings.temperature,
-      top_p: settings.top_p,
-      top_k: settings.top_k,
-      repeat_penalty: settings.repeat_penalty,
-      stop: STOP_WORDS,
-      ...(enableThinking !== undefined && { enable_thinking: enableThinking }),
-      reasoning_format: reasoningFormat,
+      modelName,
+      n_predict: nPredict,
+      temperature,
+      enableThinking,
+      simple,
+      reasoningFormat,
+      messageCount: llamaMessages.length,
+      roles: llamaMessages.map((m) => m.role),
+      lastUserPreview: userText.slice(0, 120),
     },
-    (data: TokenData) => {
-      if (signal?.aborted) return;
+    'INFO',
+  );
 
-      tokenCount++;
+  let result: any;
+  try {
+    result = await nativeContext.completion(
+      {
+        messages: llamaMessages,
+        n_predict: nPredict,
+        temperature,
+        top_p: settings.top_p,
+        top_k: settings.top_k,
+        repeat_penalty: repeatPenalty,
+        stop,
+        // Always pass an explicit boolean for Qwen so template v4 injects empty
+        // <think></think> when false (skips CoT on "another fun fact").
+        ...(enableThinking !== undefined ? { enable_thinking: enableThinking } : {}),
+        reasoning_format: reasoningFormat,
+      },
+      (data: TokenData) => {
+        if (signal?.aborted) return;
 
-      // Native reasoning tokens (llama.rn reasoning_format: 'auto')
-      if (data.reasoning_content && data.reasoning_content !== currentThought) {
-        currentThought = data.reasoning_content;
-        callbacks.onThought?.(currentThought);
-        return;
-      }
+        tokenCount++;
 
-      const token = data.token;
-      if (!token) return;
-
-      fullText += token;
-
-      if (supportsThinkTags) {
-        if (token.includes('<think>')) {
-          inThinkBlock = true;
-          currentThought += token.replace('<think>', '');
+        if (data.reasoning_content && data.reasoning_content !== currentThought) {
+          currentThought = data.reasoning_content;
           callbacks.onThought?.(currentThought);
           return;
         }
-        if (inThinkBlock) {
-          if (token.includes('</think>')) {
-            inThinkBlock = false;
-            currentThought += token.replace('</think>', '');
-            currentThought = currentThought.trim();
-            callbacks.onThought?.(currentThought);
-          } else {
-            currentThought += token;
-            callbacks.onThought?.(currentThought);
-          }
-          return;
-        }
-      }
 
-      const visibleText = supportsThinkTags ? stripThinkBlocks(fullText) : fullText;
-      callbacks.onToken?.(visibleText);
-    },
-  );
+        const token = data.token ?? data.content ?? '';
+        if (!token) return;
+
+        fullText += token;
+
+        if (supportsThinkTags) {
+          if (token.includes('<think>')) {
+            inThinkBlock = true;
+            currentThought += token.replace(/<think>/gi, '');
+            callbacks.onThought?.(currentThought);
+            // Don't stream think tokens into the bubble — ThinkingIndicator
+            // stays visible while content is empty.
+            return;
+          }
+          if (inThinkBlock) {
+            if (token.includes('</think>')) {
+              inThinkBlock = false;
+              currentThought += token.replace(/<\/think>/gi, '');
+              currentThought = currentThought.trim();
+              callbacks.onThought?.(currentThought);
+            } else {
+              currentThought += token;
+              callbacks.onThought?.(currentThought);
+            }
+            return;
+          }
+        }
+
+        const visibleText = supportsThinkTags
+          ? stripThinkBlocks(fullText)
+          : fullText;
+        if (visibleText) {
+          callbacks.onToken?.(visibleText);
+        }
+      },
+    );
+  } catch (err) {
+    await logError(
+      'Inference',
+      `nativeCompletion threw: ${err instanceof Error ? err.message : String(err)}`,
+      err instanceof Error ? err : undefined,
+      { modelName, tokenCount, fullTextLen: fullText.length },
+    );
+    throw err;
+  }
 
   const endTime = Date.now();
   const inferenceTimeMs = endTime - startTime;
-  const tps = result.timings?.predicted_per_second ?? 0;
-  const visibleContent = supportsThinkTags ? stripThinkBlocks(fullText) : fullText.trim();
+  const wallTps =
+    tokenCount > 0 && inferenceTimeMs > 0
+      ? (tokenCount / inferenceTimeMs) * 1000
+      : 0;
+  const tps = result?.timings?.predicted_per_second ?? wallTps;
+  const tpsRounded = parseFloat(Number(tps).toFixed(2));
+
+  const resultText =
+    (typeof result?.text === 'string' && result.text) ||
+    (typeof result?.content === 'string' && result.content) ||
+    '';
+  const combined = fullText.trim().length > 0 ? fullText : resultText;
+
+  const finalized = finalizeVisibleAndThought(
+    combined,
+    currentThought,
+    supportsThinkTags,
+  );
+  const visibleContent = finalized.visibleContent;
+  currentThought = finalized.thought;
+
+  await logError(
+    'Inference',
+    visibleContent.trim().length > 0
+      ? 'nativeCompletion finished'
+      : 'nativeCompletion finished with EMPTY visible text',
+    undefined,
+    {
+      modelName,
+      tokenCount,
+      streamedChars: fullText.length,
+      resultTextChars: resultText.length,
+      visibleChars: visibleContent.length,
+      thoughtChars: currentThought.length,
+      stillInThinkBlock: inThinkBlock,
+      tps,
+      inferenceTimeMs,
+      resultKeys:
+        result && typeof result === 'object' ? Object.keys(result).slice(0, 20) : [],
+      timings: result?.timings ?? null,
+      truncatedPreview: visibleContent.slice(0, 160) || currentThought.slice(0, 160),
+    },
+    visibleContent.trim().length > 0 ? 'INFO' : 'WARN',
+  );
+
+  if (__DEV__) {
+    console.log('[nativeCompletion] done', {
+      tokenCount,
+      streamedChars: fullText.length,
+      resultTextChars: resultText.length,
+      visibleChars: visibleContent.length,
+      thoughtChars: currentThought.length,
+      tps,
+      inferenceTimeMs,
+    });
+  }
 
   const completionResult: CompletionResult = {
     text: visibleContent,
     thought: currentThought || undefined,
-    tokensPerSecond: parseFloat(tps.toFixed(2)),
+    tokensPerSecond: tpsRounded,
     totalTokens: tokenCount,
     inferenceTimeMs,
   };
+
+  recordUsage({
+    timestamp: Date.now(),
+    inferenceTime: inferenceTimeMs,
+    tokenCount,
+    tokensPerSecond: tpsRounded,
+    performanceLevel: getPerformanceLevel(tpsRounded),
+    model: modelName,
+  });
 
   callbacks.onFinish?.(completionResult);
   return completionResult;

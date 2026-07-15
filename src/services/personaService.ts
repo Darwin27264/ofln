@@ -161,8 +161,17 @@ export const buildPersonaSystemPrompt = (
   persona: Persona | null,
   baseSystemPrompt: string
 ): string => {
+  const appendConciseRule = (prompt: string): string => {
+    if (/Never include chain-of-thought/i.test(prompt)) return prompt;
+    return (
+      `${prompt.trim()} ` +
+      `Reply briefly with the answer only. ` +
+      `Never include chain-of-thought, planning narration, or phrases like "Thinking in English".`
+    );
+  };
+
   if (!persona) {
-    return baseSystemPrompt;
+    return appendConciseRule(baseSystemPrompt || "You are a helpful assistant.");
   }
 
   const personaParts: string[] = [];
@@ -217,15 +226,19 @@ export const buildPersonaSystemPrompt = (
 
   if (isDefaultPrompt) {
     if (personaContent) {
-      return `You are ${persona.name}. ${personaContent}`;
+      return appendConciseRule(`You are ${persona.name}. ${personaContent}`);
     } else {
-      return `You are ${persona.name}.`;
+      return appendConciseRule(`You are ${persona.name}.`);
     }
   } else {
     if (personaContent) {
-      return `${baseSystemPrompt}\n\nYou are roleplaying as ${persona.name}.\n\n${personaContent}`;
+      return appendConciseRule(
+        `${baseSystemPrompt}\n\nYou are roleplaying as ${persona.name}.\n\n${personaContent}`,
+      );
     } else {
-      return `${baseSystemPrompt}\n\nYou are roleplaying as ${persona.name}.`;
+      return appendConciseRule(
+        `${baseSystemPrompt}\n\nYou are roleplaying as ${persona.name}.`,
+      );
     }
   }
 };

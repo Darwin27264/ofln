@@ -80,6 +80,7 @@ yarn-error.log
 
 # testing
 /coverage
+.tmp-gguf-test/
 
 # Yarn
 .yarn/*

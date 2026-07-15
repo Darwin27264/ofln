@@ -37,32 +37,39 @@ interface ModelSettingsScreenProps {
 const metricExplanations: { [key: string]: { title: string; explanation: string } } = {
   contextSize: {
     title: "Context Size (n_ctx)",
-    explanation: "What it is:\nThe context size determines how many tokens (words/characters) the model can remember from the conversation history.\n\nEffects of tuning:\n• Higher values (4096-8192): Model remembers more conversation history, better for long conversations, but uses more memory\n• Lower values (512-1024): Uses less memory and is faster, but model forgets earlier parts of the conversation\n• Recommended: 2048-4096 for most use cases"
+    explanation:
+      "What it is:\nHow many tokens of conversation the model can keep in memory at once.\n\nEffects of tuning:\n• Higher (4096–8192): Longer memory, much more RAM\n• Lower (512–1024): Faster load, forgets older turns sooner\n• Android default / soft cap: 2048 — stay near this unless you have a high-RAM phone\n• Recommended: 2048 for most phones",
   },
   gpuLayers: {
     title: "GPU Layers (n_gpu_layers)",
-    explanation: "What it is:\nControls how many layers of the neural network run on the GPU/NPU instead of CPU.\n\nEffects of tuning:\n• Higher values (16-99): Faster generation on OpenCL (Adreno 700+) or Hexagon NPU (8 Gen 1+)\n• Lower values (0-8): Uses less GPU memory, but generation is slower\n• 0: All processing on CPU (slowest but most compatible)\n• Recommended: Use 99 on capable Android devices with acceleration enabled in Settings"
+    explanation:
+      "What it is:\nHow many layers run on GPU/NPU vs CPU (llama.rn / llama.cpp).\n\nAndroid acceleration:\n• Works best with Q4_0 or Q6_K quants on OpenCL (Adreno 700+) or Hexagon NPU (Snapdragon 8 Gen 1+)\n• Other quants are forced to CPU (layers treated as 0)\n• Emulators always use CPU\n\nEffects of tuning:\n• Higher (16–99): Faster when acceleration is available\n• 0: CPU only — slowest but most compatible\n• Recommended: try 8–99 on capable phones with a Q4_0 model; use 0 if loads fail",
   },
   temperature: {
     title: "Temperature",
-    explanation: "What it is:\nControls the randomness and creativity of the model's responses.\n\nEffects of tuning:\n• Lower values (0.1-0.5): More focused, deterministic, and consistent responses. Better for factual tasks\n• Higher values (0.7-1.5): More creative, diverse, and unpredictable responses. Better for creative writing\n• Very high (1.5-2.0): May produce nonsensical or off-topic responses\n• Recommended: 0.7-0.9 for balanced responses"
+    explanation:
+      "What it is:\nControls randomness vs focus in replies.\n\nEffects of tuning:\n• Lower (0.2–0.5): More deterministic — good for facts / code\n• Mid (0.6–0.8): Balanced chat (app default ~0.65)\n• Higher (0.9–1.5): More creative; too high can ramble\n• Recommended: 0.6–0.8 for most chats",
   },
   topP: {
     title: "Top P (Nucleus Sampling)",
-    explanation: "What it is:\nControls diversity by considering only tokens whose cumulative probability exceeds this threshold.\n\nEffects of tuning:\n• Lower values (0.1-0.5): More focused responses, considers fewer word choices\n• Higher values (0.7-0.95): More diverse responses, considers more word choices\n• Works together with temperature to control response quality\n• Recommended: 0.8-0.9 for most use cases"
+    explanation:
+      "What it is:\nOnly considers tokens in the top probability mass.\n\nEffects of tuning:\n• Lower (0.5–0.8): Tighter, more focused wording\n• Higher (0.9–0.95): More variety\n• Works with temperature\n• Recommended: ~0.90 (app default)",
   },
   topK: {
     title: "Top K",
-    explanation: "What it is:\nLimits the model to consider only the top K most likely tokens when generating responses.\n\nEffects of tuning:\n• Lower values (1-10): More focused, predictable responses\n• Higher values (40-100): More diverse, creative responses\n• Setting too high may include unlikely tokens that reduce quality\n• Recommended: 40-60 for balanced quality and diversity"
+    explanation:
+      "What it is:\nLimits choices to the K most likely next tokens.\n\nEffects of tuning:\n• Lower (10–20): More predictable\n• Higher (40–100): More diversity\n• Recommended: 40 (app default)",
   },
   repeatPenalty: {
     title: "Repeat Penalty",
-    explanation: "What it is:\nPenalizes the model for repeating the same words or phrases.\n\nEffects of tuning:\n• Lower values (1.0-1.1): Model may repeat words or phrases more often\n• Higher values (1.2-1.5): Reduces repetition, but may make responses less natural if too high\n• Values above 1.5 may cause the model to avoid common words\n• Recommended: 1.1-1.2 for most use cases"
+    explanation:
+      "What it is:\nDiscourages repeating the same phrases.\n\nEffects of tuning:\n• ~1.0: Little penalty\n• 1.1–1.3: Cuts loops without sounding odd (default ~1.20)\n• Above ~1.5: May dodge common words awkwardly\n• Recommended: 1.15–1.25",
   },
   maxPredict: {
     title: "Max Predict Tokens (n_predict)",
-    explanation: "What it is:\nThe maximum number of tokens the model will generate in a single response.\n\nEffects of tuning:\n• Lower values (128-512): Shorter responses, faster generation, less memory usage\n• Higher values (1024-4096): Longer responses, but slower and uses more memory\n• Setting too high may cause the model to ramble or go off-topic\n• Recommended: 512-2048 depending on your needs"
-  }
+    explanation:
+      "What it is:\nUpper bound on tokens generated per reply.\n\nEffects of tuning:\n• Lower (128–256): Shorter, snappier answers (default 256)\n• Higher (512–1024): Longer answers, slower and more battery\n• Recommended: 256–512 on phones; raise only when you need long drafts",
+  },
 };
 
 export default function ModelSettingsScreen({

@@ -7,7 +7,6 @@ import { useTheme } from "../context/ThemeContext";
 import RNFS from "react-native-fs";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { showAlert } from "../components/CustomAlert";
-import { readErrorLog, getErrorLogPath, clearErrorLog } from "../utils/errorLogger";
 
 interface Props {
   assistantDisplayMode: "bubble" | "direct";
@@ -17,8 +16,9 @@ interface Props {
   onOpenStats: () => void;
   onGoToPersonas: () => void;
   onGoToInfo: () => void;
-  /** DEV-only: open diagnostics (long-press on Settings title) */
-  onOpenDiagnostics?: () => void;
+  onGoToDiagnostics: () => void;
+  /** DEV-only: open llama smoke-test (long-press on Settings title) */
+  onOpenDevDiagnostics?: () => void;
 }
 
 export default function SettingsScreen({
@@ -29,7 +29,8 @@ export default function SettingsScreen({
   onOpenStats,
   onGoToPersonas,
   onGoToInfo,
-  onOpenDiagnostics,
+  onGoToDiagnostics,
+  onOpenDevDiagnostics,
 }: Props) {
   const { theme, toggleTheme, isDark, isTransitioning } = useTheme();
   const styles = createStyles(theme.colors);
@@ -43,7 +44,7 @@ export default function SettingsScreen({
   const showChatModeInfo = () => {
     showAlert(
       "Chat Mode",
-      "When enabled, messages are shown in bubbles. When disabled, the assistant prints directly.",
+      "On: assistant replies appear in bubbles (chat-style).\nOff: assistant text prints more like a continuous transcript.\n\nThis only changes how messages look — not the model or speed.",
       [{ text: "OK" }]
     );
   };
@@ -162,9 +163,9 @@ export default function SettingsScreen({
         }
       ]}
     >
-      {__DEV__ && onOpenDiagnostics ? (
+      {__DEV__ && onOpenDevDiagnostics ? (
         <Pressable
-          onLongPress={onOpenDiagnostics}
+          onLongPress={onOpenDevDiagnostics}
           delayLongPress={600}
           style={{ marginBottom: 40 }}
         >
@@ -193,11 +194,11 @@ export default function SettingsScreen({
           </TouchableOpacity>
         </View>
         <View style={{ flexDirection: "row", height: 145 }}>
-          <TouchableOpacity style={{ flex: 1, marginRight: 5 }} onPress={() => {}} activeOpacity={1}>
-            <Animated.View style={[styles.settingsBlock, { opacity: 0.7 }]}>
-              <Ionicons name="key-outline" size={20} color={theme.colors.textSecondary} style={styles.blockIcon}/>
+          <TouchableOpacity style={{ flex: 1, marginRight: 5 }} onPress={onGoToDiagnostics}>
+            <Animated.View style={styles.settingsBlock}>
+              <Ionicons name="pulse-outline" size={21} color={theme.colors.text} style={styles.blockIcon}/>
               <View style={styles.blockTextContainer}>
-                <Text style={[styles.blockText, { color: theme.colors.textSecondary }]}>API</Text>
+                <Text style={styles.blockText}>Diagnostics</Text>
               </View>
             </Animated.View>
           </TouchableOpacity>
@@ -253,7 +254,11 @@ export default function SettingsScreen({
             marginBottom: 2,
           }}>Back</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={onGoToInfo} style={{
+        <TouchableOpacity
+          onPress={onGoToInfo}
+          accessibilityLabel="About"
+          accessibilityHint="Opens about the app and how-to tips"
+          style={{
           backgroundColor: theme.colors.primary,
           borderRadius: 30,
           paddingHorizontal: 12,

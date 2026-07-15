@@ -1,7 +1,7 @@
 // llamaservice.ts
 import { Platform } from "react-native";
 import RNFS from "react-native-fs";
-import { initLlama, loadLlamaModelInfo } from "llama.rn";
+import { initLlama, loadLlamaModelInfo, releaseAllLlama } from "llama.rn";
 import { recordUsage, getPerformanceLevel } from "./usageTracker";
 import { getModelSettings, ModelSettings, DEFAULT_SETTINGS } from "./modelSettingsService";
 import { Persona, buildPersonaSystemPrompt } from "./personaService";
@@ -9,6 +9,9 @@ import { logError } from "../utils/errorLogger";
 import { isAndroidEmulator } from "./deviceEnv";
 import { getModelInfo, detectQuantFromFilename, isQuantAllowedForAndroidAccel } from "./modelInfoService";
 import { getAccelerationConfig } from "./accelerationCapabilityService";
+import { getInferencePerfParams, formatLoadError } from "./inferencePerfParams";
+import { ensureGgufSafeForAndroidLoad } from "./ggufSanitizeService";
+import { buildCompletionParams, trimConversation } from "./inference";
 
 // Types
 type MessageAttachment = {
@@ -87,6 +90,39 @@ export const loadModel = async (
       return false;
     }
 
+    // Emulators often OOM on 4B+ GGUFs; fail early with a clear tip.
+    const earlyEmulator = isAndroidEmulator();
+    if (earlyEmulator) {
+      try {
+        const stat = await RNFS.stat(filePath);
+        const sizeBytes = Number(stat.size) || 0;
+        const sizeMB = Math.round(sizeBytes / (1024 * 1024));
+        // ~1.6GB+: typically too large for stock AVDs (needs ~2–3× RAM headroom).
+        if (sizeMB >= 1600) {
+          const errorMsg =
+            `Model is too large for the Android emulator (${sizeMB} MB). ` +
+            `Use Qwen3.5 0.8B / 2B Q4_0, or raise AVD RAM to 6GB+ and try again.`;
+          console.error(errorMsg);
+          await logError("ModelLoading", errorMsg, new Error(errorMsg), {
+            filePath,
+            fileName: filePath.split("/").pop(),
+            sizeMB,
+            isEmulator: true,
+            tip: "On emulator prefer Qwen3.5-0.8B or 2B Q4_0",
+          });
+          setContext(null);
+          return false;
+        }
+      } catch (statError) {
+        console.warn("[ModelLoading] Could not stat model file for size check:", statError);
+      }
+    }
+
+    // Fix Qwen3.5+ huge chat_template crashing llama.rn init (prebuilt 16KB buffer).
+    if (Platform.OS === "android") {
+      await ensureGgufSafeForAndroidLoad(filePath);
+    }
+
     // Release old context to prevent memory leaks
     if (context) {
       try {
@@ -128,7 +164,7 @@ export const loadModel = async (
           modelUri,
           requested_n_ctx: settings.n_ctx,
           requested_n_gpu_layers: settings.n_gpu_layers,
-          modelInfo,
+          hasInfo: !!modelInfo,
         });
       }
     } catch (infoError) {
@@ -194,6 +230,8 @@ export const loadModel = async (
       if (isEmulator) {
         accelReason = "emulator";
         adjustedN_gpu_layers = 0;
+        // Emulators are RAM-starved; keep context small so initLlama can succeed.
+        adjustedN_ctx = Math.min(adjustedN_ctx, 1024);
       } else if (!isQuantAllowedForAndroidAccel(appliedQuant)) {
         accelReason = "quant_not_allowlisted";
         adjustedN_gpu_layers = 0;
@@ -221,6 +259,7 @@ export const loadModel = async (
           requested_n_gpu_layers: settings.n_gpu_layers,
           adjusted_n_gpu_layers: adjustedN_gpu_layers,
           applied_n_gpu_layers: appliedNgpuLayers,
+          adjusted_n_ctx: adjustedN_ctx,
           appliedDevices,
           appliedUseMlock,
           reason: accelReason,
@@ -228,39 +267,79 @@ export const loadModel = async (
       }
     }
 
-    // Try to initialize llama context with use_mlock: true first
-    // This helps prevent memory swapping on mobile devices
-    // If it fails (e.g., on Samsung devices with strict memory management),
-    // fall back to use_mlock: false
-    let llamaContext;
-    let loadAttempts = 0;
-    const maxAttempts = 3;
-    
-    while (loadAttempts < maxAttempts && !llamaContext) {
+    // Staged attempts so Android/emulator retries actually change something
+    // (mlock is always false on Android, so the old 3x identical loop was useless).
+    const attemptNgpuLayers =
+      Platform.OS === "android" ? appliedNgpuLayers : adjustedN_gpu_layers;
+    const attemptUseMlock =
+      Platform.OS === "android" ? appliedUseMlock : true;
+
+    type InitStage = {
+      label: string;
+      n_ctx: number;
+      n_gpu_layers: number;
+      use_mlock: boolean;
+      bare?: boolean; // skip flash_attn / n_batch / KV extras
+    };
+
+    const stages: InitStage[] = [
+      {
+        label: "primary",
+        n_ctx: adjustedN_ctx,
+        n_gpu_layers: attemptNgpuLayers,
+        use_mlock: attemptUseMlock,
+      },
+      {
+        label: "bare-params",
+        n_ctx: adjustedN_ctx,
+        n_gpu_layers: attemptNgpuLayers,
+        use_mlock: false,
+        bare: true,
+      },
+      {
+        label: "minimal",
+        n_ctx: Math.min(isEmulator ? 512 : 1024, adjustedN_ctx),
+        n_gpu_layers: 0,
+        use_mlock: false,
+        bare: true,
+      },
+    ];
+
+    let llamaContext: Awaited<ReturnType<typeof initLlama>> | null = null;
+    let lastError: unknown = null;
+
+    for (let i = 0; i < stages.length; i++) {
+      const stage = stages[i];
       try {
-        const useMlock = loadAttempts === 0; // Try with mlock first, then without
-
-        // Apply platform-specific overrides computed above.
-        let attemptUseMlock = useMlock;
-        let attemptNgpuLayers = adjustedN_gpu_layers;
-
-        if (Platform.OS === "android") {
-          attemptUseMlock = appliedUseMlock;
-          attemptNgpuLayers = appliedNgpuLayers;
-        }
-
         const initParams: Parameters<typeof initLlama>[0] = {
           model: filePath,
-          use_mlock: attemptUseMlock,
-          n_ctx: adjustedN_ctx,
-          n_gpu_layers: attemptNgpuLayers,
+          use_mlock: stage.use_mlock,
+          n_ctx: stage.n_ctx,
+          n_gpu_layers: stage.n_gpu_layers,
         };
-        if (Platform.OS === "android" && appliedDevices && appliedDevices.length > 0) {
+
+        if (!stage.bare) {
+          const perf = getInferencePerfParams(stage.n_gpu_layers, { isEmulator });
+          initParams.flash_attn_type = perf.flash_attn_type;
+          initParams.n_batch = perf.n_batch;
+          if (perf.cache_type_k) initParams.cache_type_k = perf.cache_type_k;
+          if (perf.cache_type_v) initParams.cache_type_v = perf.cache_type_v;
+        }
+
+        if (
+          Platform.OS === "android" &&
+          !stage.bare &&
+          appliedDevices &&
+          appliedDevices.length > 0 &&
+          stage.n_gpu_layers > 0
+        ) {
           initParams.devices = appliedDevices;
         }
 
         console.log(
-          `Attempting to load model: ${fileName} (attempt ${loadAttempts + 1}/${maxAttempts}) with use_mlock: ${attemptUseMlock}, n_gpu_layers: ${attemptNgpuLayers}, devices: ${appliedDevices ? JSON.stringify(appliedDevices) : "default"}, platform: ${Platform.OS}`
+          `[ModelLoading] ${stage.label} (${i + 1}/${stages.length}): ` +
+            `n_ctx=${stage.n_ctx} n_gpu_layers=${stage.n_gpu_layers} bare=${!!stage.bare} ` +
+            `emulator=${isEmulator} file=${fileName}`
         );
 
         llamaContext = await initLlama(initParams);
@@ -272,7 +351,8 @@ export const loadModel = async (
             devices: (llamaContext as any).devices,
           };
           console.log(
-            `Successfully loaded model: ${fileName} with use_mlock: ${attemptUseMlock}. GPU: ${gpuStatus.gpu}, reasonNoGPU: ${gpuStatus.reasonNoGPU || "—"}, devices: ${JSON.stringify(gpuStatus.devices || [])}`
+            `Successfully loaded model: ${fileName} via ${stage.label}. ` +
+              `GPU: ${gpuStatus.gpu}, reasonNoGPU: ${gpuStatus.reasonNoGPU || "—"}`
           );
           if (__DEV__) {
             console.log("[ModelLoading] Runtime GPU status", gpuStatus);
@@ -280,124 +360,98 @@ export const loadModel = async (
           break;
         }
       } catch (attemptError) {
-        loadAttempts++;
-        const errorMsg = attemptError instanceof Error ? attemptError.message : "Unknown error";
-        const errorStack = attemptError instanceof Error ? attemptError.stack : undefined;
-        
-        console.warn(`Load attempt ${loadAttempts} failed: ${errorMsg}`);
-        if (errorStack) {
-          console.warn("Error stack:", errorStack);
+        lastError = attemptError;
+        const errorMsg = formatLoadError(attemptError);
+        console.warn(`[ModelLoading] ${stage.label} failed: ${errorMsg}`);
+        // Native load can succeed while JS metadata marshalling fails — orphaned
+        // contexts leak RAM. Always clear before the next stage.
+        try {
+          await releaseAllLlama();
+        } catch {
+          /* ignore */
         }
-        
-        // Log the attempt error
         await logError(
           "ModelLoading",
-          `Load attempt ${loadAttempts}/${maxAttempts} failed`,
-          attemptError instanceof Error ? attemptError : new Error(String(attemptError)),
+          `Load stage "${stage.label}" failed: ${errorMsg}`,
+          attemptError instanceof Error ? attemptError : new Error(errorMsg),
           {
             fileName,
-            attempt: loadAttempts,
-            use_mlock: loadAttempts === 1,
-            n_ctx: adjustedN_ctx,
-            n_gpu_layers: adjustedN_gpu_layers,
+            stage: stage.label,
+            n_ctx: stage.n_ctx,
+            n_gpu_layers: stage.n_gpu_layers,
+            bare: !!stage.bare,
+            isEmulator,
           },
           "WARN"
         );
-        
-        // If this was the last attempt, throw the error
-        if (loadAttempts >= maxAttempts) {
-          // Try one more time with even more conservative settings
-          try {
-            console.log(`Final attempt with reduced settings: n_ctx=${Math.min(1024, adjustedN_ctx)}, n_gpu_layers=0`);
-            llamaContext = await initLlama({
-              model: filePath,
-              use_mlock: false,
-              n_ctx: Math.min(1024, adjustedN_ctx), // Very conservative context window
-              n_gpu_layers: 0, // Disable GPU layers as last resort
-            });
-            
-            if (llamaContext) {
-              console.log(`Successfully loaded model with reduced settings`);
-              await logError(
-                "ModelLoading",
-                "Model loaded successfully with reduced settings after failures",
-                undefined,
-                { fileName, finalN_ctx: Math.min(1024, adjustedN_ctx), finalN_gpu_layers: 0 },
-                "INFO"
-              );
-              break;
-            }
-          } catch (finalError) {
-            const finalErrorMsg = finalError instanceof Error ? finalError.message : "Unknown error";
-            console.error(`Final load attempt failed: ${finalErrorMsg}`);
-            await logError(
-              "ModelLoading",
-              "All model loading attempts failed",
-              finalError instanceof Error ? finalError : new Error(String(finalError)),
-              {
-                fileName,
-                filePath,
-                totalAttempts: loadAttempts + 1,
-                originalN_ctx: settings.n_ctx,
-                originalN_gpu_layers: settings.n_gpu_layers,
-              }
-            );
-            throw finalError;
-          }
-        } else {
-          // Wait a bit before retrying
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
+        // Brief pause before next stage
+        await new Promise((resolve) => setTimeout(resolve, 400));
       }
     }
-    
-    // Validate context was created successfully
+
     if (!llamaContext) {
-      const errorMsg = "Failed to create llama context after all attempts";
-      console.error(errorMsg);
+      const errorMsg = formatLoadError(lastError) || "Failed to create llama context after all attempts";
+      console.error(`[ModelLoading] All stages failed: ${errorMsg}`);
       await logError(
         "ModelLoading",
-        errorMsg,
-        undefined,
-        { fileName, filePath }
+        `All model loading attempts failed: ${errorMsg}`,
+        lastError instanceof Error ? lastError : new Error(errorMsg),
+        {
+          fileName,
+          filePath,
+          isEmulator,
+          originalN_ctx: settings.n_ctx,
+          originalN_gpu_layers: settings.n_gpu_layers,
+          tip: isEmulator
+            ? "On emulator use Qwen3.5 0.8B / 2B and raise AVD RAM to 4GB+"
+            : "Try a smaller GGUF or lower n_ctx in model settings",
+        }
       );
+      setContext(null);
       return false;
     }
-    
+
     console.log(`Successfully loaded model: ${fileName}`);
     setContext(llamaContext);
     return true;
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const errorMessage = formatLoadError(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
     console.error("Error loading model:", errorMessage);
     if (errorStack) {
       console.error("Error stack:", errorStack);
     }
-    
+
     // Determine error category and suggestions
     let errorCategory = "ModelLoading";
     let suggestions: string[] = [];
-    
+
     // Check for specific error types that might indicate memory issues
-    if (errorMessage.toLowerCase().includes('memory') || 
-        errorMessage.toLowerCase().includes('out of memory') ||
-        errorMessage.toLowerCase().includes('oom')) {
+    if (
+      errorMessage.toLowerCase().includes("memory") ||
+      errorMessage.toLowerCase().includes("out of memory") ||
+      errorMessage.toLowerCase().includes("oom")
+    ) {
       errorCategory = "ModelLoading.Memory";
       suggestions = [
         "Close other apps to free up RAM",
         "Try a smaller model",
         "Reduce context window size in model settings",
         "Disable GPU layers if enabled",
+        "On emulator: use 0.8B/2B models and raise AVD RAM",
       ];
-      console.error("Memory-related error detected. This may indicate insufficient RAM or device memory limits.");
+      console.error(
+        "Memory-related error detected. This may indicate insufficient RAM or device memory limits."
+      );
     }
-    
+
     // Check for file access errors (common on Samsung devices with file restrictions)
-    if (errorMessage.toLowerCase().includes('permission') ||
-        errorMessage.toLowerCase().includes('access') ||
-        errorMessage.toLowerCase().includes('denied') ||
-        errorMessage.toLowerCase().includes('not found')) {
+    if (
+      errorMessage.toLowerCase().includes("permission") ||
+      errorMessage.toLowerCase().includes("access") ||
+      errorMessage.toLowerCase().includes("denied") ||
+      errorMessage.toLowerCase().includes("not found")
+    ) {
       errorCategory = "ModelLoading.FileAccess";
       suggestions = [
         "Check file permissions",
@@ -407,20 +461,20 @@ export const loadModel = async (
       ];
       console.error("File access error detected. Check file permissions and path.");
     }
-    
+
     // Log the error with full context
     await logError(
       errorCategory,
       `Failed to load model: ${errorMessage}`,
-      error instanceof Error ? error : new Error(String(error)),
+      error instanceof Error ? error : new Error(errorMessage),
       {
-        fileName: filePath.split('/').pop() || 'unknown',
+        fileName: filePath.split("/").pop() || "unknown",
         filePath,
         suggestions,
         errorType: error instanceof Error ? error.name : "Unknown",
       }
     );
-    
+
     // Ensure context is cleared on error
     setContext(null);
     return false;
@@ -572,96 +626,22 @@ export const handleSendMessageCompletion = async (
   const startTime = Date.now();
 
   try {
-    const stopWords = [
-      "</s>",
-      "<|end|>",
-      "user:",
-      "assistant:",
-      "<|im_end|>",
-      "<|eot_id|>",
-      "<|end▁of▁sentence|>",
-      "<|end_of_text|>",
-      "<｜end▁of▁sentence｜>",
-      "<end_of_turn>",
-      "<eos>",
-      "</eos>",
-    ];
-
-    // ── Model family detection ────────────────────────────────────────────
-    // Families that toggle thinking via llama.rn's Jinja `enable_thinking`
-    // param are grouped under `isJinjaThinkingModel`. Only Qwen3 currently
-    // has a template-level toggle that our streaming layer can drive.
-    //
-    // Families that emit literal <think>…</think> spans in the token
-    // stream (either always, or conditionally) are grouped under
-    // `supportsThinkTags`. Those include:
-    //   • Qwen3 / Qwen3.5 / QwQ — native thinking models
-    //   • DeepSeek R1 and its distills — always-on reasoning
-    //   • SmolLM3 — optional /think reasoning mode (chat template emits
-    //     <think> blocks when reasoning_mode=/think; we parse them the
-    //     same way regardless)
-    //
-    // Gemma 3 / Gemma 3n and Phi-4 Mini intentionally NOT included — they
-    // do not produce <think> spans despite being capable reasoners, and
-    // forcing the parser on them would corrupt normal output containing
-    // literal "<think>" text (e.g. when summarising chat logs).
-    const normalizedModelName = selectedModel.toLowerCase();
-    const isQwen3ThinkingModel =
-      // "qwen3" matches qwen3, qwen3.5, qwen3-4b-instruct-2507 — but NOT
-      // qwen2.5 / qwen2 / qwen1. The negative lookahead guards against a
-      // hypothetical "qwen3n" suffix.
-      /qwen3(?![a-z])/.test(normalizedModelName) || normalizedModelName.includes("qwq");
-    const isDeepSeekR1 =
-      normalizedModelName.includes("deepseek-r1") ||
-      /\br1d\b/.test(normalizedModelName);
-    const isSmolLM3 = /smollm3/.test(normalizedModelName);
-    const supportsThinkTags = isQwen3ThinkingModel || isDeepSeekR1 || isSmolLM3;
-
-    // ── Query complexity heuristic ────────────────────────────────────────
-    // For Qwen3 thinking models we decide whether to enable thinking at the
-    // API level using llama.rn's `enable_thinking` parameter (Jinja template
-    // aware).  Thinking is expensive and almost always unnecessary for short
-    // conversational messages, so we disable it for "simple" queries and let
-    // the model think only when it is genuinely useful.
-    //
-    // Complexity signals (any one match → complex):
-    //   • ≥ 20 words
-    //   • Explicit reasoning verbs (explain, analyse, solve, prove, …)
-    //   • Math operators / LaTeX
-    //   • Inline code or code fences
-    //   • More than one question mark (multi-part query)
+    // ── Shared completion params (family + thinking + stop + n_predict) ──
     const _inputForComplexity = sendOptions?.textForPrompt || userInput;
-    const isComplexQuery = (() => {
-      const text = _inputForComplexity.trim();
-      const wordCount = text.split(/\s+/).filter(Boolean).length;
-      if (wordCount >= 20) return true;
-      if (/\b(explain|analyze|analyse|compare|solve|calculate|prove|derive|implement|debug|optimize|refactor|design|summarize|summarise|translate|evaluate|critique)\b/i.test(text)) return true;
-      if (/[+\-*/^=<>√∫∑∏≈≤≥≠]|\\[a-z]+\{/.test(text)) return true; // math / LaTeX
-      if (/```|`[^`]+`/.test(text)) return true;  // code
-      if ((text.match(/\?/g) || []).length > 1) return true; // multi-question
-      return false;
-    })();
-
-    // `enable_thinking`: for Qwen3 models, disable via the Jinja template
-    //   when the query is simple to get fast direct responses.
-    // `reasoning_format`: set to 'auto' so that when thinking IS enabled,
-    //   llama.cpp extracts the thought tokens into `reasoning_content` during
-    //   streaming (instead of leaving them inline in `data.token`).
-    //   Defaults to 'none' in llama.rn which is why reasoning_content was
-    //   always empty before.
-    // `enable_thinking` is a Qwen-specific Jinja flag. Do NOT send it for
-    // SmolLM3 — its template reads /think or /no_think from the system
-    // message instead and will raise on an unknown template variable.
-    const enableThinking = isQwen3ThinkingModel ? isComplexQuery : undefined;
-    // Ask llama.cpp to surface reasoning tokens in `reasoning_content`
-    // whenever we expect thinking output. DeepSeek R1 is always-on.
-    // SmolLM3 defaults to /think in its template so treat it as always-on
-    // unless the user explicitly negated via their system prompt (we do
-    // not parse that case — stripping still works via the XML fallback).
-    const reasoningFormat: 'auto' | 'none' =
-      (isQwen3ThinkingModel && isComplexQuery) || isDeepSeekR1 || isSmolLM3
-        ? 'auto'
-        : 'none';
+    const completion = buildCompletionParams({
+      userText: _inputForComplexity,
+      modelName: selectedModel,
+      settings,
+    });
+    const {
+      n_predict: nPredict,
+      temperature,
+      repeat_penalty: repeatPenalty,
+      stop,
+      enable_thinking: enableThinking,
+      reasoning_format: reasoningFormat,
+      supportsThinkTags,
+    } = completion;
 
     // Placeholder for assistant's response
     setConversation((prev) => [
@@ -726,58 +706,22 @@ export const handleSendMessageCompletion = async (
       }
     }
 
-    // ── Sliding-window context trim ────────────────────────────────────────
-    // Without trimming, the entire message array is forwarded and the context
-    // window silently overflows — llama.cpp drops tokens from the start, which
-    // removes the system prompt first.  Once the system prompt is gone the
-    // model becomes verbose and repetitive.
-    //
-    // Strategy (no token-counter needed):
-    //   • ~3.5 chars ≈ 1 token (conservative estimate, works for English/mixed)
-    //   • Budget = (n_ctx - n_predict - 128 safety) tokens for the whole prompt
-    //   • Always keep: system message + current user message (last)
-    //   • Fill remaining budget with history pairs newest-first
-    conversationWithSystemPrompt = (() => {
-      if (conversationWithSystemPrompt.length <= 2) return conversationWithSystemPrompt;
-
-      const CHARS_PER_TOKEN = 3.5;
-      const budgetTokens = Math.max(0, settings.n_ctx - settings.n_predict - 128);
-      let budgetChars = budgetTokens * CHARS_PER_TOKEN;
-
-      // Separate pinned messages from history
-      const systemMsg = conversationWithSystemPrompt[0]; // always first
-      const currentUserMsg = conversationWithSystemPrompt[conversationWithSystemPrompt.length - 1];
-      const history = conversationWithSystemPrompt.slice(1, -1); // middle messages
-
-      budgetChars -= (systemMsg.content?.length ?? 0);
-      budgetChars -= (currentUserMsg.content?.length ?? 0);
-
-      if (budgetChars <= 0 || history.length === 0) {
-        return [systemMsg, currentUserMsg];
-      }
-
-      // Walk backward through history, keeping as many recent messages as fit
-      const kept: typeof history = [];
-      for (let i = history.length - 1; i >= 0; i--) {
-        const msgChars = (history[i].content?.length ?? 0) + 20; // +20 for role overhead
-        if (budgetChars - msgChars < 0) break;
-        budgetChars -= msgChars;
-        kept.unshift(history[i]);
-      }
-
-      return [systemMsg, ...kept, currentUserMsg];
-    })();
-    // ── End sliding-window trim ────────────────────────────────────────────
+    // Sliding-window trim (shared with aiChatService)
+    conversationWithSystemPrompt = trimConversation(
+      conversationWithSystemPrompt,
+      settings.n_ctx,
+      settings.n_predict,
+    );
 
     const result: CompletionResult = await context.completion(
       {
         messages: conversationWithSystemPrompt,
-        n_predict: settings.n_predict,
-        temperature: settings.temperature,
+        n_predict: nPredict,
+        temperature,
         top_p: settings.top_p,
         top_k: settings.top_k,
-        repeat_penalty: settings.repeat_penalty,
-        stop: stopWords,
+        repeat_penalty: repeatPenalty,
+        stop,
         // Thinking control (llama.rn 0.11.2+, Qwen3 / DeepSeek R1 aware):
         // `enable_thinking` is passed to the Jinja chat template — false tells
         //   Qwen3 to skip thinking entirely (template inserts empty <think></think>).

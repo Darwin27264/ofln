@@ -36,6 +36,7 @@ import Icon from "react-native-vector-icons/MaterialIcons";
 import { useTheme } from "../context/ThemeContext";
 import CircularProgress from "./CircularProgress";
 import { ANIMATION_CONFIG, EASING, getStaggeredDelay } from "../utils/animationConfig";
+import { isThinkingModel } from "../utils/modelUtils";
 
 // Types
 export interface ModelInfo {
@@ -129,51 +130,6 @@ function formatPublishedDate(dateString: string): string {
   } catch {
     return dateString;
   }
-}
-
-/**
- * Determine if a model supports a "thinking" / chain-of-thought mode.
- *
- * Keep this in sync with the canonical implementation in
- * `src/utils/modelUtils.ts#isThinkingModel`. The duplication exists
- * because ModelCard is memoized on its own props and depends on the
- * model object reference — importing the util would pull in the cache
- * Map which we do not want to share across screens.
- */
-function isThinkingModel(model: ModelInfo): boolean {
-  const modelId = model.id.toLowerCase();
-  const fileName = (model.fileName || '').toLowerCase();
-  const description = (model.description || '').toLowerCase();
-  const tags = (model.tags || []).map((t) => t.toLowerCase());
-  const haystack = `${modelId} ${fileName}`;
-
-  const thinkingFamilyPatterns: RegExp[] = [
-    /\br1\b/,
-    /\br1d\b/,
-    /deepseek-r1/,
-    /qwen3(?![a-z])/,
-    /qwq/,
-    /smollm3/,
-  ];
-
-  if (thinkingFamilyPatterns.some((p) => p.test(haystack))) {
-    return true;
-  }
-
-  if (tags.includes('thinking') || tags.includes('reasoning')) {
-    return true;
-  }
-
-  const thinkingDescriptionKeywords = [
-    'distilled reasoning',
-    'reasoning (slower',
-    'chain-of-thought',
-  ];
-  if (thinkingDescriptionKeywords.some((k) => description.includes(k))) {
-    return true;
-  }
-
-  return false;
 }
 
 /**

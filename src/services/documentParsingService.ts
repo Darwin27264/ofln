@@ -1,28 +1,25 @@
 /**
- * Document Parsing Service — React Native-compatible alternative to LiteParse
+ * Document Parsing Service — React Native-compatible document/image text extraction
  *
- * @llamaindex/liteparse is a Node.js-only library (depends on pdfium-node,
- * Node Buffer, and fs). This service provides equivalent functionality for
- * React Native by combining:
+ *   1. On-device OCR (ML Kit) for images
+ *   2. RNFS for file I/O
+ *   3. Bounded, best-effort PDF text-stream scraping (no pdfium)
  *
- *   1. On-device OCR (ML Kit) for text extraction from images
- *   2. RNFS for file I/O and base64 encoding
- *   3. Vision model input preparation (base64 images for Qwen 3.5 VL)
- *
- * For PDFs, pages are converted to images and processed through OCR or
- * sent directly to a vision-language model. For standalone images, they
- * are base64-encoded for vision reasoning or OCR-processed for text.
- *
- * Design goals:
- *   - Zero network calls (fully offline)
- *   - Layout-aware text extraction via OCR
- *   - Base64 image output for vision model context windows
+ * Large / scanned / encrypted PDFs are refused with a clear message rather than
+ * loading multi-MB binaries into a JS string (OOM risk on mid-range phones).
  */
 
-import { Platform } from 'react-native';
 import RNFS from 'react-native-fs';
 import { extractTextFromImage } from './ocrService';
-import { imageToBase64, inferMimeType } from './visionService';
+import { imageToBase64 } from './visionService';
+import {
+  normalizeMediaToFile,
+  cleanupNormalizedMedia,
+  truncateForPrompt,
+  MAX_OCR_CHARS,
+  MAX_PDF_PARSE_BYTES,
+  type NormalizedMedia,
+} from './mediaNormalizeService';
 import type { ParsedDocument, ParsedPage, MessageAttachment } from '../types/ai';
 
 // ── File Type Detection ────────────────────────────────────────────────────────
@@ -39,47 +36,27 @@ function detectFileType(fileName: string): SupportedFileType {
   return 'unsupported';
 }
 
-/**
- * Resolve a URI to a usable file path, handling content:// on Android.
- * For content:// URIs, copies the file to a temp location first.
- */
-async function resolveToFilePath(uri: string): Promise<string> {
-  const trimmed = uri.trim();
-
-  if (Platform.OS === 'android' && trimmed.startsWith('content://')) {
-    // Copy content:// URI to a temp file so RNFS can access it
-    const tempDir = RNFS.CachesDirectoryPath;
-    const tempName = `liteparse_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const tempPath = `${tempDir}/${tempName}`;
-    await RNFS.copyFile(trimmed, tempPath);
-    return tempPath;
-  }
-
-  if (trimmed.startsWith('file://')) {
-    return trimmed.replace('file://', '');
-  }
-
-  return trimmed;
-}
-
-// ── Image Parsing ──────────────────────────────────────────────────────────────
+// ── Image Parsing ────────────────────────────────────────────────────────────────
 
 /**
- * Parse an image file: extract OCR text and prepare base64 for vision input.
+ * Parse an image file: extract OCR text and optionally prepare base64 for vision.
+ * Prefer skipBase64 on memory-constrained paths (native chat uses OCR text only).
  */
 async function parseImage(
   filePath: string,
   sourceUri: string,
-  options?: { skipOcr?: boolean },
+  options?: { skipOcr?: boolean; skipBase64?: boolean },
 ): Promise<ParsedDocument> {
   const ocrText = options?.skipOcr ? '' : await extractTextFromImage(filePath);
   let imageBase64: string | undefined;
 
-  try {
-    imageBase64 = await imageToBase64(filePath);
-  } catch (error) {
-    if (__DEV__) {
-      console.warn('[documentParsing] Failed to read image as base64:', error);
+  if (!options?.skipBase64) {
+    try {
+      imageBase64 = await imageToBase64(filePath);
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('[documentParsing] Failed to read image as base64:', error);
+      }
     }
   }
 
@@ -101,36 +78,37 @@ async function parseImage(
 // ── PDF Parsing ────────────────────────────────────────────────────────────────
 
 /**
- * Parse a PDF file.
- *
- * Strategy: Since full PDF rendering (pdfium) isn't available in React
- * Native, we take a practical approach:
- *
- *   1. Read the raw PDF bytes and attempt basic text extraction from the
- *      PDF stream objects (covers most text-based PDFs).
- *   2. For scanned / image-heavy PDFs, the caller should use a vision
- *      model to reason over page screenshots taken externally, or fall
- *      back to the existing OCR pipeline.
- *
- * The extracted text preserves reading order within each text stream.
+ * Best-effort PDF text extraction from uncompressed text operators.
+ * Refuses oversized files to avoid OOM; scanned PDFs need OCR of page images
+ * (not implemented without a PDF renderer).
  */
 async function parsePdf(
   filePath: string,
   sourceUri: string,
+  maxPages?: number,
 ): Promise<ParsedDocument> {
   try {
+    const stat = await RNFS.stat(filePath);
+    const size = typeof stat.size === 'number' ? Number(stat.size) : 0;
+    if (size > MAX_PDF_PARSE_BYTES) {
+      return {
+        text: `[PDF too large to parse on-device (${(size / (1024 * 1024)).toFixed(1)} MB). Limit is ${MAX_PDF_PARSE_BYTES / (1024 * 1024)} MB. Try a smaller text PDF or paste key excerpts.]`,
+        pages: [{ pageNumber: 1, text: '' }],
+        pageCount: 1,
+        sourceUri,
+        sourceType: 'pdf',
+      };
+    }
+
+    // Only attempt stream scrape on modest files — still loads into JS string.
     const rawContent = await RNFS.readFile(filePath, 'utf8');
 
-    // Basic PDF text stream extraction.
-    // Matches text between BT (Begin Text) and ET (End Text) operators,
-    // then extracts content from Tj/TJ operators and parenthesized strings.
     const textBlocks: string[] = [];
     const btEtPattern = /BT\s([\s\S]*?)ET/g;
     let match: RegExpExecArray | null;
 
     while ((match = btEtPattern.exec(rawContent)) !== null) {
       const block = match[1];
-      // Extract text from Tj operator: (text) Tj
       const tjPattern = /\(([^)]*)\)\s*Tj/g;
       let tjMatch: RegExpExecArray | null;
       while ((tjMatch = tjPattern.exec(block)) !== null) {
@@ -138,7 +116,6 @@ async function parsePdf(
         if (text.trim()) textBlocks.push(text);
       }
 
-      // Extract text from TJ array: [(text) num (text)] TJ
       const tjArrayPattern = /\[((?:[^[\]]*|\[[^\]]*\])*)\]\s*TJ/g;
       let tjArrayMatch: RegExpExecArray | null;
       while ((tjArrayMatch = tjArrayPattern.exec(block)) !== null) {
@@ -154,31 +131,29 @@ async function parsePdf(
       }
     }
 
-    const extractedText = textBlocks.join('\n').trim();
+    const extractedText = truncateForPrompt(textBlocks.join('\n').trim(), MAX_OCR_CHARS);
 
-    // If no text could be extracted, the PDF is likely image-based
     if (!extractedText) {
       return {
-        text: '[PDF contains no extractable text. Use a vision model to analyse page images.]',
-        pages: [{
-          pageNumber: 1,
-          text: '',
-        }],
+        text: '[PDF has no extractable text streams (likely scanned). Export as images and attach those, or paste text.]',
+        pages: [{ pageNumber: 1, text: '' }],
         pageCount: 1,
         sourceUri,
         sourceType: 'pdf',
       };
     }
 
-    // Split into rough "pages" based on form feed or page-break heuristics
-    const rawPages = extractedText.split(/\f/);
-    const pages: ParsedPage[] = rawPages.map((pageText, idx) => ({
+    let pages: ParsedPage[] = extractedText.split(/\f/).map((pageText, idx) => ({
       pageNumber: idx + 1,
       text: pageText.trim(),
     }));
 
+    if (maxPages && maxPages > 0 && pages.length > maxPages) {
+      pages = pages.slice(0, maxPages);
+    }
+
     return {
-      text: extractedText,
+      text: pages.map((p) => p.text).filter(Boolean).join('\n\n'),
       pages,
       pageCount: pages.length,
       sourceUri,
@@ -186,11 +161,11 @@ async function parsePdf(
     };
   } catch (error) {
     if (__DEV__) {
-      console.warn('[documentParsing] PDF parsing failed, treating as opaque:', error);
+      console.warn('[documentParsing] PDF parsing failed:', error);
     }
 
     return {
-      text: '[PDF could not be parsed. The file may be encrypted or malformed.]',
+      text: '[PDF could not be parsed. The file may be encrypted, compressed, or malformed.]',
       pages: [{ pageNumber: 1, text: '' }],
       pageCount: 1,
       sourceUri,
@@ -199,9 +174,6 @@ async function parsePdf(
   }
 }
 
-/**
- * Decode common PDF string escape sequences.
- */
 function decodePdfString(raw: string): string {
   return raw
     .replace(/\\n/g, '\n')
@@ -217,18 +189,15 @@ function decodePdfString(raw: string): string {
 export interface ParseOptions {
   /** Skip OCR even for images (useful when only base64 is needed for vision) */
   skipOcr?: boolean;
-  /** Maximum pages to parse from PDF */
+  /** Skip base64 encoding (default for OCR-only chat path) */
+  skipBase64?: boolean;
+  /** Maximum pages to keep from PDF text split */
   maxPages?: number;
 }
 
 /**
  * Parse a document from a file URI.
- * Supports images (JPEG, PNG, WebP, etc.) and PDFs.
- *
- * @param uri - Local file URI (file://, content://, or absolute path)
- * @param fileName - Original file name for type detection
- * @param options - Parse configuration
- * @returns Parsed document with text and optional base64 images
+ * Supports images (JPEG, PNG, WebP, etc.) and modest text PDFs.
  */
 export async function parseDocument(
   uri: string,
@@ -241,24 +210,30 @@ export async function parseDocument(
     throw new Error(`Unsupported file type: ${fileName}`);
   }
 
-  const filePath = await resolveToFilePath(uri);
+  let media: NormalizedMedia | null = null;
+  try {
+    media = await normalizeMediaToFile(uri);
+    const exists = await RNFS.exists(media.path);
+    if (!exists) {
+      throw new Error(`File not found: ${uri}`);
+    }
 
-  // Verify the file exists
-  const exists = await RNFS.exists(filePath);
-  if (!exists) {
-    throw new Error(`File not found: ${uri}`);
+    if (fileType === 'image') {
+      return await parseImage(media.path, uri, {
+        skipOcr: options?.skipOcr,
+        skipBase64: options?.skipBase64 ?? true,
+      });
+    }
+
+    return await parsePdf(media.path, uri, options?.maxPages ?? 20);
+  } finally {
+    // Always remove content:// copies; UI still holds the original URI for thumbs.
+    await cleanupNormalizedMedia(media);
   }
-
-  if (fileType === 'image') {
-    return parseImage(filePath, uri, options);
-  }
-
-  return parsePdf(filePath, uri);
 }
 
 /**
- * Convenience: parse an attachment and return the extracted text
- * suitable for injecting into a chat prompt.
+ * Convenience: parse an attachment and return text for chat prompt injection.
  */
 export async function extractTextFromAttachment(
   attachment: MessageAttachment,
@@ -266,7 +241,10 @@ export async function extractTextFromAttachment(
   const fileName = attachment.fileName || attachment.uri.split('/').pop() || 'file';
 
   try {
-    const doc = await parseDocument(attachment.uri, fileName);
+    const doc = await parseDocument(attachment.uri, fileName, {
+      skipBase64: true,
+      maxPages: 20,
+    });
     return doc.text;
   } catch (error) {
     if (__DEV__) {
@@ -286,7 +264,10 @@ export async function prepareAttachmentForVision(
   const fileName = attachment.fileName || attachment.uri.split('/').pop() || 'file';
 
   try {
-    const doc = await parseDocument(attachment.uri, fileName, { skipOcr: false });
+    const doc = await parseDocument(attachment.uri, fileName, {
+      skipOcr: false,
+      skipBase64: false,
+    });
     const base64Images = doc.pages
       .map((p) => p.imageBase64)
       .filter((b): b is string => !!b);

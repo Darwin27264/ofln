@@ -13,6 +13,7 @@ export interface Message {
   content: string;
   thought?: string;
   showThought?: boolean;
+  tokensPerSecond?: number;
   attachments?: MessageAttachment[];
 }
 

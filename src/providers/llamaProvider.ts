@@ -22,9 +22,10 @@ import { getModelSettings, DEFAULT_SETTINGS } from '../services/modelSettingsSer
 import { getAccelerationConfig } from '../services/accelerationCapabilityService';
 import { isAndroidEmulator } from '../services/deviceEnv';
 import { getModelInfo, detectQuantFromFilename, isQuantAllowedForAndroidAccel } from '../services/modelInfoService';
+import { getInferencePerfParams, formatLoadError } from '../services/inferencePerfParams';
+import { ensureGgufSafeForAndroidLoad } from '../services/ggufSanitizeService';
 import { logError } from '../utils/errorLogger';
 import type { LlamaProviderConfig, ModelReadyState, ModelStatus } from '../types/ai';
-
 type StatusListener = (status: ModelStatus) => void;
 
 class LlamaProviderService {
@@ -37,6 +38,9 @@ class LlamaProviderService {
     error: null,
   };
   private listeners: Set<StatusListener> = new Set();
+  /** Dedup concurrent loadModel calls (UI effects previously thrashed this). */
+  private loadInFlight: Promise<boolean> | null = null;
+  private loadInFlightPath: string | null = null;
 
   // ── Status Management ──────────────────────────────────────────────────
 
@@ -74,7 +78,7 @@ class LlamaProviderService {
     n_gpu_layers: number;
     use_mlock: boolean;
     devices?: string[];
-  }> {
+  } & ReturnType<typeof getInferencePerfParams>> {
     const fileName = filePath.split('/').pop() || '';
     let settings;
     try {
@@ -103,6 +107,7 @@ class LlamaProviderService {
 
       if (isEmulator) {
         n_gpu_layers = 0;
+        n_ctx = Math.min(n_ctx, 1024);
       } else if (!isQuantAllowedForAndroidAccel(quant)) {
         n_gpu_layers = 0;
       } else {
@@ -114,13 +119,27 @@ class LlamaProviderService {
         }
       }
 
-      // Conservative n_ctx for Android
+      // Conservative n_ctx for Android devices
       if (n_ctx > 2048) {
         n_ctx = Math.min(2048, n_ctx);
       }
+
+      return {
+        n_ctx,
+        n_gpu_layers,
+        use_mlock,
+        devices,
+        ...getInferencePerfParams(n_gpu_layers, { isEmulator }),
+      };
     }
 
-    return { n_ctx, n_gpu_layers, use_mlock, devices };
+    return {
+      n_ctx,
+      n_gpu_layers,
+      use_mlock,
+      devices,
+      ...getInferencePerfParams(n_gpu_layers),
+    };
   }
 
   // ── Model Lifecycle ────────────────────────────────────────────────────
@@ -135,6 +154,32 @@ class LlamaProviderService {
   async loadModel(config: LlamaProviderConfig): Promise<boolean> {
     const { modelPath, projectorPath, projectorUseGpu = true, contextParams } = config;
 
+    // Already ready for this exact path — do not unload/reload (freezes UI / wastes RAM).
+    if (this.isReady() && this.status.modelPath === modelPath) {
+      return true;
+    }
+
+    // Coalesce concurrent callers requesting the same path.
+    if (this.loadInFlight && this.loadInFlightPath === modelPath) {
+      return this.loadInFlight;
+    }
+
+    const run = this.loadModelInternal(config);
+    this.loadInFlight = run;
+    this.loadInFlightPath = modelPath;
+    try {
+      return await run;
+    } finally {
+      if (this.loadInFlightPath === modelPath) {
+        this.loadInFlight = null;
+        this.loadInFlightPath = null;
+      }
+    }
+  }
+
+  private async loadModelInternal(config: LlamaProviderConfig): Promise<boolean> {
+    const { modelPath, projectorPath, projectorUseGpu = true, contextParams } = config;
+
     try {
       // Validate model file exists
       const fileExists = await RNFS.exists(modelPath);
@@ -143,6 +188,31 @@ class LlamaProviderService {
         this.setStatus({ state: 'error', error: msg });
         await logError('LlamaProvider', msg);
         return false;
+      }
+
+      if (isAndroidEmulator()) {
+        try {
+          const stat = await RNFS.stat(modelPath);
+          const sizeMB = Math.round((Number(stat.size) || 0) / (1024 * 1024));
+          if (sizeMB >= 1600) {
+            const msg =
+              `Model is too large for the Android emulator (${sizeMB} MB). ` +
+              `Use Qwen3.5 0.8B / 2B Q4_0, or raise AVD RAM to 6GB+.`;
+            this.setStatus({ state: 'error', error: msg });
+            await logError('LlamaProvider', msg, new Error(msg), {
+              modelPath,
+              sizeMB,
+              isEmulator: true,
+            });
+            return false;
+          }
+        } catch {
+          /* continue — size check is best-effort */
+        }
+      }
+
+      if (Platform.OS === 'android') {
+        await ensureGgufSafeForAndroidLoad(modelPath);
       }
 
       // Unload previous model if any
@@ -164,26 +234,58 @@ class LlamaProviderService {
 
       // Create language model via the AI SDK provider.
       // `llama.languageModel` accepts the local file path and optional config.
-      const modelOptions: Parameters<typeof llama.languageModel>[1] = {
-        contextParams: {
-          n_ctx: resolved.n_ctx,
-          n_gpu_layers: resolved.n_gpu_layers,
-        },
+      const buildOptions = (bare: boolean): Parameters<typeof llama.languageModel>[1] => {
+        const ctx: Record<string, unknown> = {
+          n_ctx: bare ? Math.min(512, resolved.n_ctx) : resolved.n_ctx,
+          n_gpu_layers: bare ? 0 : resolved.n_gpu_layers,
+          use_mlock: resolved.use_mlock,
+        };
+        if (!bare) {
+          ctx.flash_attn_type = resolved.flash_attn_type;
+          ctx.n_batch = resolved.n_batch;
+          if (resolved.cache_type_k) ctx.cache_type_k = resolved.cache_type_k;
+          if (resolved.cache_type_v) ctx.cache_type_v = resolved.cache_type_v;
+          if (resolved.devices && resolved.devices.length > 0 && resolved.n_gpu_layers > 0) {
+            ctx.devices = resolved.devices;
+          }
+        }
+        const opts: Parameters<typeof llama.languageModel>[1] = {
+          contextParams: ctx as any,
+        };
+        if (projectorPath) {
+          opts.projectorPath = projectorPath;
+          opts.projectorUseGpu = projectorUseGpu;
+        }
+        return opts;
       };
 
-      if (projectorPath) {
-        modelOptions.projectorPath = projectorPath;
-        modelOptions.projectorUseGpu = projectorUseGpu;
+      try {
+        this.modelInstance = llama.languageModel(modelPath, buildOptions(false));
+        await this.modelInstance.prepare();
+      } catch (primaryError) {
+        if (__DEV__) {
+          console.warn(
+            '[LlamaProvider] Primary prepare failed, retrying bare params:',
+            primaryError instanceof Error ? primaryError.message : primaryError,
+          );
+        }
+        try {
+          await this.unloadModel();
+        } catch {
+          /* ignore */
+        }
+        this.modelInstance = llama.languageModel(modelPath, buildOptions(true));
+        await this.modelInstance.prepare();
       }
-
-      this.modelInstance = llama.languageModel(modelPath, modelOptions);
-
-      // Prepare the model (loads into memory)
-      await this.modelInstance.prepare();
 
       this.languageModel = this.modelInstance as LanguageModelV1;
 
-      this.setStatus({ state: 'ready', error: null });
+      this.setStatus({
+        state: 'ready',
+        modelPath,
+        projectorPath: projectorPath ?? null,
+        error: null,
+      });
 
       if (__DEV__) {
         console.log('[LlamaProvider] Model ready:', modelPath.split('/').pop());
@@ -191,12 +293,12 @@ class LlamaProviderService {
 
       return true;
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
+      const errorMsg = formatLoadError(error);
       this.setStatus({ state: 'error', error: errorMsg });
       await logError(
         'LlamaProvider',
         `Failed to load model: ${errorMsg}`,
-        error instanceof Error ? error : undefined,
+        error instanceof Error ? error : new Error(errorMsg),
         { modelPath },
       );
       return false;

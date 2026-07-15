@@ -1,59 +1,49 @@
 /**
- * On-device OCR via ML Kit Text Recognition.
- * No network calls; all processing is local.
+ * On-device OCR via ML Kit Text Recognition (fully offline).
+ *
+ * Always runs URIs through mediaNormalizeService first so Android
+ * content:// picks become real files — ML Kit is unreliable otherwise.
  */
-import { Platform } from "react-native";
-import TextRecognition from "@react-native-ml-kit/text-recognition";
+import TextRecognition from '@react-native-ml-kit/text-recognition';
+import {
+  normalizeMediaToFile,
+  cleanupNormalizedMedia,
+  truncateForPrompt,
+  toFileUri,
+  MAX_OCR_CHARS,
+  type NormalizedMedia,
+} from './mediaNormalizeService';
 
-/**
- * Normalize image URI for the current platform.
- * ML Kit expects a file path or file:// URI on both platforms.
- */
-function normalizeImageUri(uri: string): string {
-  const trimmed = (uri || "").trim();
-  if (!trimmed) return trimmed;
-  // Android may return content:// or file://; iOS often returns file://
-  // ML Kit recognize() accepts file path or file:// URI
-  if (Platform.OS === "android" && trimmed.startsWith("content://")) {
-    return trimmed;
-  }
-  if (!trimmed.startsWith("file://") && !trimmed.startsWith("/")) {
-    return trimmed.startsWith("file:") ? trimmed : `file://${trimmed}`;
-  }
-  return trimmed;
-}
-
-/**
- * Collapse excessive blank lines (3+ newlines) to at most 2, preserve meaningful line breaks.
- */
+/** Collapse 3+ newlines to at most two. */
 function collapseBlankLines(text: string): string {
-  return text.replace(/\n{3,}/g, "\n\n").trim();
+  return text.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /**
  * Extract text from an image using on-device ML Kit OCR.
- * @param uri - Local file URI or path (e.g. from image picker)
- * @returns Extracted text, or empty string on failure (caller should show error UX)
+ * @returns Length-capped text, or "" on failure (caller handles UX)
  */
 export async function extractTextFromImage(uri: string): Promise<string> {
-  const normalizedUri = normalizeImageUri(uri);
-  if (!normalizedUri) {
-    if (__DEV__) console.warn("[ocrService] Empty or invalid image URI");
-    return "";
+  const trimmed = (uri || '').trim();
+  if (!trimmed) {
+    if (__DEV__) console.warn('[ocrService] Empty or invalid image URI');
+    return '';
   }
 
+  let media: NormalizedMedia | null = null;
   try {
-    const result = await TextRecognition.recognize(normalizedUri);
-    const raw = (result?.text ?? "").trim();
-    const text = collapseBlankLines(raw);
+    media = await normalizeMediaToFile(trimmed);
+    const result = await TextRecognition.recognize(toFileUri(media.path));
+    const raw = (result?.text ?? '').trim();
+    const text = truncateForPrompt(collapseBlankLines(raw), MAX_OCR_CHARS);
     if (__DEV__ && raw) {
-      console.log("[ocrService] Extracted length:", text.length);
+      console.log('[ocrService] Extracted length:', text.length, '(raw:', raw.length, ')');
     }
     return text;
   } catch (error) {
-    if (__DEV__) {
-      console.warn("[ocrService] OCR failed:", error);
-    }
-    return "";
+    if (__DEV__) console.warn('[ocrService] OCR failed:', error);
+    return '';
+  } finally {
+    await cleanupNormalizedMedia(media);
   }
 }
