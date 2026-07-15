@@ -1544,7 +1544,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       </View>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
                         {isLoading ? (
-                          <ActivityIndicator size="small" color={theme.colors.primary} />
+                          <ActivityIndicator size="small" color={theme.colors.text} />
                         ) : (
                           <>
                             <TouchableOpacity
@@ -2016,7 +2016,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
 
               {isFetchingHF && (
                 <View style={{ alignItems: "center", marginVertical: 20 }}>
-                  <ActivityIndicator size="small" color={theme.colors.accent} />
+                  <ActivityIndicator size="small" color={theme.colors.text} />
                   <Text
                     style={{
                       marginTop: 8,
@@ -2500,10 +2500,10 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                 >
                   {isFetchingCustomUrl ? (
                     <>
-                      <ActivityIndicator size="small" color={theme.colors.primaryText} style={{ marginRight: 8 }} />
+                      <ActivityIndicator size="small" color={theme.colors.text} style={{ marginRight: 8 }} />
                       <Text
                         style={{
-                          color: theme.colors.primaryText,
+                          color: theme.colors.text,
                           fontSize: 16,
                           fontWeight: "600",
                           fontFamily: "Poppins",

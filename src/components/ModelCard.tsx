@@ -510,7 +510,7 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                 </Text>
               </View>
             ) : isLoading ? (
-              <ActivityIndicator size="small" color={theme.colors.accent} />
+              <ActivityIndicator size="small" color={theme.colors.text} />
             ) : (
               <Icon 
                 name={isExpanded ? "expand-less" : "expand-more"} 

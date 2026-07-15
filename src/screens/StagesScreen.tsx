@@ -588,7 +588,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   if (isLoading) {
     return (
       <View style={[{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.background }]}>
-        <ActivityIndicator size="large" color={theme.colors.accent} />
+        <ActivityIndicator size="large" color={theme.colors.text} />
       </View>
     );
   }
@@ -718,7 +718,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
                   {stats.tpsData.length ? (
                     <Chart data={stats.tpsData.slice(-20)} anim={tpsAnim} />
                   ) : (
-                    <ActivityIndicator color={theme.colors.accent} />
+                    <ActivityIndicator color={theme.colors.text} />
                   )}
                 </View>
               </TouchableOpacity>
@@ -732,7 +732,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
                   {stats.timeData.length ? (
                     <Chart data={stats.timeData.slice(-20)} anim={infAnim} />
                   ) : (
-                    <ActivityIndicator color={theme.colors.accent} />
+                    <ActivityIndicator color={theme.colors.text} />
                   )}
                 </View>
               </TouchableOpacity>

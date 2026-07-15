@@ -31,13 +31,13 @@ import {
   TouchableWithoutFeedback,
   Dimensions,
   Pressable,
-  Modal,
   BackHandler,
   ActivityIndicator,
   LayoutChangeEvent,
   NativeModules,
   Image,
   PermissionsAndroid,
+  StyleSheet,
 } from "react-native";
 import { launchImageLibrary, launchCamera } from "react-native-image-picker";
 
@@ -2210,177 +2210,194 @@ export default function ConversationScreen({
           </TouchableWithoutFeedback>
         </Animated.View>
 
-        {/* Long Press Menu Modal */}
-        <Modal
-          visible={menuVisible}
-          transparent
-          animationType="none"
-          onRequestClose={dismissMenu}
-        >
-          <TouchableWithoutFeedback onPress={dismissMenu}>
-            <Animated.View style={{ flex: 1, backgroundColor: menuOpacity.interpolate({
-              inputRange: [0, 1],
-              outputRange: ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0.2)'],
-            }) }}>
-              {menuPosition && selectedChatId && (() => {
-                const chat = chatHistory.find(c => c.id === selectedChatId);
-                const isPinned = chat?.pinned || false;
-                const menuBlockStyle = {
-                  backgroundColor: theme.colors.card,
-                  borderRadius: 12,
-                  paddingVertical: 12,
-                  paddingHorizontal: 14,
-                  flexDirection: 'row' as const,
-                  alignItems: 'center' as const,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                };
-                return (
-                  <Animated.View
-                    style={{
-                      position: 'absolute',
-                      left: Math.max(16, Math.min(menuPosition.x - 80, screenWidth - 200)),
-                      top: menuPosition.y < Dimensions.get('window').height * 0.3
-                        ? Math.min(menuPosition.y + 10, Dimensions.get('window').height - 220)
-                        : Math.max(50, menuPosition.y - 220),
-                      minWidth: 140,
-                      zIndex: 1000,
-                      opacity: menuOpacity,
-                      transform: [{ scale: menuScale }],
-                    }}
-                    onStartShouldSetResponder={() => true}
-                    pointerEvents="box-none"
-                  >
-                    <Animated.View style={{ opacity: menuItem0Opacity, transform: [{ translateY: menuItem0Translate }], marginBottom: 8 }}>
-                      <TouchableOpacity
-                        onPress={() => selectedChatId && handleRename(selectedChatId)}
-                        style={menuBlockStyle}
-                      >
-                        <Ionicons name="pencil-outline" size={18} color={theme.colors.text} />
-                        <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>Rename</Text>
-                      </TouchableOpacity>
-                    </Animated.View>
-                    <Animated.View style={{ opacity: menuItem1Opacity, transform: [{ translateY: menuItem1Translate }], marginBottom: 8 }}>
-                      <TouchableOpacity
-                        onPress={() => selectedChatId && handlePinToggle(selectedChatId)}
-                        style={menuBlockStyle}
-                      >
-                        <Ionicons name={isPinned ? "bookmark" : "bookmark-outline"} size={18} color={theme.colors.text} />
-                        <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>{isPinned ? 'Unpin' : 'Pin'}</Text>
-                      </TouchableOpacity>
-                    </Animated.View>
-                    <Animated.View style={{ opacity: menuItem2Opacity, transform: [{ translateY: menuItem2Translate }], marginBottom: 8 }}>
-                      <TouchableOpacity
-                        onPress={() => selectedChatId && enterMultiselectMode(selectedChatId)}
-                        style={menuBlockStyle}
-                      >
-                        <Ionicons name="checkbox-outline" size={18} color={theme.colors.text} />
-                        <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>Select Multiple</Text>
-                      </TouchableOpacity>
-                    </Animated.View>
-                    <Animated.View style={{ opacity: menuItem3Opacity, transform: [{ translateY: menuItem3Translate }] }}>
-                      <TouchableOpacity
-                        onPress={() => selectedChatId && handleDeleteChat(selectedChatId)}
-                        style={menuBlockStyle}
-                      >
-                        <Ionicons name="trash-outline" size={18} color={theme.colors.error} />
-                        <Text style={{ color: theme.colors.error, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>Delete</Text>
-                      </TouchableOpacity>
-                    </Animated.View>
-                  </Animated.View>
-                );
-              })()}
-            </Animated.View>
-          </TouchableWithoutFeedback>
-        </Modal>
-
-        {/* Attach image popup (above add button) */}
-        <Modal
-          visible={attachMenuVisible}
-          transparent
-          animationType="none"
-          onRequestClose={() => dismissAttachMenu()}
-        >
-          <TouchableWithoutFeedback onPress={() => dismissAttachMenu()}>
-            <Animated.View
-              style={{
-                flex: 1,
-                backgroundColor: attachMenuOpacity.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0.2)'],
-                }),
-              }}
-            >
-              {attachMenuAnchor && (
+        {/* Long press menu — absolute overlay, not RN Modal */}
+        {menuVisible && (
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 10000,
+              elevation: 10000,
+            }}
+            pointerEvents="box-none"
+          >
+            <TouchableWithoutFeedback onPress={dismissMenu}>
+              <Animated.View
+                style={{
+                  ...StyleSheet.absoluteFillObject,
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  opacity: menuOpacity,
+                }}
+              />
+            </TouchableWithoutFeedback>
+            {menuPosition && selectedChatId && (() => {
+              const chat = chatHistory.find(c => c.id === selectedChatId);
+              const isPinned = chat?.pinned || false;
+              const menuBlockStyle = {
+                backgroundColor: theme.colors.card,
+                borderRadius: 12,
+                paddingVertical: 12,
+                paddingHorizontal: 14,
+                flexDirection: 'row' as const,
+                alignItems: 'center' as const,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+              };
+              return (
                 <Animated.View
                   style={{
                     position: 'absolute',
-                    left: Math.max(16, Math.min(attachMenuAnchor.x + attachMenuAnchor.width / 2 - 90, screenWidth - 196)),
-                    top: attachMenuAnchor.y - 116,
-                    minWidth: 180,
-                    zIndex: 1000,
-                    opacity: attachMenuOpacity,
-                    transform: [{ scale: attachMenuScale }],
+                    left: Math.max(16, Math.min(menuPosition.x - 80, screenWidth - 200)),
+                    top: menuPosition.y < Dimensions.get('window').height * 0.3
+                      ? Math.min(menuPosition.y + 10, Dimensions.get('window').height - 220)
+                      : Math.max(50, menuPosition.y - 220),
+                    minWidth: 140,
+                    opacity: menuOpacity,
+                    transform: [{ scale: menuScale }],
                   }}
                   onStartShouldSetResponder={() => true}
-                  pointerEvents="box-none"
                 >
-                  <Animated.View
-                    style={{
-                      opacity: attachItem0Opacity,
-                      transform: [{ translateY: attachItem0Translate }],
-                      marginBottom: 8,
-                    }}
-                  >
+                  <Animated.View style={{ opacity: menuItem0Opacity, transform: [{ translateY: menuItem0Translate }], marginBottom: 8 }}>
                     <TouchableOpacity
-                      onPress={() => dismissAttachMenu(takePhoto)}
-                      style={{
-                        backgroundColor: theme.colors.card,
-                        borderRadius: 12,
-                        paddingVertical: 12,
-                        paddingHorizontal: 14,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        borderWidth: 1,
-                        borderColor: theme.colors.border,
-                      }}
+                      onPress={() => selectedChatId && handleRename(selectedChatId)}
+                      style={menuBlockStyle}
                     >
-                      <Ionicons name="camera-outline" size={18} color={theme.colors.text} />
-                      <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
-                        Take photo (OCR)
-                      </Text>
+                      <Ionicons name="pencil-outline" size={18} color={theme.colors.text} />
+                      <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>Rename</Text>
                     </TouchableOpacity>
                   </Animated.View>
-                  <Animated.View
-                    style={{
-                      opacity: attachItem1Opacity,
-                      transform: [{ translateY: attachItem1Translate }],
-                    }}
-                  >
+                  <Animated.View style={{ opacity: menuItem1Opacity, transform: [{ translateY: menuItem1Translate }], marginBottom: 8 }}>
                     <TouchableOpacity
-                      onPress={() => dismissAttachMenu(choosePhoto)}
-                      style={{
-                        backgroundColor: theme.colors.card,
-                        borderRadius: 12,
-                        paddingVertical: 12,
-                        paddingHorizontal: 14,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        borderWidth: 1,
-                        borderColor: theme.colors.border,
-                      }}
+                      onPress={() => selectedChatId && handlePinToggle(selectedChatId)}
+                      style={menuBlockStyle}
                     >
-                      <Ionicons name="image-outline" size={18} color={theme.colors.text} />
-                      <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
-                        Gallery (OCR text)
-                      </Text>
+                      <Ionicons name={isPinned ? "bookmark" : "bookmark-outline"} size={18} color={theme.colors.text} />
+                      <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>{isPinned ? 'Unpin' : 'Pin'}</Text>
+                    </TouchableOpacity>
+                  </Animated.View>
+                  <Animated.View style={{ opacity: menuItem2Opacity, transform: [{ translateY: menuItem2Translate }], marginBottom: 8 }}>
+                    <TouchableOpacity
+                      onPress={() => selectedChatId && enterMultiselectMode(selectedChatId)}
+                      style={menuBlockStyle}
+                    >
+                      <Ionicons name="checkbox-outline" size={18} color={theme.colors.text} />
+                      <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>Select Multiple</Text>
+                    </TouchableOpacity>
+                  </Animated.View>
+                  <Animated.View style={{ opacity: menuItem3Opacity, transform: [{ translateY: menuItem3Translate }] }}>
+                    <TouchableOpacity
+                      onPress={() => selectedChatId && handleDeleteChat(selectedChatId)}
+                      style={menuBlockStyle}
+                    >
+                      <Ionicons name="trash-outline" size={18} color={theme.colors.error} />
+                      <Text style={{ color: theme.colors.error, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>Delete</Text>
                     </TouchableOpacity>
                   </Animated.View>
                 </Animated.View>
-              )}
-            </Animated.View>
-          </TouchableWithoutFeedback>
-        </Modal>
+              );
+            })()}
+          </View>
+        )}
+
+        {/* Attach image popup (above add button) — absolute overlay, not RN Modal */}
+        {attachMenuVisible && (
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 10000,
+              elevation: 10000,
+            }}
+            pointerEvents="box-none"
+          >
+            <TouchableWithoutFeedback onPress={() => dismissAttachMenu()}>
+              <Animated.View
+                style={{
+                  ...StyleSheet.absoluteFillObject,
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  opacity: attachMenuOpacity,
+                }}
+              />
+            </TouchableWithoutFeedback>
+            {attachMenuAnchor && (
+              <Animated.View
+                style={{
+                  position: 'absolute',
+                  left: Math.max(
+                    16,
+                    Math.min(
+                      attachMenuAnchor.x + attachMenuAnchor.width / 2 - 90,
+                      screenWidth - 196,
+                    ),
+                  ),
+                  top: Math.max(8, attachMenuAnchor.y - 116),
+                  minWidth: 180,
+                  opacity: attachMenuOpacity,
+                  transform: [{ scale: attachMenuScale }],
+                }}
+                onStartShouldSetResponder={() => true}
+              >
+                <Animated.View
+                  style={{
+                    opacity: attachItem0Opacity,
+                    transform: [{ translateY: attachItem0Translate }],
+                    marginBottom: 8,
+                  }}
+                >
+                  <TouchableOpacity
+                    onPress={() => dismissAttachMenu(takePhoto)}
+                    style={{
+                      backgroundColor: theme.colors.card,
+                      borderRadius: 12,
+                      paddingVertical: 12,
+                      paddingHorizontal: 14,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: theme.colors.border,
+                    }}
+                  >
+                    <Ionicons name="camera-outline" size={18} color={theme.colors.text} />
+                    <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
+                      Take photo (OCR)
+                    </Text>
+                  </TouchableOpacity>
+                </Animated.View>
+                <Animated.View
+                  style={{
+                    opacity: attachItem1Opacity,
+                    transform: [{ translateY: attachItem1Translate }],
+                  }}
+                >
+                  <TouchableOpacity
+                    onPress={() => dismissAttachMenu(choosePhoto)}
+                    style={{
+                      backgroundColor: theme.colors.card,
+                      borderRadius: 12,
+                      paddingVertical: 12,
+                      paddingHorizontal: 14,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: theme.colors.border,
+                    }}
+                  >
+                    <Ionicons name="image-outline" size={18} color={theme.colors.text} />
+                    <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
+                      Gallery (OCR text)
+                    </Text>
+                  </TouchableOpacity>
+                </Animated.View>
+              </Animated.View>
+            )}
+          </View>
+        )}
 
         {/* Backdrop overlay */}
         {isPanelOpen && (
@@ -2994,7 +3011,7 @@ export default function ConversationScreen({
                 </Text>
                 {isOcrRunning && (
                   <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4, gap: 6 }}>
-                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                    <ActivityIndicator size="small" color={theme.colors.text} />
                     <Text style={[styles.attachmentLabel, { fontSize: 12 }]}>Extracting text on-device…</Text>
                   </View>
                 )}
@@ -3236,7 +3253,7 @@ export default function ConversationScreen({
                               }}>
                                 <ActivityIndicator 
                                   size="small" 
-                                  color={theme.colors.accent}
+                                  color={isSelected ? theme.colors.primaryText : theme.colors.text}
                                 />
                               </View>
                             )}

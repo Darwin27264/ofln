@@ -11,8 +11,8 @@
  * - Theme and alert context providers
  */
 
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
-import { ScrollView, ActivityIndicator, Animated, StatusBar, Platform, InteractionManager } from "react-native";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { ScrollView, StatusBar, Platform } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -25,10 +25,10 @@ import axios from "axios";
 // Theme
 import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
 import { applySystemBarTheme } from "./src/utils/systemBars";
-import { ANIMATION_CONFIG, EASING, ANIMATION_DURATIONS } from "./src/utils/animationConfig";
 
 // Components
 import { CustomAlertProvider } from "./src/components/CustomAlert";
+import { PageFadeIn } from "./src/components/PageFadeIn";
 
 // Screens
 import ModelSelectionScreen from "./src/screens/ModelSelectionScreen";
@@ -171,152 +171,7 @@ function AppContent(): React.JSX.Element {
     });
   }, []);
 
-  /**
-   * Page transition animations
-   * Optimized for mobile with reduced duration and native driver
-   * Provides smooth transitions between screens
-   * 
-   * Uses navigation history stack to accurately determine back vs forward navigation
-   * 
-   * Performance optimizations:
-   * - Animation cancellation to prevent conflicts
-   * - InteractionManager to defer heavy operations
-   * - Platform-specific optimizations
-   * - Optimized animation values and timing
-   */
-  const pageOpacity = useRef(new Animated.Value(1)).current;
-  const pageTranslateX = useRef(new Animated.Value(0)).current;
-  const previousPage = useRef<PageType>(currentPage);
-  // Navigation history stack: tracks the sequence of pages visited
-  // Used to determine if navigation is back (returning to previous page) or forward (new page)
-  const navigationStack = useRef<PageType[]>([currentPage]);
-  // Track ongoing animation to allow cancellation
-  const ongoingAnimation = useRef<Animated.CompositeAnimation | null>(null);
-  // Track if we should animate (set by useLayoutEffect)
-  const shouldAnimateRef = useRef(false);
-
-  // Use useLayoutEffect to set initial animation values synchronously before paint
-  // This ensures the page starts with correct animation values before rendering
-  useLayoutEffect(() => {
-    // Skip animation on initial mount
-    if (previousPage.current === currentPage) {
-      return;
-    }
-    
-    // Cancel any ongoing animation to prevent conflicts
-    if (ongoingAnimation.current) {
-      ongoingAnimation.current.stop();
-      ongoingAnimation.current = null;
-    }
-    
-    const stack = navigationStack.current;
-    const previousPageInStack = stack.length > 1 ? stack[stack.length - 2] : null;
-    
-    // Determine if this is a back navigation
-    // Back navigation occurs when:
-    // 1. Target page is the previous page in the stack (immediate back), OR
-    // 2. Target page exists earlier in the stack (going back to a page in history)
-    const targetPageIndex = stack.indexOf(currentPage);
-    const isImmediateBack = previousPageInStack === currentPage;
-    const isBackToHistory = targetPageIndex !== -1 && targetPageIndex < stack.length - 1;
-    const isBackNavigation = isImmediateBack || isBackToHistory;
-    
-    // Update navigation stack
-    if (isBackNavigation) {
-      if (isImmediateBack) {
-        // Immediate back: remove current page from stack
-        stack.pop();
-      } else if (isBackToHistory) {
-        // Going back to a page in history: remove everything after that page
-        stack.splice(targetPageIndex + 1);
-      }
-    } else {
-      // Forward navigation: add new page to stack
-      stack.push(currentPage);
-    }
-    
-    // Use larger offset for back navigation to make it visually distinct
-    // Forward: slides in from right (20px), Back: slides in from left (50px)
-    const initialTranslateX = isBackNavigation ? -50 : 20;
-    
-    // Set initial values synchronously before render to ensure animation starts correctly
-    // This is critical - values must be set before React paints the new page
-    pageOpacity.setValue(0);
-    pageTranslateX.setValue(initialTranslateX);
-    
-    // Set flag to trigger animation in useEffect
-    shouldAnimateRef.current = true;
-    
-    // Update previous page immediately to prevent double-triggering
-    previousPage.current = currentPage;
-  }, [currentPage]);
-
-  // Use useEffect for the actual animation to ensure it runs after layout
-  useEffect(() => {
-    /**
-     * Animate page transitions when currentPage changes
-     * Uses fade + slide animation for modern feel
-     * 
-     * Performance optimizations:
-     * - Animation cancellation prevents conflicts when navigating quickly
-     * - InteractionManager defers heavy operations until after animation
-     * - Platform-specific duration adjustments for optimal performance
-     * - Reduced opacity animation for better performance on low-end devices
-     * - Native driver for 60fps performance on UI thread
-     */
-    
-    // Only animate if useLayoutEffect set the flag
-    if (!shouldAnimateRef.current) {
-      return;
-    }
-    
-    // Reset flag
-    shouldAnimateRef.current = false;
-    
-    // Use centralized animation configuration for consistency
-    const animationDuration = ANIMATION_DURATIONS.PAGE;
-    
-    // Create animation with optimized configuration
-    const animation = Animated.parallel([
-      Animated.timing(pageOpacity, {
-        toValue: 1,
-        duration: animationDuration,
-        easing: EASING.STANDARD,
-        useNativeDriver: true,
-      }),
-      Animated.timing(pageTranslateX, {
-        toValue: 0,
-        duration: animationDuration,
-        easing: EASING.STANDARD,
-        useNativeDriver: true,
-      }),
-    ]);
-    
-    // Store animation reference for potential cancellation
-    ongoingAnimation.current = animation;
-    
-    // Start animation
-    animation.start((finished) => {
-      if (finished) {
-        ongoingAnimation.current = null;
-        
-        // Defer heavy operations until after animation completes
-        // This prevents jank during transitions
-        InteractionManager.runAfterInteractions(() => {
-          // Heavy operations can be performed here if needed
-          // Currently no heavy operations needed, but this pattern is ready for future use
-        });
-      }
-    });
-    
-    // Cleanup function to cancel animation if component unmounts or page changes again
-    return () => {
-      if (ongoingAnimation.current) {
-        ongoingAnimation.current.stop();
-        ongoingAnimation.current = null;
-      }
-    };
-  }, [currentPage]);
+  // Page enter fades are handled per-screen by PageFadeIn on mount.
 
   const scrollViewRef = useRef<ScrollView>(null!) as React.RefObject<ScrollView>;
   const scrollPositionRef = useRef(0);
@@ -526,13 +381,6 @@ function AppContent(): React.JSX.Element {
     }
   }, [context, setContext, checkDownloadedModels]);
 
-  // Memoize transition style to prevent unnecessary recalculations
-  // Animated.Value refs are stable, so this only creates the object once
-  const pageTransitionStyle = React.useMemo(() => ({
-    opacity: pageOpacity,
-    transform: [{ translateX: pageTranslateX }],
-  }), []); // Empty deps - Animated.Value refs never change
-
   return (
     <>
       <StatusBar
@@ -546,10 +394,7 @@ function AppContent(): React.JSX.Element {
         edges={['top', 'bottom', 'left', 'right']}
       >
         {currentPage === "modelSelection" && (
-        <Animated.View 
-          style={[{ flex: 1 }, pageTransitionStyle]}
-          collapsable={false}
-        >
+        <PageFadeIn key="modelSelection">
           <ModelSelectionScreen
           downloadedModels={downloadedModels}
           localModels={localModels}
@@ -567,14 +412,11 @@ function AppContent(): React.JSX.Element {
             setCurrentPage("modelSettings");
           }}
           />
-        </Animated.View>
+        </PageFadeIn>
       )}
 
       {currentPage === "conversation" && (
-        <Animated.View 
-          style={[{ flex: 1 }, pageTransitionStyle]}
-          collapsable={false}
-        >
+        <PageFadeIn key="conversation">
           <ConversationScreen
           conversation={conversation}
           setConversation={setConversation}
@@ -629,14 +471,11 @@ function AppContent(): React.JSX.Element {
           selectedPersona={selectedPersona}
           setSelectedPersona={setSelectedPersona}
           />
-        </Animated.View>
+        </PageFadeIn>
       )}
 
       {currentPage === "settings" && (
-        <Animated.View 
-          style={[{ flex: 1 }, pageTransitionStyle]}
-          collapsable={false}
-        >
+        <PageFadeIn key="settings">
           <SettingsScreen
           assistantDisplayMode={assistantDisplayMode}
           setAssistantDisplayMode={setAssistantDisplayMode}
@@ -648,25 +487,19 @@ function AppContent(): React.JSX.Element {
           onGoToDiagnostics={() => setCurrentPage("diagnostics")}
           onOpenDevDiagnostics={__DEV__ ? () => setCurrentPage("devDiagnostics") : undefined}
           />
-        </Animated.View>
+        </PageFadeIn>
       )}
 
       {currentPage === "diagnostics" && (
-        <Animated.View 
-          style={[{ flex: 1 }, pageTransitionStyle]}
-          collapsable={false}
-        >
+        <PageFadeIn key="diagnostics">
           <DiagnosticsScreen
             onBack={() => setCurrentPage("settings")}
           />
-        </Animated.View>
+        </PageFadeIn>
       )}
 
       {__DEV__ && currentPage === "devDiagnostics" && (
-        <Animated.View 
-          style={[{ flex: 1 }, pageTransitionStyle]}
-          collapsable={false}
-        >
+        <PageFadeIn key="devDiagnostics">
           <DevDiagnosticsScreen
             onBack={() => setCurrentPage("settings")}
             modelPath={
@@ -677,26 +510,20 @@ function AppContent(): React.JSX.Element {
                   : null
             }
           />
-        </Animated.View>
+        </PageFadeIn>
       )}
 
       {currentPage === "stages" && (
-        <Animated.View 
-          style={[{ flex: 1 }, pageTransitionStyle]}
-          collapsable={false}
-        >
+        <PageFadeIn key="stages">
           <StagesScreen
             downloadedModels={downloadedModels}
             onBack={() => setCurrentPage("settings")}
           />
-        </Animated.View>
+        </PageFadeIn>
       )}
 
       {currentPage === "personas" && (
-        <Animated.View 
-          style={[{ flex: 1 }, pageTransitionStyle]}
-          collapsable={false}
-        >
+        <PageFadeIn key="personas">
           <PersonasLibraryScreen
             onBack={() => setCurrentPage("settings")}
             onEditPersona={(persona) => {
@@ -708,14 +535,11 @@ function AppContent(): React.JSX.Element {
               setCurrentPage("settings");
             }}
           />
-        </Animated.View>
+        </PageFadeIn>
       )}
 
       {currentPage === "personaEditor" && editingPersona !== undefined && (
-        <Animated.View 
-          style={[{ flex: 1 }, pageTransitionStyle]}
-          collapsable={false}
-        >
+        <PageFadeIn key="personaEditor">
           <PersonaEditorScreen
             persona={editingPersona}
             onSave={(savedPersona) => {
@@ -727,14 +551,11 @@ function AppContent(): React.JSX.Element {
               setCurrentPage("personas");
             }}
           />
-        </Animated.View>
+        </PageFadeIn>
       )}
 
       {currentPage === "modelSettings" && selectedModelForSettings && (
-        <Animated.View 
-          style={[{ flex: 1 }, pageTransitionStyle]}
-          collapsable={false}
-        >
+        <PageFadeIn key="modelSettings">
           <ModelSettingsScreen
             model={selectedModelForSettings}
             onBack={() => {
@@ -742,18 +563,15 @@ function AppContent(): React.JSX.Element {
               setCurrentPage("modelSelection");
             }}
           />
-        </Animated.View>
+        </PageFadeIn>
       )}
 
       {currentPage === "info" && (
-        <Animated.View 
-          style={[{ flex: 1 }, pageTransitionStyle]}
-          collapsable={false}
-        >
+        <PageFadeIn key="info">
           <InfoScreen
             onBack={() => setCurrentPage("settings")}
           />
-        </Animated.View>
+        </PageFadeIn>
       )}
       </SafeAreaView>
     </>

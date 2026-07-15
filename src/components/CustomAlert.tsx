@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Modal,
   View,
   Text,
   TouchableOpacity,
   TouchableWithoutFeedback,
   Animated,
   StyleSheet,
+  Alert,
+  Platform,
+  BackHandler,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 
@@ -30,6 +32,11 @@ let alertRef: {
   hide: () => void;
 } | null = null;
 
+/**
+ * In-tree absolute overlay alert (no RN Modal).
+ * Modals nested under native-driven opacity/transform parents often fail on
+ * Android — this pattern stays reliable while keeping the same pop-in animation.
+ */
 export const CustomAlert: React.FC<CustomAlertProps> = ({
   visible,
   title,
@@ -41,9 +48,13 @@ export const CustomAlert: React.FC<CustomAlertProps> = ({
   const { theme } = useTheme();
   const alertOpacity = useRef(new Animated.Value(0)).current;
   const alertScale = useRef(new Animated.Value(0.9)).current;
+  const [mounted, setMounted] = useState(visible);
 
   useEffect(() => {
     if (visible) {
+      setMounted(true);
+      alertOpacity.setValue(0);
+      alertScale.setValue(0.9);
       Animated.parallel([
         Animated.timing(alertOpacity, {
           toValue: 1,
@@ -57,21 +68,36 @@ export const CustomAlert: React.FC<CustomAlertProps> = ({
           useNativeDriver: true,
         }),
       ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(alertOpacity, {
-          toValue: 0,
-          duration: 150,
-          useNativeDriver: true,
-        }),
-        Animated.timing(alertScale, {
-          toValue: 0.9,
-          duration: 150,
-          useNativeDriver: true,
-        }),
-      ]).start();
+      return;
     }
+
+    Animated.parallel([
+      Animated.timing(alertOpacity, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(alertScale, {
+        toValue: 0.9,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) setMounted(false);
+    });
   }, [visible, alertOpacity, alertScale]);
+
+  useEffect(() => {
+    if (!visible || Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (cancelable && onDismiss) {
+        onDismiss();
+        return true;
+      }
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, cancelable, onDismiss]);
 
   const handleDismiss = () => {
     if (cancelable && onDismiss) {
@@ -88,107 +114,95 @@ export const CustomAlert: React.FC<CustomAlertProps> = ({
     }
   };
 
+  if (!mounted) {
+    return null;
+  }
+
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      onRequestClose={handleDismiss}
-    >
+    <View style={styles.host} pointerEvents="box-none" accessibilityViewIsModal>
       <TouchableWithoutFeedback onPress={handleDismiss}>
         <Animated.View
           style={[
             styles.overlay,
             {
-              backgroundColor: alertOpacity.interpolate({
-                inputRange: [0, 1],
-                outputRange: ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0.5)'],
-              }),
+              opacity: alertOpacity,
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            },
+          ]}
+        />
+      </TouchableWithoutFeedback>
+
+      <View style={styles.centerWrap} pointerEvents="box-none">
+        <Animated.View
+          style={[
+            styles.alertContainer,
+            {
+              backgroundColor: theme.colors.card,
+              borderColor: theme.colors.border,
+              transform: [{ scale: alertScale }],
               opacity: alertOpacity,
             },
           ]}
         >
-          <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-            <Animated.View
-              style={[
-                styles.alertContainer,
-                {
-                  backgroundColor: theme.colors.card,
-                  borderColor: theme.colors.border,
-                  transform: [{ scale: alertScale }],
-                  opacity: alertOpacity,
-                },
-              ]}
-            >
-              <Text
+          <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
+          <Text style={[styles.message, { color: theme.colors.textSecondary }]}>
+            {message}
+          </Text>
+          <View style={styles.buttonContainer}>
+            {buttons.map((button, index) => (
+              <TouchableOpacity
+                key={`${button.text}-${index}`}
+                onPress={() => handleButtonPress(button)}
                 style={[
-                  styles.title,
+                  styles.button,
                   {
-                    color: theme.colors.text,
+                    backgroundColor:
+                      button.style === 'destructive'
+                        ? theme.colors.error
+                        : button.style === 'cancel'
+                          ? theme.colors.glass
+                          : theme.colors.primary,
+                    borderWidth: button.style === 'cancel' ? 1 : 0,
+                    borderColor: theme.colors.border,
+                    marginLeft: index > 0 ? 12 : 0,
                   },
                 ]}
               >
-                {title}
-              </Text>
-              <Text
-                style={[
-                  styles.message,
-                  {
-                    color: theme.colors.textSecondary,
-                  },
-                ]}
-              >
-                {message}
-              </Text>
-              <View style={styles.buttonContainer}>
-                {buttons.map((button, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    onPress={() => handleButtonPress(button)}
-                    style={[
-                      styles.button,
-                      {
-                        backgroundColor:
-                          button.style === 'destructive'
-                            ? theme.colors.error
-                            : button.style === 'cancel'
-                            ? theme.colors.glass
-                            : theme.colors.primary,
-                        borderWidth: button.style === 'cancel' ? 1 : 0,
-                        borderColor: theme.colors.border,
-                        marginLeft: index > 0 ? 12 : 0,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.buttonText,
-                        {
-                          color:
-                            button.style === 'destructive'
-                              ? theme.colors.primaryText
-                              : button.style === 'cancel'
-                              ? theme.colors.text
-                              : theme.colors.primaryText,
-                        },
-                      ]}
-                    >
-                      {button.text}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </Animated.View>
-          </TouchableWithoutFeedback>
+                <Text
+                  style={[
+                    styles.buttonText,
+                    {
+                      color:
+                        button.style === 'destructive'
+                          ? theme.colors.primaryText
+                          : button.style === 'cancel'
+                            ? theme.colors.text
+                            : theme.colors.primaryText,
+                    },
+                  ]}
+                >
+                  {button.text}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </Animated.View>
-      </TouchableWithoutFeedback>
-    </Modal>
+      </View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  host: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 200000,
+    elevation: 200000,
+  },
   overlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
+  },
+  centerWrap: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
@@ -228,22 +242,37 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontFamily: 'Poppins',
   },
+  providerRoot: {
+    flex: 1,
+  },
 });
 
-// Global alert function to match Alert.alert() API
 export const showAlert = (
   title: string,
   message: string,
   buttons: AlertButton[] = [{ text: 'OK' }],
-  cancelable: boolean = true
+  cancelable: boolean = true,
 ) => {
   if (alertRef) {
     alertRef.show(title, message, buttons, cancelable);
+    return;
   }
+
+  Alert.alert(
+    title,
+    message,
+    buttons.map((b) => ({
+      text: b.text,
+      style: b.style,
+      onPress: b.onPress,
+    })),
+    { cancelable },
+  );
 };
 
-// Component to be used in App.tsx to provide the alert functionality
-export const CustomAlertProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const CustomAlertProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const [alertState, setAlertState] = useState<{
     visible: boolean;
     title: string;
@@ -260,7 +289,7 @@ export const CustomAlertProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   useEffect(() => {
     alertRef = {
-      show: (title: string, message: string, buttons: AlertButton[], cancelable: boolean = true) => {
+      show: (title, message, buttons, cancelable = true) => {
         setAlertState({
           visible: true,
           title,
@@ -280,7 +309,7 @@ export const CustomAlertProvider: React.FC<{ children: React.ReactNode }> = ({ c
   }, []);
 
   return (
-    <>
+    <View style={styles.providerRoot}>
       {children}
       <CustomAlert
         visible={alertState.visible}
@@ -290,7 +319,6 @@ export const CustomAlertProvider: React.FC<{ children: React.ReactNode }> = ({ c
         onDismiss={() => setAlertState((prev) => ({ ...prev, visible: false }))}
         cancelable={alertState.cancelable}
       />
-    </>
+    </View>
   );
 };
-

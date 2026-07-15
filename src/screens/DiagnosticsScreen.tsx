@@ -1,6 +1,15 @@
 // DiagnosticsScreen.tsx — error logs & environment diagnostics
-import React, { useState } from "react";
-import { View, Text, TouchableOpacity, ScrollView, Modal, TextInput } from "react-native";
+import React, { useEffect, useState } from "react";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  TextInput,
+  StyleSheet,
+  BackHandler,
+  Platform,
+} from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import Clipboard from "@react-native-clipboard/clipboard";
 import { createStyles } from "../styles/styles";
@@ -13,7 +22,7 @@ interface Props {
 }
 
 export default function DiagnosticsScreen({ onBack }: Props) {
-  const { theme, isTransitioning } = useTheme();
+  const { theme } = useTheme();
   const styles = createStyles(theme.colors);
   const [errorLogVisible, setErrorLogVisible] = useState(false);
   const [errorLogContent, setErrorLogContent] = useState<string>("");
@@ -48,7 +57,7 @@ export default function DiagnosticsScreen({ onBack }: Props) {
             }
           },
         },
-      ]
+      ],
     );
   };
 
@@ -66,9 +75,18 @@ export default function DiagnosticsScreen({ onBack }: Props) {
     showAlert(
       "Error Log Location",
       `The error log is saved at:\n\n${logPath}\n\nYou can access this file using a file manager app.`,
-      [{ text: "OK" }]
+      [{ text: "OK" }],
     );
   };
+
+  useEffect(() => {
+    if (!errorLogVisible || Platform.OS !== "android") return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setErrorLogVisible(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [errorLogVisible]);
 
   return (
     <View
@@ -78,7 +96,6 @@ export default function DiagnosticsScreen({ onBack }: Props) {
           padding: 20,
           flex: 1,
           backgroundColor: theme.colors.background,
-          opacity: isTransitioning ? 0.95 : 1,
         },
       ]}
     >
@@ -227,13 +244,18 @@ export default function DiagnosticsScreen({ onBack }: Props) {
         </TouchableOpacity>
       </View>
 
-      <Modal
-        visible={errorLogVisible}
-        animationType="slide"
-        transparent={false}
-        onRequestClose={() => setErrorLogVisible(false)}
-      >
-        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      {/* Full-screen logs viewer — absolute overlay (not RN Modal) */}
+      {errorLogVisible && (
+        <View
+          style={[
+            StyleSheet.absoluteFillObject,
+            {
+              backgroundColor: theme.colors.background,
+              zIndex: 10000,
+              elevation: 10000,
+            },
+          ]}
+        >
           <View
             style={{
               flexDirection: "row",
@@ -359,7 +381,7 @@ export default function DiagnosticsScreen({ onBack }: Props) {
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
+      )}
     </View>
   );
 }
