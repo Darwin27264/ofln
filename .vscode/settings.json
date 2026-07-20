@@ -1,4 +1,15 @@
 {
     "java.configuration.updateBuildConfiguration": "interactive",
-    "java.compile.nullAnalysis.mode": "automatic"
+    "java.compile.nullAnalysis.mode": "automatic",
+    "java.import.exclusions": [
+        "**/node_modules/**",
+        "**/.metadata/**",
+        "**/archetype-resources/**",
+        "**/META-INF/maven/**"
+    ],
+    "java.project.resourceFilters": [
+        "node_modules",
+        "\\.git"
+    ],
+    "gradle.nestedProjects": ["android"]
 }

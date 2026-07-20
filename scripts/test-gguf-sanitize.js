@@ -225,9 +225,11 @@ async function sanitize(filePath, io, opts = {}) {
       ).toString("utf8");
       const multimodal = MULTI.some((m) => preview.toLowerCase().includes(m));
       const needsRepair = LEGACY.some((p) => preview.startsWith(p));
+      // Match production: pad oversized, broken, OR multimodal (even under 16KB).
+      // opts.force is kept for call-site compatibility with older tests.
       const should =
         !preview.startsWith(MARKER) &&
-        (strLen >= NATIVE_BUF || needsRepair || (force && multimodal && strLen >= NATIVE_BUF));
+        (strLen >= NATIVE_BUF || needsRepair || multimodal || !!force);
       if (!should) {
         offset = strDataOffset + strLen;
         continue;
@@ -367,15 +369,15 @@ async function testRealFile(filePath) {
   fs.copyFileSync(filePath, copy);
   const io = createWindowedIo(copy, 8 * 1024 * 1024);
   try {
-    // Without force: under-16KB templates stay intact (real-device path).
+    // Production path: multimodal under-16KB Jinja is padded (S26 Ultra fix).
     const rNoForce = await sanitize(copy, io, { force: false });
     console.log("  no-force result:", rNoForce);
 
-    // Emulator path: force pads multimodal Jinja (Qwen3.5 0.8B ~7.8KB vision template).
+    // force still works as an explicit pad trigger.
     const t0 = Date.now();
     const r = await sanitize(copy, io, { force: true });
     const ms = Date.now() - t0;
-    console.log("  force(emulator) result:", r, "ms=" + ms);
+    console.log("  force result:", r, "ms=" + ms);
     assert(fs.statSync(copy).size === size, "size preserved");
     assert(ms < 120_000, "real sanitize hung: " + ms + "ms");
 

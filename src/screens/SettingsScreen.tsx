@@ -1,11 +1,9 @@
 // SettingsScreen.tsx
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect } from "react";
 import { View, Text, TouchableOpacity, Animated, Easing } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
-import RNFS from "react-native-fs";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { showAlert } from "../components/CustomAlert";
 
 interface Props {
@@ -95,58 +93,6 @@ export default function SettingsScreen({
     inputRange: [0, 1],
     outputRange: [theme.colors.text, theme.colors.primaryText],
   });
-
-  // Define the type for usage stats
-  interface UsageStats {
-    totalInferences: number;
-    avgInferenceTime: number;
-    avgTokensPerSecond: number;
-    latestPerformance: string;
-  }
-  
-  // State for aggregated usage stats (loaded from RNFS)
-  const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
-
-  useEffect(() => {
-    const loadUsageData = async () => {
-      try {
-        const filePath = `${RNFS.DocumentDirectoryPath}/usage_log.json`;
-        const exists = await RNFS.exists(filePath);
-        if (exists) {
-          const contents = await RNFS.readFile(filePath, "utf8");
-          const lines = contents.split("\n").filter((line) => line.trim().length > 0);
-          const records = lines
-            .map((line) => {
-              try {
-                return JSON.parse(line);
-              } catch (error) {
-                return null;
-              }
-            })
-            .filter((record) => record !== null);
-          if (records.length > 0) {
-            const totalInferences = records.length;
-            const avgInferenceTime =
-              records.reduce((sum: number, record: any) => sum + record.inferenceTime, 0) /
-              totalInferences;
-            const avgTokensPerSecond =
-              records.reduce((sum: number, record: any) => sum + record.tokensPerSecond, 0) /
-              totalInferences;
-            const latestPerformance = records[records.length - 1].performanceLevel;
-            setUsageStats({
-              totalInferences,
-              avgInferenceTime,
-              avgTokensPerSecond,
-              latestPerformance,
-            });
-          }
-        }
-      } catch (error) {
-        console.error("Error reading usage data:", error);
-      }
-    };
-    loadUsageData();
-  }, []);
 
   return (
     <Animated.View 

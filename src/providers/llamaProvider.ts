@@ -19,11 +19,11 @@ import type { LanguageModelV1 } from 'ai';
 import RNFS from 'react-native-fs';
 
 import { getModelSettings, DEFAULT_SETTINGS } from '../services/modelSettingsService';
-import { getAccelerationConfig } from '../services/accelerationCapabilityService';
+import { getAccelerationConfig, setRuntimeAccelerationState } from '../services/accelerationCapabilityService';
 import { isAndroidEmulator } from '../services/deviceEnv';
 import { getModelInfo, detectQuantFromFilename, isQuantAllowedForAndroidAccel } from '../services/modelInfoService';
 import { getInferencePerfParams, formatLoadError } from '../services/inferencePerfParams';
-import { ensureGgufSafeForAndroidLoad } from '../services/ggufSanitizeService';
+import { ensureGgufSafeForAndroidLoad, SAFE_CHAT_TEMPLATE_STUB } from '../services/ggufSanitizeService';
 import { logError } from '../utils/errorLogger';
 import type { LlamaProviderConfig, ModelReadyState, ModelStatus } from '../types/ai';
 type StatusListener = (status: ModelStatus) => void;
@@ -259,9 +259,13 @@ class LlamaProviderService {
         return opts;
       };
 
-      try {
-        this.modelInstance = llama.languageModel(modelPath, buildOptions(false));
+      const prepareOnce = async (bare: boolean) => {
+        this.modelInstance = llama.languageModel(modelPath, buildOptions(bare));
         await this.modelInstance.prepare();
+      };
+
+      try {
+        await prepareOnce(false);
       } catch (primaryError) {
         if (__DEV__) {
           console.warn(
@@ -274,9 +278,66 @@ class LlamaProviderService {
         } catch {
           /* ignore */
         }
-        this.modelInstance = llama.languageModel(modelPath, buildOptions(true));
-        await this.modelInstance.prepare();
+        await prepareOnce(true);
       }
+
+      // Repair incomplete model details, then probe chat formatting before
+      // marking ready — prevents "loaded but every send crashes" on device.
+      this.ensureContextModelDetails();
+      let probe = await this.probeChatFormatting();
+
+      if (!probe.ok) {
+        await logError(
+          'LlamaProvider',
+          `Chat format probe failed after load: ${probe.error}`,
+          probe.error ? new Error(probe.error) : undefined,
+          { modelPath: modelPath.split('/').pop() },
+          'WARN',
+        );
+
+        if (Platform.OS === 'android') {
+          try {
+            await this.unloadModel();
+          } catch {
+            /* ignore */
+          }
+          await ensureGgufSafeForAndroidLoad(modelPath, { force: true });
+          this.setStatus({
+            state: 'preparing',
+            modelPath,
+            projectorPath: projectorPath ?? null,
+            error: null,
+          });
+          try {
+            await prepareOnce(false);
+          } catch {
+            await prepareOnce(true);
+          }
+          this.ensureContextModelDetails();
+          probe = await this.probeChatFormatting();
+        }
+      }
+
+      if (!probe.ok) {
+        const msg =
+          `Model loaded but chat formatting failed (${probe.error}). ` +
+          `Try a different GGUF or reinstall the model.`;
+        try {
+          await this.unloadModel();
+        } catch {
+          /* ignore */
+        }
+        this.setStatus({ state: 'error', error: msg });
+        await logError('LlamaProvider', msg, new Error(probe.error || msg), {
+          modelPath: modelPath.split('/').pop(),
+        });
+        return false;
+      }
+
+      this.captureRuntimeAcceleration(
+        modelPath.split('/').pop() || modelPath,
+        resolved.n_gpu_layers,
+      );
 
       this.languageModel = this.modelInstance as LanguageModelV1;
 
@@ -319,6 +380,7 @@ class LlamaProviderService {
       }
       this.modelInstance = null;
       this.languageModel = null;
+      setRuntimeAccelerationState(null);
       this.setStatus({
         state: 'unloaded',
         modelPath: null,
@@ -343,9 +405,114 @@ class LlamaProviderService {
   getNativeContext(): any | null {
     if (!this.modelInstance) return null;
     try {
+      this.ensureContextModelDetails();
       return this.modelInstance.getContext();
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Snapshot GPU/NPU state once after load for Performance UI.
+   * Does not run during inference.
+   */
+  private captureRuntimeAcceleration(modelName: string, nGpuLayers: number): void {
+    try {
+      const ctx = this.modelInstance?.getContext?.();
+      const gpu = !!(ctx && (ctx as any).gpu);
+      const reasonNoGPU =
+        typeof (ctx as any)?.reasonNoGPU === 'string'
+          ? (ctx as any).reasonNoGPU
+          : undefined;
+      const devicesRaw = (ctx as any)?.devices;
+      const devices = Array.isArray(devicesRaw)
+        ? devicesRaw.map(String)
+        : undefined;
+      const backendLabel = gpu
+        ? devices && devices.length > 0
+          ? devices.join(', ')
+          : nGpuLayers > 0
+            ? `GPU layers ${nGpuLayers}`
+            : 'GPU'
+        : 'CPU';
+      setRuntimeAccelerationState({
+        on: gpu && nGpuLayers > 0,
+        backendLabel,
+        reasonNoGPU,
+        devices,
+        nGpuLayers,
+        modelName,
+      });
+    } catch {
+      setRuntimeAccelerationState({
+        on: false,
+        backendLabel: 'CPU',
+        nGpuLayers: 0,
+        modelName,
+      });
+    }
+  }
+
+  /**
+   * llama.rn getFormattedChat reads `model.metadata['tokenizer.chat_template']`.
+   * If native createModelDetails failed, metadata is missing and every send
+   * throws. Patch a safe stub onto the live context so chat can proceed.
+   * @returns whether a repair was applied (native details were incomplete)
+   */
+  private ensureContextModelDetails(): { repaired: boolean } {
+    const ctx = this.modelInstance?.getContext?.();
+    if (!ctx) return { repaired: false };
+
+    let repaired = false;
+    const model = ctx.model ?? (ctx.model = {});
+    if (!model.metadata || typeof model.metadata !== 'object') {
+      model.metadata = {};
+      repaired = true;
+    }
+    if (!model.metadata['tokenizer.chat_template']) {
+      model.metadata['tokenizer.chat_template'] = SAFE_CHAT_TEMPLATE_STUB;
+      repaired = true;
+      void logError(
+        'LlamaProvider',
+        'model.metadata missing chat_template after load — injected SAFE stub',
+        undefined,
+        { modelPath: this.status.modelPath?.split('/').pop() },
+        'WARN',
+      );
+    }
+    if (!model.chatTemplates) {
+      model.chatTemplates = {
+        llamaChat: true,
+        jinja: { default: true, toolUse: false },
+      };
+      repaired = true;
+    }
+    return { repaired };
+  }
+
+  /**
+   * Dry-run the exact path that crashes on send (`getFormattedChat` with no
+   * explicit template — same as `completion({ messages })`). Cheap (no token
+   * generation) and catches missing metadata / bad Jinja early.
+   */
+  private async probeChatFormatting(): Promise<{ ok: boolean; error?: string }> {
+    const ctx = this.modelInstance?.getContext?.();
+    if (!ctx || typeof ctx.getFormattedChat !== 'function') {
+      return { ok: false, error: 'native context or getFormattedChat unavailable' };
+    }
+    try {
+      // Do NOT pass chat_template here — real sends often omit it and rely on
+      // model.metadata / native GGUF templates (the S26 Ultra failure mode).
+      await ctx.getFormattedChat([{ role: 'user', content: 'ping' }], undefined, {
+        jinja: true,
+        enable_thinking: false,
+      });
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 

@@ -29,7 +29,34 @@ export type AccelerationConfig = {
   summary: string;
 };
 
+/** Snapshot for Performance UI — capability + last known session state. */
+export type AccelerationStatusSnapshot = {
+  /** Device reports HTP and/or OpenCL backends */
+  available: boolean;
+  /** Kind of acceleration available (may be none) */
+  availableKind: "htp" | "opencl" | "none";
+  /** Short label for available backends */
+  availableLabel: string;
+  /** Whether the currently loaded model is using GPU/NPU (null if no model) */
+  on: boolean | null;
+  /** Backend label when on, or reason when off */
+  onLabel: string;
+  summary: string;
+};
+
+/** Last successful load's runtime GPU/NPU state (set by llamaProvider). */
+export type RuntimeAccelerationState = {
+  on: boolean;
+  backendLabel: string;
+  reasonNoGPU?: string;
+  devices?: string[];
+  nGpuLayers?: number;
+  modelName?: string;
+  updatedAt: number;
+};
+
 let cachedConfig: AccelerationConfig | null = null;
+let runtimeState: RuntimeAccelerationState | null = null;
 
 /**
  * Check device capabilities for OpenCL (GPU) and Hexagon (NPU) acceleration.
@@ -109,6 +136,69 @@ export async function getAccelerationConfig(): Promise<AccelerationConfig> {
     };
     return cachedConfig;
   }
+}
+
+/**
+ * Record whether the loaded model is actually using GPU/NPU.
+ * Called once after prepare — not during inference.
+ */
+export function setRuntimeAccelerationState(
+  state: Omit<RuntimeAccelerationState, "updatedAt"> | null,
+): void {
+  runtimeState = state
+    ? { ...state, updatedAt: Date.now() }
+    : null;
+}
+
+export function getRuntimeAccelerationState(): RuntimeAccelerationState | null {
+  return runtimeState;
+}
+
+/**
+ * One-shot UI snapshot: capability (cached) + runtime on/off.
+ * Safe to call when opening Performance — no polling.
+ */
+export async function getAccelerationStatusSnapshot(
+  modelLoaded: boolean,
+): Promise<AccelerationStatusSnapshot> {
+  const config = await getAccelerationConfig();
+  const available = config.hasHTP || config.hasOpenCL;
+  const availableKind: AccelerationStatusSnapshot["availableKind"] = config.hasHTP
+    ? "htp"
+    : config.hasOpenCL
+      ? "opencl"
+      : "none";
+  const availableLabel = !available
+    ? "None detected"
+    : config.hasHTP && config.hasOpenCL
+      ? "NPU + GPU"
+      : config.hasHTP
+        ? "Hexagon NPU"
+        : "OpenCL GPU";
+
+  if (!modelLoaded || !runtimeState) {
+    return {
+      available,
+      availableKind,
+      availableLabel,
+      on: modelLoaded ? false : null,
+      onLabel: modelLoaded ? "Off (CPU)" : "No model loaded",
+      summary: config.summary,
+    };
+  }
+
+  return {
+    available,
+    availableKind,
+    availableLabel,
+    on: runtimeState.on,
+    onLabel: runtimeState.on
+      ? runtimeState.backendLabel || "On"
+      : runtimeState.reasonNoGPU
+        ? `Off — ${runtimeState.reasonNoGPU}`
+        : "Off (CPU)",
+    summary: config.summary,
+  };
 }
 
 /**

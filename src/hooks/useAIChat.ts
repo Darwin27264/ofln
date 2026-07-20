@@ -26,6 +26,7 @@ import { streamChat, nativeCompletion } from '../services/aiChatService';
 import { getModelSettings, DEFAULT_SETTINGS } from '../services/modelSettingsService';
 import { buildPersonaSystemPrompt, Persona } from '../services/personaService';
 import { chatHistoryService } from '../services/chatHistoryService';
+import { tokensPerSecondFromMessages } from '../services/performanceTracking';
 
 import type {
   ChatMessage,
@@ -92,15 +93,6 @@ const SYSTEM_MESSAGE: ChatMessage = {
   role: 'system',
   content: 'This is a conversation between user and assistant, a friendly chatbot.',
 };
-
-function tokensPerSecondFromMessages(messages: ChatMessage[]): number[] {
-  return messages
-    .filter(
-      (m): m is ChatMessage & { tokensPerSecond: number } =>
-        m.role === 'assistant' && typeof m.tokensPerSecond === 'number',
-    )
-    .map((m) => m.tokensPerSecond);
-}
 
 // ── Hook Implementation ────────────────────────────────────────────────────────
 

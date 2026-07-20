@@ -1,3 +1,67 @@
+diff --git a/node_modules/llama.rn/android/.gradle/9.2.0/checksums/checksums.lock b/node_modules/llama.rn/android/.gradle/9.2.0/checksums/checksums.lock
+new file mode 100644
+index 0000000..7de20b4
+Binary files /dev/null and b/node_modules/llama.rn/android/.gradle/9.2.0/checksums/checksums.lock differ
+diff --git a/node_modules/llama.rn/android/.gradle/9.2.0/fileChanges/last-build.bin b/node_modules/llama.rn/android/.gradle/9.2.0/fileChanges/last-build.bin
+new file mode 100644
+index 0000000..f76dd23
+Binary files /dev/null and b/node_modules/llama.rn/android/.gradle/9.2.0/fileChanges/last-build.bin differ
+diff --git a/node_modules/llama.rn/android/.gradle/9.2.0/fileHashes/fileHashes.bin b/node_modules/llama.rn/android/.gradle/9.2.0/fileHashes/fileHashes.bin
+new file mode 100644
+index 0000000..0aad9d5
+Binary files /dev/null and b/node_modules/llama.rn/android/.gradle/9.2.0/fileHashes/fileHashes.bin differ
+diff --git a/node_modules/llama.rn/android/.gradle/9.2.0/fileHashes/fileHashes.lock b/node_modules/llama.rn/android/.gradle/9.2.0/fileHashes/fileHashes.lock
+new file mode 100644
+index 0000000..502fa2f
+Binary files /dev/null and b/node_modules/llama.rn/android/.gradle/9.2.0/fileHashes/fileHashes.lock differ
+diff --git a/node_modules/llama.rn/android/.gradle/9.2.0/gc.properties b/node_modules/llama.rn/android/.gradle/9.2.0/gc.properties
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/llama.rn/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock b/node_modules/llama.rn/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock
+new file mode 100644
+index 0000000..7e2b218
+Binary files /dev/null and b/node_modules/llama.rn/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock differ
+diff --git a/node_modules/llama.rn/android/.gradle/buildOutputCleanup/cache.properties b/node_modules/llama.rn/android/.gradle/buildOutputCleanup/cache.properties
+new file mode 100644
+index 0000000..01d3591
+--- /dev/null
++++ b/node_modules/llama.rn/android/.gradle/buildOutputCleanup/cache.properties
+@@ -0,0 +1,2 @@
++#Wed Jul 15 14:37:00 EDT 2026
++gradle.version=9.2.0
+diff --git a/node_modules/llama.rn/android/.gradle/vcs-1/gc.properties b/node_modules/llama.rn/android/.gradle/vcs-1/gc.properties
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/llama.rn/android/build.gradle b/node_modules/llama.rn/android/build.gradle
+index 10d8fd3..caa8880 100644
+--- a/node_modules/llama.rn/android/build.gradle
++++ b/node_modules/llama.rn/android/build.gradle
+@@ -150,6 +150,25 @@ android {
+       "-DREACT_NATIVE_MINOR_VERSION=${REACT_NATIVE_MINOR_VERSION}"
+     ]
+ 
++    // Help FindPython3 when PATH is unavailable under Android CMake.
++    def pythonExe = System.getenv("Python3_EXECUTABLE") ?: System.getenv("PYTHON")
++    if (pythonExe == null || pythonExe.trim().isEmpty()) {
++      try {
++        def proc = ["py", "-3", "-c", "import sys; print(sys.executable)"].execute()
++        proc.waitForOrKill(10000)
++        if (proc.exitValue() == 0) {
++          pythonExe = proc.text?.trim()
++        }
++      } catch (ignored) { }
++    }
++    if (pythonExe != null && !pythonExe.trim().isEmpty()) {
++      def normalizedPy = pythonExe.trim().replace('\\', '/')
++      cmakeArgs += ["-DPython3_EXECUTABLE=${normalizedPy}"]
++      println("llama.rn: using Python3_EXECUTABLE=${normalizedPy}")
++    } else {
++      println("llama.rn: WARNING Python3 not resolved")
++    }
++
+     if (hexagonPresent) {
+       println("✅ Hexagon SDK detected — enabling DSP build")
+       cmakeArgs += [
 diff --git a/node_modules/llama.rn/android/src/main/rnllama/CMakeLists.txt b/node_modules/llama.rn/android/src/main/rnllama/CMakeLists.txt
 index a0843c6..44ff9e4 100644
 --- a/node_modules/llama.rn/android/src/main/rnllama/CMakeLists.txt
@@ -14,18 +78,19 @@ index a0843c6..44ff9e4 100644
  set(CMAKE_CXX_STANDARD 17)
  # Use CMAKE_CURRENT_SOURCE_DIR to work correctly both standalone and as subdirectory
 diff --git a/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp b/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp
-index abd3f10..fd535b9 100644
+index abd3f10..38cdac2 100644
 --- a/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp
 +++ b/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp
-@@ -273,15 +273,48 @@ namespace rnllama_jsi {
+@@ -273,35 +273,87 @@ namespace rnllama_jsi {
          model.setProperty(runtime, "is_recurrent", llama_model_is_recurrent(ctx->model));
          model.setProperty(runtime, "is_hybrid", llama_model_is_hybrid(ctx->model));
  
 -        // Metadata
-+        // Metadata — skip oversized fields. Qwen3.5+ chat_template / tokenizer tables
-+        // exceed the old 16KB stack buffer; truncating mid-UTF-8 makes
-+        // jsi::String::createFromUtf8 throw → JS sees Error("Unknown error")
-+        // even though loadModel already succeeded.
++        // Metadata — skip tokenizer tables (huge). chat_template is included via
++        // heap allocation (capped at 64KB) so JS getFormattedChat can see it.
++        // Skipping chat_template previously left hasChatTemplate=false and, when
++        // createModelDetails threw, the catch path returned model:{} without
++        // metadata → "Cannot read property 'tokenizer.chat_template' of undefined".
          jsi::Object metadata(runtime);
          int metaCount = llama_model_meta_count(ctx->model);
          for (int i = 0; i < metaCount; ++i) {
@@ -39,8 +104,7 @@ index abd3f10..fd535b9 100644
 +                keyStr.find("tokenizer.ggml.tokens") != std::string::npos ||
 +                keyStr.find("tokenizer.ggml.token_type") != std::string::npos ||
 +                keyStr.find("tokenizer.ggml.merges") != std::string::npos ||
-+                keyStr.find("tokenizer.ggml.scores") != std::string::npos ||
-+                keyStr.find("chat_template") != std::string::npos
++                keyStr.find("tokenizer.ggml.scores") != std::string::npos
 +            ) {
 +                continue;
 +            }
@@ -70,7 +134,90 @@ index abd3f10..fd535b9 100644
          }
          model.setProperty(runtime, "metadata", metadata);
  
-@@ -628,12 +661,19 @@ namespace rnllama_jsi {
+-        // Chat template capabilities
++        // Chat template capabilities — never throw out of createModelDetails;
++        // multimodal Jinja can make validate/get_caps throw on some Android SoCs.
+         jsi::Object chatTemplates(runtime);
+-        bool llamaChat = ctx->validateModelChatTemplate(false, nullptr);
++        bool llamaChat = false;
++        bool jinjaDefault = false;
++        bool toolUseSupported = false;
++        try {
++            llamaChat = ctx->validateModelChatTemplate(false, nullptr);
++        } catch (...) {
++            llamaChat = false;
++        }
+         chatTemplates.setProperty(runtime, "llamaChat", llamaChat);
+ 
+         jsi::Object jinja(runtime);
+-        bool jinjaDefault = ctx->validateModelChatTemplate(true, nullptr);
++        try {
++            jinjaDefault = ctx->validateModelChatTemplate(true, nullptr);
++        } catch (...) {
++            jinjaDefault = false;
++        }
+         jinja.setProperty(runtime, "default", jinjaDefault);
+ 
+         jsi::Object defaultCaps(runtime);
+-        if (ctx->templates && common_chat_templates_has_variant(ctx->templates.get(), "")) {
+-            auto caps = common_chat_templates_get_caps(ctx->templates.get(), "");
+-            defaultCaps.setProperty(runtime, "tools", caps.supports_tools);
+-            defaultCaps.setProperty(runtime, "toolCalls", caps.supports_tool_calls);
+-            defaultCaps.setProperty(runtime, "parallelToolCalls", caps.supports_parallel_tool_calls);
+-            defaultCaps.setProperty(runtime, "systemRole", caps.supports_system_role);
+-        } else {
++        try {
++            if (ctx->templates && common_chat_templates_has_variant(ctx->templates.get(), "")) {
++                auto caps = common_chat_templates_get_caps(ctx->templates.get(), "");
++                defaultCaps.setProperty(runtime, "tools", caps.supports_tools);
++                defaultCaps.setProperty(runtime, "toolCalls", caps.supports_tool_calls);
++                defaultCaps.setProperty(runtime, "parallelToolCalls", caps.supports_parallel_tool_calls);
++                defaultCaps.setProperty(runtime, "systemRole", caps.supports_system_role);
++            } else {
++                defaultCaps.setProperty(runtime, "tools", false);
++                defaultCaps.setProperty(runtime, "toolCalls", false);
++                defaultCaps.setProperty(runtime, "parallelToolCalls", false);
++                defaultCaps.setProperty(runtime, "systemRole", false);
++            }
++        } catch (...) {
+             defaultCaps.setProperty(runtime, "tools", false);
+             defaultCaps.setProperty(runtime, "toolCalls", false);
+             defaultCaps.setProperty(runtime, "parallelToolCalls", false);
+@@ -309,16 +361,24 @@ namespace rnllama_jsi {
+         }
+         jinja.setProperty(runtime, "defaultCaps", defaultCaps);
+ 
+-        bool toolUseSupported = ctx->validateModelChatTemplate(true, "tool_use");
++        try {
++            toolUseSupported = ctx->validateModelChatTemplate(true, "tool_use");
++        } catch (...) {
++            toolUseSupported = false;
++        }
+         jinja.setProperty(runtime, "toolUse", toolUseSupported);
+-        if (ctx->templates && common_chat_templates_has_variant(ctx->templates.get(), "tool_use")) {
+-            auto caps = common_chat_templates_get_caps(ctx->templates.get(), "tool_use");
+-            jsi::Object toolUseCaps(runtime);
+-            toolUseCaps.setProperty(runtime, "tools", caps.supports_tools);
+-            toolUseCaps.setProperty(runtime, "toolCalls", caps.supports_tool_calls);
+-            toolUseCaps.setProperty(runtime, "parallelToolCalls", caps.supports_parallel_tool_calls);
+-            toolUseCaps.setProperty(runtime, "systemRole", caps.supports_system_role);
+-            jinja.setProperty(runtime, "toolUseCaps", toolUseCaps);
++        try {
++            if (ctx->templates && common_chat_templates_has_variant(ctx->templates.get(), "tool_use")) {
++                auto caps = common_chat_templates_get_caps(ctx->templates.get(), "tool_use");
++                jsi::Object toolUseCaps(runtime);
++                toolUseCaps.setProperty(runtime, "tools", caps.supports_tools);
++                toolUseCaps.setProperty(runtime, "toolCalls", caps.supports_tool_calls);
++                toolUseCaps.setProperty(runtime, "parallelToolCalls", caps.supports_parallel_tool_calls);
++                toolUseCaps.setProperty(runtime, "systemRole", caps.supports_system_role);
++                jinja.setProperty(runtime, "toolUseCaps", toolUseCaps);
++            }
++        } catch (...) {
++            // leave toolUseCaps unset
+         }
+ 
+         chatTemplates.setProperty(runtime, "jinja", jinja);
+@@ -628,12 +688,31 @@ namespace rnllama_jsi {
                               result.setProperty(rt, "reasonNoGPU", jsi::String::createFromUtf8(rt, reasonNoGPU));
                               result.setProperty(rt, "systemInfo", jsi::String::createFromUtf8(rt, system_info));
  
@@ -89,10 +236,99 @@ index abd3f10..fd535b9 100644
 +                                    } catch (...) {
 +                                        // Never fail init after a successful loadModel because
 +                                        // metadata marshalling threw (e.g. huge/invalid UTF-8).
++                                        // Always include empty metadata + chatTemplates so JS
++                                        // getFormattedChat does not crash on undefined.metadata.
 +                                        jsi::Object minimal(rt);
++                                        jsi::Object emptyMeta(rt);
++                                        minimal.setProperty(rt, "metadata", emptyMeta);
++                                        jsi::Object chatTemplates(rt);
++                                        chatTemplates.setProperty(rt, "llamaChat", false);
++                                        jsi::Object jinja(rt);
++                                        jinja.setProperty(rt, "default", false);
++                                        jinja.setProperty(rt, "toolUse", false);
++                                        chatTemplates.setProperty(rt, "jinja", jinja);
++                                        minimal.setProperty(rt, "chatTemplates", chatTemplates);
++                                        minimal.setProperty(rt, "isChatTemplateSupported", false);
 +                                        result.setProperty(rt, "model", minimal);
 +                                    }
 +                                }
  
                               // Maintain shape expected by TypeScript
                               result.setProperty(rt, "devices", toJsStringArray(rt, usedDevices));
+diff --git a/node_modules/llama.rn/lib/commonjs/index.js b/node_modules/llama.rn/lib/commonjs/index.js
+index 123f501..00571cb 100644
+--- a/node_modules/llama.rn/lib/commonjs/index.js
++++ b/node_modules/llama.rn/lib/commonjs/index.js
+@@ -328,7 +328,7 @@ class LlamaContext {
+   isJinjaSupported() {
+     const {
+       jinja
+-    } = this.model.chatTemplates;
++    } = this.model?.chatTemplates ?? {};
+     return !!jinja?.toolUse || !!jinja?.default;
+   }
+   async getFormattedChat(messages, template, params) {
+@@ -378,7 +378,10 @@ class LlamaContext {
+     const forcePureContent = params?.force_pure_content ?? false;
+     // When force_pure_content is set, accept any model that has a chat_template
+     // string in its metadata without requiring template validation to pass.
+-    const hasChatTemplate = !!this.model.metadata['tokenizer.chat_template'];
++    // Guard metadata — older patched builds could return model without metadata
++    // after createModelDetails threw (S26 Ultra / Qwen3.5 multimodal Jinja).
++    const meta = this.model?.metadata;
++    const hasChatTemplate = !!(meta && meta['tokenizer.chat_template']);
+     const useJinja = (forcePureContent ? hasChatTemplate : this.isJinjaSupported()) && (params?.jinja ?? true);
+     let tmpl;
+     if (template) tmpl = template;
+diff --git a/node_modules/llama.rn/lib/module/index.js b/node_modules/llama.rn/lib/module/index.js
+index 1c9eecd..b951f2c 100644
+--- a/node_modules/llama.rn/lib/module/index.js
++++ b/node_modules/llama.rn/lib/module/index.js
+@@ -314,7 +314,7 @@ export class LlamaContext {
+   isJinjaSupported() {
+     const {
+       jinja
+-    } = this.model.chatTemplates;
++    } = this.model?.chatTemplates ?? {};
+     return !!jinja?.toolUse || !!jinja?.default;
+   }
+   async getFormattedChat(messages, template, params) {
+@@ -364,7 +364,10 @@ export class LlamaContext {
+     const forcePureContent = params?.force_pure_content ?? false;
+     // When force_pure_content is set, accept any model that has a chat_template
+     // string in its metadata without requiring template validation to pass.
+-    const hasChatTemplate = !!this.model.metadata['tokenizer.chat_template'];
++    // Guard metadata — older patched builds could return model without metadata
++    // after createModelDetails threw (S26 Ultra / Qwen3.5 multimodal Jinja).
++    const meta = this.model?.metadata;
++    const hasChatTemplate = !!(meta && meta['tokenizer.chat_template']);
+     const useJinja = (forcePureContent ? hasChatTemplate : this.isJinjaSupported()) && (params?.jinja ?? true);
+     let tmpl;
+     if (template) tmpl = template;
+diff --git a/node_modules/llama.rn/src/index.ts b/node_modules/llama.rn/src/index.ts
+index 220d289..ee7dfef 100644
+--- a/node_modules/llama.rn/src/index.ts
++++ b/node_modules/llama.rn/src/index.ts
+@@ -659,7 +659,7 @@ export class LlamaContext {
+   }
+ 
+   isJinjaSupported(): boolean {
+-    const { jinja } = this.model.chatTemplates
++    const { jinja } = this.model?.chatTemplates ?? {}
+     return !!jinja?.toolUse || !!jinja?.default
+   }
+ 
+@@ -725,9 +725,10 @@ export class LlamaContext {
+     const forcePureContent = params?.force_pure_content ?? false
+     // When force_pure_content is set, accept any model that has a chat_template
+     // string in its metadata without requiring template validation to pass.
+-    const hasChatTemplate = !!(this.model.metadata as Record<string, unknown>)[
+-      'tokenizer.chat_template'
+-    ]
++    // Guard metadata — older patched builds could return model without metadata
++    // after createModelDetails threw (S26 Ultra / Qwen3.5 multimodal Jinja).
++    const meta = this.model?.metadata as Record<string, unknown> | undefined
++    const hasChatTemplate = !!(meta && meta['tokenizer.chat_template'])
+     const useJinja =
+       (forcePureContent ? hasChatTemplate : this.isJinjaSupported()) &&
+       (params?.jinja ?? true)

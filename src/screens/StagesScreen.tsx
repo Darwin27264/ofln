@@ -13,12 +13,27 @@ import {
   StyleSheet,
   PanResponder,
 } from 'react-native';
-import RNFS from 'react-native-fs';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { LineChart } from 'react-native-chart-kit';
 import { createStyles } from '../styles/styles';
 import { useTheme } from '../context/ThemeContext';
 import { showAlert } from '../components/CustomAlert';
+import {
+  getAccelerationStatusSnapshot,
+  type AccelerationStatusSnapshot,
+} from '../services/accelerationCapabilityService';
+import {
+  loadUsageRecords,
+  clearUsageRecords,
+  computeUsageAverages,
+  computeModelPerformanceStats,
+  filterRecordsForModel,
+  isValidUsageRecord,
+  normalizeModelName,
+  type UsageMetrics,
+  type ModelPerformanceStats,
+} from '../services/performanceTracking';
+import { llamaProvider } from '../providers/llamaProvider';
 
 /* ──────────────────────────────────── constants ──────────────────────────────────── */
 const RADIUS = 30;
@@ -27,37 +42,15 @@ const GRAPH_WIDTH = (SCREEN_WIDTH - 50) / 2;
 const GRAPH_HEIGHT = 120;
 const GRAPH_SHIFT = 18;
 const STAT_CARD_HEIGHT = GRAPH_HEIGHT + 30;
-const USAGE_LOG_PATH = `${RNFS.DocumentDirectoryPath}/usage_log.json`;
-
-// COLORS removed - now using theme
-
-/* ────────────────────────────────────── types ────────────────────────────────────── */
-interface UsageRecord {
-  timestamp: number;
-  inferenceTime: number;
-  tokenCount: number;
-  tokensPerSecond: number;
-  performanceLevel: 'High' | 'Medium' | 'Low' | 'Very Low';
-  model: string;
-}
-
-interface ModelStats {
-  total: number;
-  avgTime: number;
-  avgTps: number;
-  perf: 'High' | 'Medium' | 'Low' | 'Very Low';
-  tpsData: number[];
-  timeData: number[];
-}
 
 interface Props {
   downloadedModels: string[];
   onBack: () => void;
 }
 
-/* ──────────────────────────────── hooks and utils ──────────────────────────────── */
+/* ──────────────────────────────── hooks ──────────────────────────────── */
 const useUsageData = () => {
-  const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([]);
+  const [usageRecords, setUsageRecords] = useState<UsageMetrics[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,29 +58,7 @@ const useUsageData = () => {
     try {
       setIsLoading(true);
       setError(null);
-      
-      if (await RNFS.exists(USAGE_LOG_PATH)) {
-        const content = await RNFS.readFile(USAGE_LOG_PATH, 'utf8');
-        const records: UsageRecord[] = content
-          .split('\n')
-          .filter(Boolean)
-          .map((line) => {
-            try {
-              const record = JSON.parse(line);
-              if (!validateUsageRecord(record)) {
-                throw new Error('Invalid record format');
-              }
-              return record;
-            } catch {
-              return null;
-            }
-          })
-          .filter((record): record is UsageRecord => record !== null);
-        
-        setUsageRecords(records);
-      } else {
-        setUsageRecords([]);
-      }
+      setUsageRecords(await loadUsageRecords());
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load usage data');
       setUsageRecords([]);
@@ -98,7 +69,7 @@ const useUsageData = () => {
 
   const clearUsageData = async () => {
     try {
-      await RNFS.unlink(USAGE_LOG_PATH);
+      await clearUsageRecords();
       setUsageRecords([]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to clear usage data');
@@ -112,22 +83,20 @@ const useUsageData = () => {
   return { usageRecords, isLoading, error, clearUsageData };
 };
 
-const useModelStats = (usageRecords: UsageRecord[], selectedModel: string | null) => {
-  return useMemo((): ModelStats | null => {
-    if (!selectedModel) return null;
+const useModelStats = (
+  usageRecords: UsageMetrics[],
+  selectedModel: string | null,
+): ModelPerformanceStats | null => {
+  return useMemo(
+    () => computeModelPerformanceStats(usageRecords, selectedModel),
+    [usageRecords, selectedModel],
+  );
+};
 
-    const filtered = usageRecords.filter(r => r.model === selectedModel);
-    if (!filtered.length) return null;
-
-    const total = filtered.length;
-    const avgTime = filtered.reduce((sum, r) => sum + r.inferenceTime, 0) / total;
-    const avgTps = filtered.reduce((sum, r) => sum + r.tokensPerSecond, 0) / total;
-    const perf = filtered.at(-1)!.performanceLevel;
-    const tpsData = filtered.map(r => r.tokensPerSecond);
-    const timeData = filtered.map(r => r.inferenceTime);
-
-    return { total, avgTime, avgTps, perf, tpsData, timeData };
-  }, [usageRecords, selectedModel]);
+/* ───────────────────────────── utils ───────────────────────────── */
+const stripFileExtension = (modelName: string): string => {
+  if (!modelName) return modelName;
+  return modelName.replace(/\.(gguf|bin|safetensors|pt|pth|onnx|h5)$/i, '').trim();
 };
 
 const useChartAnimations = (data: number[] | undefined) => {
@@ -149,27 +118,6 @@ const useChartAnimations = (data: number[] | undefined) => {
   return anim;
 };
 
-/* ───────────────────────────── validation ───────────────────────────── */
-const validateUsageRecord = (record: any): record is UsageRecord => {
-  return (
-    typeof record === 'object' &&
-    typeof record.timestamp === 'number' &&
-    typeof record.inferenceTime === 'number' &&
-    typeof record.tokenCount === 'number' &&
-    typeof record.tokensPerSecond === 'number' &&
-    ['High', 'Medium', 'Low', 'Very Low'].includes(record.performanceLevel) &&
-    typeof record.model === 'string'
-  );
-};
-
-/* ───────────────────────────── utils ───────────────────────────── */
-// Remove file extensions from model names for display
-const stripFileExtension = (modelName: string): string => {
-  if (!modelName) return modelName;
-  // Remove common file extensions
-  return modelName.replace(/\.(gguf|bin|safetensors|pt|pth|onnx|h5)$/i, '').trim();
-};
-
 /* ──────────────────────────────────── component ──────────────────────────────────── */
 const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   const { theme, isDark } = useTheme();
@@ -180,17 +128,40 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   const [modalVisible, setModalVisible] = useState(false);
   const [graphType, setGraphType] = useState<'tps' | 'inf' | null>(null);
   const userTouchedRef = useRef(false);
+  const [accelStatus, setAccelStatus] = useState<AccelerationStatusSnapshot | null>(null);
+
+  // One-shot on mount — cached capability + last load snapshot; no polling.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getAccelerationStatusSnapshot(llamaProvider.isReady());
+        if (!cancelled) setAccelStatus(snap);
+      } catch {
+        if (!cancelled) setAccelStatus(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Models sorting and selection
   const sortedModels = useMemo(() => {
     return downloadedModels
       .map((m, idx) => ({ m, idx }))
       .sort((a, b) => {
-        const countA = usageRecords.filter(r => r.model === a.m).length;
-        const countB = usageRecords.filter(r => r.model === b.m).length;
+        const keyA = normalizeModelName(a.m);
+        const keyB = normalizeModelName(b.m);
+        const countA = usageRecords.filter(
+          (r) => normalizeModelName(r.model) === keyA && isValidUsageRecord(r),
+        ).length;
+        const countB = usageRecords.filter(
+          (r) => normalizeModelName(r.model) === keyB && isValidUsageRecord(r),
+        ).length;
         return countB !== countA ? countB - countA : a.idx - b.idx;
       })
-      .map(o => o.m);
+      .map((o) => o.m);
   }, [downloadedModels, usageRecords]);
 
   useEffect(() => {
@@ -544,6 +515,11 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   // Stats calculation
   const stats = useModelStats(usageRecords, selectedModel);
 
+  const resourceAverages = useMemo(() => {
+    if (!selectedModel) return null;
+    return computeUsageAverages(filterRecordsForModel(usageRecords, selectedModel));
+  }, [usageRecords, selectedModel]);
+
   // Animations
   const tpsAnim = useChartAnimations(stats?.tpsData);
   const infAnim = useChartAnimations(stats?.timeData);
@@ -652,25 +628,44 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
 
   const getSuggestions = () => {
     if (!stats) return ['No usage logs available. Start using the model to gather insights.'];
-    
+
     const suggestions: string[] = [];
-    if (stats.avgTime > 100) suggestions.push('Average inference time is high—consider optimising.');
+    if (stats.valid < stats.total) {
+      suggestions.push(
+        `${stats.total - stats.valid} empty/failed run(s) were excluded from averages.`,
+      );
+    }
+    // avgTime is decode ms when native timings exist — >3s decode is slow for chat.
+    if (stats.avgTime > 3000) {
+      suggestions.push('Average decode time is high—try fewer max tokens or a smaller model.');
+    }
     if (stats.avgTps < 12) {
       if (stats.avgTps < 6) {
-        suggestions.push('Performance is very low (< 6 tokens/s)—consider a smaller model or better device.');
+        suggestions.push(
+          'Generation speed is very low (< 6 tok/s)—use a smaller quant or enable acceleration if available.',
+        );
       } else {
-        suggestions.push('Performance is below good threshold (< 12 tokens/s)—try a smaller model.');
+        suggestions.push(
+          'Generation speed is moderate (< 12 tok/s)—Q4_0 + GPU/NPU usually helps on Android.',
+        );
       }
     }
-    if (stats.total < 5) suggestions.push('Generate more inferences for deeper insight.');
+    if (stats.accelOnShare === 0 && accelStatus?.available) {
+      suggestions.push(
+        'Acceleration is available on this device but recent runs used CPU—check GPU layers and quant (Q4_0/Q6_K).',
+      );
+    }
+    if (stats.valid < 5) {
+      suggestions.push('Run a few more chats for stabler averages.');
+    }
     if (!suggestions.length) {
       if (stats.avgTps >= 18) {
-        suggestions.push('Great performance—keep going!');
+        suggestions.push('Strong generation speed—looking good.');
       } else {
-        suggestions.push('Good performance—consider optimizing for even better results.');
+        suggestions.push('Solid generation speed for on-device chat.');
       }
     }
-    
+
     return suggestions;
   };
   
@@ -683,14 +678,165 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
         contentContainerStyle={stylesLocalWithTheme.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* Hardware acceleration — available vs currently on */}
+        <View style={[stylesLocalWithTheme.statusCard, { backgroundColor: theme.colors.glass }]}>
+          <View style={stylesLocalWithTheme.statusHeader}>
+            <Ionicons name="hardware-chip-outline" size={20} color={theme.colors.text} />
+            <Text style={[stylesLocalWithTheme.statusTitle, { color: theme.colors.text }]}>
+              Hardware acceleration
+            </Text>
+          </View>
+          {accelStatus ? (
+            <>
+              <View style={stylesLocalWithTheme.statusRow}>
+                <Text style={[stylesLocalWithTheme.statusLabel, { color: theme.colors.textSecondary }]}>
+                  Available
+                </Text>
+                <View style={stylesLocalWithTheme.statusValueWrap}>
+                  <View
+                    style={[
+                      stylesLocalWithTheme.statusDot,
+                      {
+                        backgroundColor: accelStatus.available
+                          ? theme.colors.success
+                          : theme.colors.textSecondary,
+                      },
+                    ]}
+                  />
+                  <Text style={[stylesLocalWithTheme.statusValue, { color: theme.colors.text }]}>
+                    {accelStatus.available ? accelStatus.availableLabel : 'Not available'}
+                  </Text>
+                </View>
+              </View>
+              <View style={stylesLocalWithTheme.statusRow}>
+                <Text style={[stylesLocalWithTheme.statusLabel, { color: theme.colors.textSecondary }]}>
+                  Currently on
+                </Text>
+                <View style={stylesLocalWithTheme.statusValueWrap}>
+                  <View
+                    style={[
+                      stylesLocalWithTheme.statusDot,
+                      {
+                        backgroundColor:
+                          accelStatus.on === true
+                            ? theme.colors.success
+                            : accelStatus.on === false
+                              ? theme.colors.warning
+                              : theme.colors.textSecondary,
+                      },
+                    ]}
+                  />
+                  <Text
+                    style={[stylesLocalWithTheme.statusValue, { color: theme.colors.text }]}
+                    numberOfLines={2}
+                  >
+                    {accelStatus.on === true
+                      ? `On · ${accelStatus.onLabel}`
+                      : accelStatus.on === false
+                        ? accelStatus.onLabel
+                        : 'No model loaded'}
+                  </Text>
+                </View>
+              </View>
+            </>
+          ) : (
+            <Text style={[stylesLocalWithTheme.statusHint, { color: theme.colors.textSecondary }]}>
+              Checking device backends…
+            </Text>
+          )}
+        </View>
+
+        {/* Avg resource usage from usage log (not realtime) */}
+        <View style={[stylesLocalWithTheme.statusCard, { backgroundColor: theme.colors.glass }]}>
+          <View style={stylesLocalWithTheme.statusHeader}>
+            <Ionicons name="analytics-outline" size={20} color={theme.colors.text} />
+            <Text style={[stylesLocalWithTheme.statusTitle, { color: theme.colors.text }]}>
+              Avg resource usage
+            </Text>
+          </View>
+          {resourceAverages ? (
+            <View style={stylesLocalWithTheme.resourceGrid}>
+              <View style={stylesLocalWithTheme.resourceCell}>
+                <Text style={[stylesLocalWithTheme.resourceValue, { color: theme.colors.text }]}>
+                  {resourceAverages.avgTokensPerSecond.toFixed(1)}
+                </Text>
+                <Text style={[stylesLocalWithTheme.resourceCaption, { color: theme.colors.textSecondary }]}>
+                  avg tok/s (weighted)
+                </Text>
+              </View>
+              <View style={stylesLocalWithTheme.resourceCell}>
+                <Text style={[stylesLocalWithTheme.resourceValue, { color: theme.colors.text }]}>
+                  {resourceAverages.medianTokensPerSecond != null
+                    ? resourceAverages.medianTokensPerSecond.toFixed(1)
+                    : '—'}
+                </Text>
+                <Text style={[stylesLocalWithTheme.resourceCaption, { color: theme.colors.textSecondary }]}>
+                  median tok/s
+                </Text>
+              </View>
+              <View style={stylesLocalWithTheme.resourceCell}>
+                <Text style={[stylesLocalWithTheme.resourceValue, { color: theme.colors.text }]}>
+                  {Math.round(resourceAverages.avgInferenceTimeMs)}
+                </Text>
+                <Text style={[stylesLocalWithTheme.resourceCaption, { color: theme.colors.textSecondary }]}>
+                  avg decode ms
+                </Text>
+              </View>
+              <View style={stylesLocalWithTheme.resourceCell}>
+                <Text style={[stylesLocalWithTheme.resourceValue, { color: theme.colors.text }]}>
+                  {resourceAverages.avgWallTimeMs != null
+                    ? Math.round(resourceAverages.avgWallTimeMs)
+                    : '—'}
+                </Text>
+                <Text style={[stylesLocalWithTheme.resourceCaption, { color: theme.colors.textSecondary }]}>
+                  avg response ms
+                </Text>
+              </View>
+              <View style={stylesLocalWithTheme.resourceCell}>
+                <Text style={[stylesLocalWithTheme.resourceValue, { color: theme.colors.text }]}>
+                  {resourceAverages.avgTokensPerInference.toFixed(0)}
+                </Text>
+                <Text style={[stylesLocalWithTheme.resourceCaption, { color: theme.colors.textSecondary }]}>
+                  avg tokens/run
+                </Text>
+              </View>
+              <View style={stylesLocalWithTheme.resourceCell}>
+                <Text style={[stylesLocalWithTheme.resourceValue, { color: theme.colors.text }]}>
+                  {resourceAverages.accelOnShare != null
+                    ? `${Math.round(resourceAverages.accelOnShare * 100)}%`
+                    : '—'}
+                </Text>
+                <Text style={[stylesLocalWithTheme.resourceCaption, { color: theme.colors.textSecondary }]}>
+                  runs accelerated
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <Text style={[stylesLocalWithTheme.statusHint, { color: theme.colors.textSecondary }]}>
+              {selectedModel
+                ? 'No valid runs yet for this model. Chat a bit to build averages.'
+                : 'Select a model to see averages from past runs.'}
+            </Text>
+          )}
+          <Text style={[stylesLocalWithTheme.statusFootnote, { color: theme.colors.textSecondary }]}>
+            Tok/s uses native decode timing when available. Empty/failed runs are excluded.
+          </Text>
+        </View>
+
         {selectedModel && stats && (
           <>
             {/* Stats cards */}
             <View style={stylesLocal.row}>
               <View style={[stylesLocalWithTheme.statCard, { marginRight: 10, backgroundColor: theme.colors.glass }]}>
                 <View style={stylesLocalWithTheme.statInner}>
-                  <Text style={[stylesLocalWithTheme.statValue, { color: theme.colors.text }]}>{stats.total}</Text>
-                  <Text style={[stylesLocalWithTheme.statCaption, { color: theme.colors.textSecondary }]}>total inferences</Text>
+                  <Text style={[stylesLocalWithTheme.statValue, { color: theme.colors.text }]}>
+                    {stats.valid}
+                  </Text>
+                  <Text style={[stylesLocalWithTheme.statCaption, { color: theme.colors.textSecondary }]}>
+                    {stats.valid === stats.total
+                      ? 'valid runs'
+                      : `valid of ${stats.total} logged`}
+                  </Text>
                 </View>
               </View>
 
@@ -700,7 +846,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
                     {stats.perf}
                   </Text>
                   <Text style={[stylesLocalWithTheme.statCaption, { color: (stats.perf === 'High' || stats.perf === 'Medium') ? theme.colors.primaryText : theme.colors.text }]}>
-                    Performance level
+                    from avg tok/s
                   </Text>
                 </View>
               </View>
@@ -713,8 +859,8 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
                 style={{ marginRight: 10 }}
               >
                 <View style={[stylesLocalWithTheme.graphCard, { backgroundColor: theme.colors.surface }]}>
-                  <Text style={[stylesLocalWithTheme.graphValue, { color: theme.colors.text }]}>{stats.avgTps.toFixed(0)}</Text>
-                  <Text style={[stylesLocalWithTheme.graphCaption, { color: theme.colors.textSecondary }]}>avg tokens/sec</Text>
+                  <Text style={[stylesLocalWithTheme.graphValue, { color: theme.colors.text }]}>{stats.avgTps.toFixed(1)}</Text>
+                  <Text style={[stylesLocalWithTheme.graphCaption, { color: theme.colors.textSecondary }]}>avg tok/s</Text>
                   {stats.tpsData.length ? (
                     <Chart data={stats.tpsData.slice(-20)} anim={tpsAnim} />
                   ) : (
@@ -728,7 +874,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
               >
                 <View style={[stylesLocalWithTheme.graphCard, { backgroundColor: theme.colors.surface }]}>
                   <Text style={[stylesLocalWithTheme.graphValue, { color: theme.colors.text }]}>{stats.avgTime.toFixed(0)}</Text>
-                  <Text style={[stylesLocalWithTheme.graphCaption, { color: theme.colors.textSecondary }]}>avg ms/inference</Text>
+                  <Text style={[stylesLocalWithTheme.graphCaption, { color: theme.colors.textSecondary }]}>avg decode ms</Text>
                   {stats.timeData.length ? (
                     <Chart data={stats.timeData.slice(-20)} anim={infAnim} />
                   ) : (
@@ -817,7 +963,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
               }
             ]}>
               <Text style={[stylesLocalWithTheme.modalTitle, { color: theme.colors.text }]}>
-                {graphType === 'tps' ? 'Tokens Per Second' : 'Inference Time (ms)'}
+                {graphType === 'tps' ? 'Tokens Per Second (decode)' : 'Decode Time (ms)'}
               </Text>
               {stats && (
                 <View style={{ width: SCREEN_WIDTH - 80, alignSelf: 'flex-start' }}>
@@ -924,6 +1070,78 @@ const createStylesLocal = (colors: any) => StyleSheet.create({
   suggestionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   suggestionTitle: { fontSize: 18, marginRight: 6 },
   suggestionText: { fontSize: 14, marginBottom: 4 },
+
+  statusCard: {
+    borderRadius: RADIUS,
+    padding: 16,
+    marginBottom: 10,
+  },
+  statusHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+  statusTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  statusLabel: {
+    fontSize: 13,
+    marginRight: 12,
+    paddingTop: 2,
+  },
+  statusValueWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  statusValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'right',
+    flexShrink: 1,
+  },
+  statusHint: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  statusFootnote: {
+    fontSize: 11,
+    marginTop: 8,
+    opacity: 0.85,
+  },
+  resourceGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  resourceCell: {
+    width: '50%',
+    paddingVertical: 8,
+    paddingRight: 8,
+  },
+  resourceValue: {
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  resourceCaption: {
+    fontSize: 11,
+    marginTop: 2,
+  },
 
   modelBar: {
     position: 'absolute',

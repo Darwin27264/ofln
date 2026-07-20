@@ -2,7 +2,10 @@
 import { Platform } from "react-native";
 import RNFS from "react-native-fs";
 import { initLlama, loadLlamaModelInfo, releaseAllLlama } from "llama.rn";
-import { recordUsage, getPerformanceLevel } from "./usageTracker";
+import {
+  recordCompletionUsage,
+  approxTokenCountFromText,
+} from "./performanceTracking";
 import { getModelSettings, ModelSettings, DEFAULT_SETTINGS } from "./modelSettingsService";
 import { Persona, buildPersonaSystemPrompt } from "./personaService";
 import { logError } from "../utils/errorLogger";
@@ -666,9 +669,14 @@ export const handleSendMessageCompletion = async (
       reasoning_content?: string;
     }
     interface CompletionResult {
-      timings: {
-        predicted_per_second: number;
+      timings?: {
+        predicted_per_second?: number;
+        predicted_n?: number;
+        predicted_ms?: number;
+        prompt_n?: number;
+        prompt_ms?: number;
       };
+      text?: string;
     }
 
     // Build system prompt from persona settings (no model-family hacks needed
@@ -908,24 +916,21 @@ export const handleSendMessageCompletion = async (
         return updated;
       });
     }
-    const tokenCount = finalVisibleContent
-      .split(" ")
-      .filter((t) => t.length > 0).length;
-    const tps = result.timings.predicted_per_second;
-    const performanceLevel = getPerformanceLevel(tps);
+    const usage = await recordCompletionUsage({
+      model: selectedModel,
+      wallTimeMs: inferenceTime,
+      streamTokenCount: Math.max(
+        1,
+        approxTokenCountFromText(finalVisibleContent, currentThought),
+      ),
+      timings: result?.timings ?? null,
+    });
+    const tps = usage?.tokensPerSecond ?? 0;
 
     // Save tokens per second metric for UI display
-    setTokensPerSecond((prev) => [...prev, parseFloat(tps.toFixed(2))]);
-
-    // Record usage metrics – note the new "model" property being added
-    recordUsage({
-      timestamp: Date.now(),
-      inferenceTime,
-      tokenCount,
-      tokensPerSecond: tps,
-      performanceLevel,
-      model: selectedModel,
-    });
+    if (tps > 0) {
+      setTokensPerSecond((prev) => [...prev, tps]);
+    }
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";

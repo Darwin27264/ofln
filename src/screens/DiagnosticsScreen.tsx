@@ -157,6 +157,33 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
       });
       appendTestLog("Context created.");
 
+      const meta = (ctx as any)?.model?.metadata;
+      const hasMeta = meta != null && typeof meta === "object";
+      const hasChatTpl = !!(meta && meta["tokenizer.chat_template"]);
+      appendTestLog(
+        `Model details: metadata=${hasMeta ? "ok" : "MISSING"} chat_template=${hasChatTpl ? "ok" : "missing"}`,
+      );
+      if (!hasMeta) {
+        appendTestLog(
+          "WARN: model.metadata missing — completion({ messages }) will crash. Prefer reloading after GGUF sanitize.",
+        );
+      }
+
+      try {
+        appendTestLog("Probing getFormattedChat...");
+        await (ctx as any).getFormattedChat(
+          [{ role: "user", content: "ping" }],
+          undefined,
+          { jinja: true, enable_thinking: false },
+        );
+        appendTestLog("getFormattedChat probe OK.");
+      } catch (probeErr) {
+        appendTestLog(
+          "getFormattedChat probe FAILED: " +
+            (probeErr instanceof Error ? probeErr.message : String(probeErr)),
+        );
+      }
+
       const stopWords = ["</s>", "<|end|>", "<|im_end|>", "user:", "assistant:"];
 
       let tokenCount = 0;

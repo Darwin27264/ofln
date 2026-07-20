@@ -119,7 +119,7 @@ The codebase maintains high code quality through:
 - **Type Safety**: TypeScript coverage with shared types in `src/types/ai.ts`
 - **Error Handling**: Try-catch with graceful recovery and user feedback
 - **Consistent Patterns**: Standardized animations, error handling, and component structure
-- **Performance Monitoring**: Tokens/sec and usage logs via `usageTracker` + Stages screen
+- **Performance Monitoring**: Tokens/sec and usage logs via `performanceTracking` + Performance screen
 
 ## Project Structure
 
@@ -161,7 +161,8 @@ src/
 │   ├── modelSettingsService.ts
 │   ├── ocrService.ts               # ML Kit OCR
 │   ├── personaService.ts
-│   ├── usageTracker.ts
+│   ├── performanceTracking.ts      # Unified usage metrics / tok/s / Performance screen data
+│   ├── usageTracker.ts             # Re-export shim → performanceTracking
 │   └── visionService.ts            # Vision model detection / message formatting
 ├── styles/
 │   └── styles.ts
@@ -249,7 +250,7 @@ Defaults (see `modelSettingsService`): `n_ctx` 2048, `n_gpu_layers` 1, `temperat
 5. Thinking/reasoning content is split out for supported reasoning models; Qwen may set `enable_thinking` only for “complex” prompts
 6. Stop uses AbortController and/or `ctx.stopCompletion()`
 7. Chat is persisted via `chatHistoryService` → AsyncStorage (`@chat_history`, max 100)
-8. Metrics recorded via `recordUsage` → `usage_log.json`
+8. Metrics recorded via `recordCompletionUsage` → `usage_log.json`
 
 **Alternate path**: `streamChat` → Vercel `streamText({ model: llamaProvider.getLanguageModel() })` — available for AI SDK DX, not the default Conversation setting.
 
@@ -286,7 +287,7 @@ Defaults (see `modelSettingsService`): `n_ctx` 2048, `n_gpu_layers` 1, `temperat
 - **React Native CLI**: For running and building the app
 - **Android Studio**: For Android development (with Android SDK)
 - **Xcode**: For iOS development (macOS only, with CocoaPods)
-- **Java Development Kit**: For Android builds
+- **JDK 17+ (prefer 21)**: Required for Android builds with Gradle 8.12. Use Android Studio’s bundled JBR and set `JAVA_HOME` to it (e.g. `C:\Program Files\Android\Android Studio\jbr` on Windows). Avoid relying on a newer system JDK on `PATH` alone.
 - **New Architecture enabled**: Required by current `llama.rn` (≥0.10). Already set: `android/gradle.properties` (`newArchEnabled=true`) and `ios/Podfile` (`RCT_NEW_ARCH_ENABLED=1`)
 
 ### Initial Setup
@@ -631,9 +632,15 @@ The application handles numerous edge cases to ensure robust operation:
 
 - Clean build: `cd android && ./gradlew clean`
 - Check Android SDK is properly configured in Android Studio
-- Verify Java version compatibility (Java 11+ required)
+- Verify `JAVA_HOME` points at JDK 17+ (prefer Android Studio JBR 21). The app uses Gradle 8.12 via `android/gradle/wrapper`.
 - Check `android/build.gradle` for version conflicts
 - Ensure Android emulator/device is connected: `adb devices`
+
+#### Cursor/VS Code: “Could not use Gradle version X and Java version 21”
+
+These come from the **Gradle for Java** extension discovering leftover wrappers inside `node_modules` (e.g. Gradle 4.10 / 5.4 / 7.5). They are unused by the app build—autolinking builds those libraries with the root Gradle 8.12 project.
+
+Workspace settings in `.vscode/settings.json` already exclude `node_modules` and limit nested Gradle discovery to `android/`. If toasts persist: reload the window, or run **Java: Clean Java Language Server Workspace**. Do not upgrade wrappers under `node_modules`.
 
 #### Android Installation Fails: INSTALL_FAILED_INSUFFICIENT_STORAGE
 

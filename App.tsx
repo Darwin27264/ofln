@@ -56,6 +56,7 @@ import { validateLocalModels, LocalModelInfo } from "./src/services/localModelSe
 // Vercel AI SDK integration layer
 import { llamaProvider } from "./src/providers/llamaProvider";
 import type { ModelStatus } from "./src/types/ai";
+import { tokensPerSecondFromMessages } from "./src/services/performanceTracking";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -65,15 +66,6 @@ type Message = {
   tokensPerSecond?: number;
   attachments?: Array<{ type: "image"; uri: string; width?: number; height?: number; fileName?: string }>;
 };
-
-function tokensPerSecondFromMessages(messages: Message[]): number[] {
-  return messages
-    .filter(
-      (m): m is Message & { tokensPerSecond: number } =>
-        m.role === "assistant" && typeof m.tokensPerSecond === "number",
-    )
-    .map((m) => m.tokensPerSecond);
-}
 
 function AppContent(): React.JSX.Element {
   const { theme } = useTheme();

@@ -31,8 +31,12 @@ import {
   extractTextFromAttachment,
   prepareAttachmentForVision,
 } from './documentParsingService';
-import { recordUsage, getPerformanceLevel } from './usageTracker';
+import {
+  recordCompletionUsage,
+  approxTokenCountFromText,
+} from './performanceTracking';
 import { logError } from '../utils/errorLogger';
+import { SAFE_CHAT_TEMPLATE_STUB } from './ggufSanitizeService';
 import {
   buildCompletionParams,
   trimConversation,
@@ -210,7 +214,6 @@ async function _runStream(
   const startTime = Date.now();
   let fullText = '';
   let currentThought = '';
-  let tokenCount = 0;
 
   try {
     const { textStream } = streamText({
@@ -227,8 +230,6 @@ async function _runStream(
 
     for await (const delta of textStream) {
       if (signal.aborted) break;
-
-      tokenCount++;
 
       // Think block parsing
       if (supportsThinkTags) {
@@ -264,8 +265,17 @@ async function _runStream(
 
     // Finalise
     const endTime = Date.now();
-    const inferenceTimeMs = endTime - startTime;
-    const tps = tokenCount > 0 ? (tokenCount / inferenceTimeMs) * 1000 : 0;
+    const wallTimeMs = endTime - startTime;
+    const approxTokens = Math.max(
+      1,
+      approxTokenCountFromText(fullText, currentThought),
+    );
+    const usage = await recordCompletionUsage({
+      model: modelName,
+      wallTimeMs,
+      streamTokenCount: approxTokens,
+      timings: null,
+    });
     const visibleContent = trimDegenerateRepetition(
       supportsThinkTags ? stripThinkBlocks(fullText) : fullText.trim(),
     );
@@ -273,20 +283,10 @@ async function _runStream(
     const completionResult: CompletionResult = {
       text: visibleContent,
       thought: currentThought || undefined,
-      tokensPerSecond: parseFloat(tps.toFixed(2)),
-      totalTokens: tokenCount,
-      inferenceTimeMs,
+      tokensPerSecond: usage?.tokensPerSecond ?? 0,
+      totalTokens: usage?.tokenCount ?? approxTokens,
+      inferenceTimeMs: wallTimeMs,
     };
-
-    // Record usage metrics
-    recordUsage({
-      timestamp: Date.now(),
-      inferenceTime: inferenceTimeMs,
-      tokenCount,
-      tokensPerSecond: tps,
-      performanceLevel: getPerformanceLevel(tps),
-      model: modelName,
-    });
 
     callbacks.onFinish?.(completionResult);
     return completionResult;
@@ -296,7 +296,7 @@ async function _runStream(
         text: fullText.trim() + '\n\n*Generation stopped by user*',
         thought: currentThought || undefined,
         tokensPerSecond: 0,
-        totalTokens: tokenCount,
+        totalTokens: approxTokenCountFromText(fullText, currentThought),
         inferenceTimeMs: Date.now() - startTime,
       };
       callbacks.onFinish?.(stoppedResult);
@@ -393,6 +393,9 @@ export async function nativeCompletion(
 
   let result: any;
   try {
+    // If native metadata marshalling failed, pass an explicit text Jinja template
+    // so getFormattedChat does not depend on model.metadata.
+    const needsExplicitTemplate = !nativeContext?.model?.metadata?.['tokenizer.chat_template'];
     result = await nativeContext.completion(
       {
         messages: llamaMessages,
@@ -406,11 +409,15 @@ export async function nativeCompletion(
         // <think></think> when false (skips CoT on "another fun fact").
         ...(enableThinking !== undefined ? { enable_thinking: enableThinking } : {}),
         reasoning_format: reasoningFormat,
+        ...(needsExplicitTemplate
+          ? {
+              chat_template: SAFE_CHAT_TEMPLATE_STUB,
+              jinja: true,
+            }
+          : {}),
       },
       (data: TokenData) => {
         if (signal?.aborted) return;
-
-        tokenCount++;
 
         if (data.reasoning_content && data.reasoning_content !== currentThought) {
           currentThought = data.reasoning_content;
@@ -420,6 +427,9 @@ export async function nativeCompletion(
 
         const token = data.token ?? data.content ?? '';
         if (!token) return;
+
+        // Count only emission callbacks with actual token text (not reasoning updates).
+        tokenCount++;
 
         fullText += token;
 
@@ -465,13 +475,17 @@ export async function nativeCompletion(
   }
 
   const endTime = Date.now();
-  const inferenceTimeMs = endTime - startTime;
-  const wallTps =
-    tokenCount > 0 && inferenceTimeMs > 0
-      ? (tokenCount / inferenceTimeMs) * 1000
-      : 0;
-  const tps = result?.timings?.predicted_per_second ?? wallTps;
-  const tpsRounded = parseFloat(Number(tps).toFixed(2));
+  const wallTimeMs = endTime - startTime;
+  const timings = result?.timings ?? null;
+  const usage = await recordCompletionUsage({
+    model: modelName,
+    wallTimeMs,
+    streamTokenCount: tokenCount,
+    timings,
+  });
+  const tpsRounded = usage?.tokensPerSecond ?? 0;
+  const reportedTokenCount = usage?.tokenCount ?? tokenCount;
+  const inferenceTimeMs = usage?.inferenceTime ?? wallTimeMs;
 
   const resultText =
     (typeof result?.text === 'string' && result.text) ||
@@ -495,17 +509,20 @@ export async function nativeCompletion(
     undefined,
     {
       modelName,
-      tokenCount,
+      streamTokenCount: tokenCount,
+      reportedTokenCount,
       streamedChars: fullText.length,
       resultTextChars: resultText.length,
       visibleChars: visibleContent.length,
       thoughtChars: currentThought.length,
       stillInThinkBlock: inThinkBlock,
-      tps,
+      tps: tpsRounded,
+      tpsSource: usage?.tpsSource ?? null,
+      wallTimeMs,
       inferenceTimeMs,
       resultKeys:
         result && typeof result === 'object' ? Object.keys(result).slice(0, 20) : [],
-      timings: result?.timings ?? null,
+      timings: timings ?? null,
       truncatedPreview: visibleContent.slice(0, 160) || currentThought.slice(0, 160),
     },
     visibleContent.trim().length > 0 ? 'INFO' : 'WARN',
@@ -513,12 +530,15 @@ export async function nativeCompletion(
 
   if (__DEV__) {
     console.log('[nativeCompletion] done', {
-      tokenCount,
+      streamTokenCount: tokenCount,
+      reportedTokenCount,
       streamedChars: fullText.length,
       resultTextChars: resultText.length,
       visibleChars: visibleContent.length,
       thoughtChars: currentThought.length,
-      tps,
+      tps: tpsRounded,
+      tpsSource: usage?.tpsSource,
+      wallTimeMs,
       inferenceTimeMs,
     });
   }
@@ -527,18 +547,9 @@ export async function nativeCompletion(
     text: visibleContent,
     thought: currentThought || undefined,
     tokensPerSecond: tpsRounded,
-    totalTokens: tokenCount,
-    inferenceTimeMs,
+    totalTokens: reportedTokenCount,
+    inferenceTimeMs: wallTimeMs,
   };
-
-  recordUsage({
-    timestamp: Date.now(),
-    inferenceTime: inferenceTimeMs,
-    tokenCount,
-    tokensPerSecond: tpsRounded,
-    performanceLevel: getPerformanceLevel(tpsRounded),
-    model: modelName,
-  });
 
   callbacks.onFinish?.(completionResult);
   return completionResult;

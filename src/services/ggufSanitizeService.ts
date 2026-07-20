@@ -2,7 +2,11 @@
  * GGUF metadata sanitizer for Android / emulator loads.
  *
  * llama.rn 0.12 createModelDetails() can fail AFTER a successful native load when
- * a huge chat_template overflows a 16KB stack buffer (mid-UTF-8 → Unknown error).
+ * a huge chat_template overflows a 16KB stack buffer (mid-UTF-8 → Unknown error),
+ * OR when Minja chokes on multimodal Jinja (Qwen3.5 vision macros like
+ * `namespace(value=0)` / `image_count`). That leaves `model: {}` without
+ * `metadata`, and the next `completion({ messages })` throws:
+ *   Cannot read property 'tokenizer.chat_template' of undefined
  *
  * Fix without rebuilding llama.rn: overwrite chat_template VALUE IN-PLACE with a
  * short Jinja stub (v4: enable_thinking=false → empty `<think></think>`) plus
@@ -15,7 +19,9 @@
  * - 1MB windowed reads — tokenizer.ggml.tokens is ~250k STRING elems.
  * - Correct GGUF scalar sizes (FLOAT32=6, BOOL=7).
  * - Chunked base64 writes; no Buffer dependency (Hermes-safe).
- * - iOS is a no-op. Under-16KB pristine templates are left intact.
+ * - iOS is a no-op.
+ * - Oversized, legacy, and multimodal-under-16KB templates are padded.
+ * - Plain text Jinja under 16KB is left intact.
  */
 
 import { Platform } from "react-native";
@@ -32,7 +38,7 @@ export const NATIVE_META_STRING_BUF = 16384;
 const SANITIZE_LEN_THRESHOLD = NATIVE_META_STRING_BUF;
 
 /** Chat stub with Qwen-style thinking gate + dead-branch length pad. */
-const SAFE_CHAT_TEMPLATE_STUB =
+export const SAFE_CHAT_TEMPLATE_STUB =
   "{% for message in messages %}" +
   "{{ '<|im_start|>' + message['role'] + '\\n' + message['content'] + '<|im_end|>\\n' }}" +
   "{% endfor %}" +
@@ -44,6 +50,24 @@ const SAFE_CHAT_TEMPLATE_STUB =
   "{{ '<think>\\n\\n</think>\\n' }}" +
   "{% endif %}" +
   "{% endif %}";
+
+/**
+ * Qwen3.5 (and similar) ship a ~7.8KB multimodal Jinja that is under the 16KB
+ * buffer limit but still breaks llama.rn template validation / formatting on
+ * some Android devices (S25/S26 Ultra). Detect and replace with the text stub.
+ */
+export function looksLikeMultimodalChatTemplate(preview: string): boolean {
+  const p = preview.toLowerCase();
+  return (
+    p.includes("image_count") ||
+    p.includes("video_count") ||
+    p.includes("namespace(value=") ||
+    p.includes("<|vision") ||
+    p.includes("mm_token") ||
+    p.includes("media_token") ||
+    p.includes("{%- macro")
+  );
+}
 
 /**
  * Pad strategy (v4): `{% if false %}…{% endif %}` trailer + enable_thinking
@@ -71,7 +95,10 @@ export type SanitizeResult = {
 };
 
 export type SanitizeOptions = {
-  /** Unused; kept for call-site compatibility. */
+  /**
+   * When true, pad any chat_template that is not already a clean ofln stub.
+   * Used for load-time recovery after getFormattedChat fails.
+   */
   force?: boolean;
 };
 
@@ -402,7 +429,7 @@ async function skipValue(
 export async function sanitizeGgufChatTemplateInPlace(
   filePath: string,
   io?: GgufIo,
-  _options: SanitizeOptions = {}
+  options: SanitizeOptions = {}
 ): Promise<SanitizeResult> {
   const baseIo = io ?? bareRnfsIo;
   const exists = await baseIo.exists(filePath);
@@ -432,6 +459,7 @@ export async function sanitizeGgufChatTemplateInPlace(
   const kvCount = u64(header, 16);
   let offset = 24;
   let mutated = false;
+  let multimodalPadded = false;
   let lastKey: string | undefined;
   let patchedKey: string | undefined;
   let patchedLen: number | undefined;
@@ -511,12 +539,19 @@ export async function sanitizeGgufChatTemplateInPlace(
       const needsRepair =
         isLegacyOrBrokenSanitize(preview) ||
         skipReason === "v3_missing_endif_trailer";
-      // Do NOT pad pristine under-16KB templates (preserves original chat format).
-      const shouldPad = oversized || needsRepair;
+      const multimodal = looksLikeMultimodalChatTemplate(preview);
+      // Pad oversized, broken, multimodal-under-16KB, or force-rewrite any
+      // remaining template (recovery after getFormattedChat fails).
+      const shouldPad = oversized || needsRepair || multimodal || !!options.force;
       if (!shouldPad) {
         skipReason = "pristine_under_16kb";
         offset = strDataOffset + strLen;
         continue;
+      }
+      if (options.force && !oversized && !needsRepair && !multimodal) {
+        skipReason = "force_pad";
+      } else if (multimodal && !oversized && !needsRepair) {
+        skipReason = "multimodal_jinja_under_16kb";
       }
 
       const replacement = buildInPlaceTemplateReplacement(strLen);
@@ -538,6 +573,9 @@ export async function sanitizeGgufChatTemplateInPlace(
       }
 
       mutated = true;
+      if (multimodal && !oversized && !needsRepair) {
+        multimodalPadded = true;
+      }
       patchedKey = key;
       patchedLen = strLen;
       patchedOffset = strDataOffset;
@@ -554,7 +592,11 @@ export async function sanitizeGgufChatTemplateInPlace(
   return {
     sanitized: mutated,
     reason: mutated
-      ? "chat_template_padded"
+      ? multimodalPadded
+        ? "multimodal_jinja_padded"
+        : skipReason === "force_pad"
+          ? "chat_template_force_padded"
+          : "chat_template_padded"
       : skipReason ??
         (foundTemplateKey ? "no_change_needed" : "chat_template_not_found"),
     key: patchedKey ?? foundTemplateKey ?? lastKey,
@@ -568,12 +610,15 @@ export async function sanitizeGgufChatTemplateInPlace(
  * Ensure the model file is safe for llama.rn init on Android.
  * No-op on iOS. Mutates the file on disk when needed; returns the same path.
  */
-export async function ensureGgufSafeForAndroidLoad(filePath: string): Promise<string> {
+export async function ensureGgufSafeForAndroidLoad(
+  filePath: string,
+  options: SanitizeOptions = {},
+): Promise<string> {
   if (Platform.OS !== "android") {
     return filePath;
   }
   try {
-    const result = await sanitizeGgufChatTemplateInPlace(filePath);
+    const result = await sanitizeGgufChatTemplateInPlace(filePath, undefined, options);
     // Always persist a short breadcrumb so Diagnostics → Copy Log shows load state.
     const { logError } = await import("../utils/errorLogger");
     await logError(
@@ -589,6 +634,7 @@ export async function ensureGgufSafeForAndroidLoad(filePath: string): Promise<st
         offset: result.offset,
         previewHead: result.preview?.slice(0, 100),
         decision: result.reason,
+        force: !!options.force,
       },
       "INFO"
     );

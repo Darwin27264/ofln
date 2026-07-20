@@ -67,6 +67,7 @@ import { extractTextFromImage } from "../services/ocrService";
 import { IMAGE_PICKER_OPTIONS, cleanupStaleMediaTemps } from "../services/mediaNormalizeService";
 import { useAIChat } from "../hooks/useAIChat";
 import { llamaProvider } from "../providers/llamaProvider";
+import { tokensPerSecondFromMessages } from "../services/performanceTracking";
 
 type MessageAttachment = {
   type: "image";
@@ -805,12 +806,7 @@ export default function ConversationScreen({
   // Sync hook state back into the legacy props so existing UI logic keeps working.
   useEffect(() => {
     setConversation(aiChat.messages as any);
-    const fromMessages = (aiChat.messages as Message[])
-      .filter(
-        (m): m is Message & { tokensPerSecond: number } =>
-          m.role === 'assistant' && typeof m.tokensPerSecond === 'number',
-      )
-      .map((m) => m.tokensPerSecond);
+    const fromMessages = tokensPerSecondFromMessages(aiChat.messages as Message[]);
     if (fromMessages.length > 0) {
       setTokensPerSecond(fromMessages);
     }
