@@ -71,8 +71,8 @@ function isImagePickerAvailable(): boolean {
   }
 }
 import Ionicons from "react-native-vector-icons/Ionicons";
-import Markdown from "react-native-markdown-display";
 import Clipboard from "@react-native-clipboard/clipboard";
+import { MessageMarkdown } from "../components/MessageMarkdown";
 import RNFS from "react-native-fs";
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect } from "react-native-svg";
 import { createStyles, INPUT_FADE_HEIGHT, TOP_FADE_HEIGHT } from "../styles/styles";
@@ -81,6 +81,7 @@ import { chatHistoryService, ChatConversation } from "../services/chatHistorySer
 import { showAlert } from "../components/CustomAlert";
 import { BottomSheet } from "../components/BottomSheet";
 import { FrostedGlass } from "../components/FrostedGlass";
+import { StreamingMessageText } from "../components/StreamingMessageText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useKeyboardPadding } from "../hooks/useKeyboardPadding";
 import { Persona, getPersonas } from "../services/personaService";
@@ -89,7 +90,6 @@ import { extractTextFromImage } from "../services/ocrService";
 import { IMAGE_PICKER_OPTIONS, cleanupStaleMediaTemps } from "../services/mediaNormalizeService";
 import { useAIChat } from "../hooks/useAIChat";
 import { llamaProvider } from "../providers/llamaProvider";
-import { tokensPerSecondFromMessages } from "../services/performanceTracking";
 
 type MessageAttachment = {
   type: "image";
@@ -491,7 +491,7 @@ const AnimatedHistoryItemWrapper: React.FC<{
 AnimatedHistoryItemWrapper.displayName = 'AnimatedHistoryItemWrapper';
 
 /**
- * Staggered fade-in wrapper for model selector list items (matches history panel feel).
+ * Staggered fade-in wrapper for model/persona selector list items (matches history panel feel).
  */
 const AnimatedModelItemWrapper: React.FC<{
   children: React.ReactNode;
@@ -577,15 +577,15 @@ interface Props {
 }
 
 export default function ConversationScreen({
-  conversation,
+  conversation: conversationProp,
   setConversation,
   userInput,
   setUserInput,
-  isLoading,
+  isLoading: _isLoadingProp,
   setIsLoading,
-  isGenerating,
+  isGenerating: _isGeneratingProp,
   setIsGenerating,
-  tokensPerSecond,
+  tokensPerSecond: _tokensPerSecondProp,
   setTokensPerSecond,
   scrollViewRef,
   scrollPositionRef,
@@ -627,6 +627,20 @@ export default function ConversationScreen({
   const fullLayoutHeightRef = useRef(0);
   /** Ignore composer onLayout while keyboard padding is animating. */
   const suppressComposerMeasureRef = useRef(false);
+
+  /** Scroll list to latest message after layout commits (keyboard / new bubble). */
+  const scrollChatToEnd = useCallback(
+    (animated = false) => {
+      const run = () => {
+        scrollViewRef.current?.scrollToEnd({ animated });
+      };
+      requestAnimationFrame(() => {
+        run();
+        requestAnimationFrame(run);
+      });
+    },
+    [scrollViewRef],
+  );
   
   // Detect Samsung devices for keyboard padding adjustments
   // Samsung devices often have different keyboard behavior that requires extra padding
@@ -761,20 +775,71 @@ export default function ConversationScreen({
   }, []);
 
   // New backend: useAIChat + llamaProvider (on-device streaming).
-  // We keep the UI state props as-is and sync them to the hook so the rest
-  // of this screen can remain largely unchanged.
+  // The hook owns the live transcript. Parent `conversationProp` is only a
+  // seed for new-chat / load-chat (via chatId sync) and a remount snapshot.
   const aiChat = useAIChat({
-    initialMessages: conversation as any,
+    initialMessages: conversationProp as any,
     modelName: selectedGGUF || "unknown",
     persona: selectedPersona,
     chatId: currentChatId,
-    onChatIdChange: (id) => onChatIdChange(id),
+    onChatIdChange,
     scrollViewRef,
     // Prefer the native completion path for best parity with the legacy flow
     // (thinking/reasoning params, stopCompletion behavior).
     useNativeCompletion: true,
     onModelNotReady: warnModelNotLoaded,
+    disablePersistence: isTemporaryMode,
   });
+
+  // Single source of truth for rendering — never mirror into parent on every token.
+  const conversation = aiChat.messages as Message[];
+  const isGenerating = aiChat.isGenerating;
+  const isLoading = aiChat.isLoading;
+  const tokensPerSecond = aiChat.tokensPerSecond;
+
+  // Snapshot to App only when a generation settles (remount / history seed).
+  const wasGeneratingRef = useRef(false);
+  const liveMessagesRef = useRef(aiChat.messages);
+  const liveTpsRef = useRef(aiChat.tokensPerSecond);
+  liveMessagesRef.current = aiChat.messages;
+  liveTpsRef.current = aiChat.tokensPerSecond;
+
+  useEffect(() => {
+    if (aiChat.isGenerating) {
+      wasGeneratingRef.current = true;
+      setIsGenerating(true);
+      setIsLoading(true);
+      return;
+    }
+
+    setIsGenerating(false);
+    setIsLoading(false);
+
+    if (!wasGeneratingRef.current) return;
+    wasGeneratingRef.current = false;
+
+    setConversation(liveMessagesRef.current as Message[]);
+    setTokensPerSecond((prev) => {
+      const next = liveTpsRef.current;
+      if (next.length === prev.length && next.every((v, i) => v === prev[i])) {
+        return prev;
+      }
+      return next;
+    });
+  }, [
+    aiChat.isGenerating,
+    setConversation,
+    setTokensPerSecond,
+    setIsGenerating,
+    setIsLoading,
+  ]);
+
+  // One-way: controlled TextInput → hook input.
+  useEffect(() => {
+    if (userInput !== aiChat.input) {
+      aiChat.setInput(userInput);
+    }
+  }, [userInput, aiChat.input, aiChat.setInput]);
 
   // Load via llamaProvider when the selected model file changes.
   // IMPORTANT: do NOT depend on modelStatus / legacy context — those change
@@ -843,29 +908,6 @@ export default function ConversationScreen({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only selectedGGUF should (re)load
   }, [selectedGGUF]);
-
-  // Sync hook state back into the legacy props so existing UI logic keeps working.
-  useEffect(() => {
-    setConversation(aiChat.messages as any);
-    const fromMessages = tokensPerSecondFromMessages(aiChat.messages as Message[]);
-    if (fromMessages.length > 0) {
-      setTokensPerSecond(fromMessages);
-    }
-  }, [aiChat.messages, setConversation, setTokensPerSecond]);
-
-  useEffect(() => {
-    if (userInput !== aiChat.input) {
-      aiChat.setInput(userInput);
-    }
-  }, [userInput, aiChat.input, aiChat.setInput]);
-
-  useEffect(() => {
-    setIsLoading(aiChat.isLoading);
-  }, [aiChat.isLoading, setIsLoading]);
-
-  useEffect(() => {
-    setIsGenerating(aiChat.isGenerating);
-  }, [aiChat.isGenerating, setIsGenerating]);
 
   // Pending image attachment (local state only until send)
   type PendingAttachment = {
@@ -1034,32 +1076,29 @@ export default function ConversationScreen({
     }
   }, [conversation, hasStartedChat]);
 
-  // Save conversation when it changes (debounced) - skip if in temporary mode
+  // Persistence is owned by useAIChat. Only refresh the history drawer here
+  // when a turn settles — do NOT call saveChat/onChatIdChange (that raced the
+  // hook and helped trigger update-depth loops).
   useEffect(() => {
-    // Only save if there are actual user/assistant messages (excluding system message)
-    // Skip saving if in temporary mode
-    const userMessages = conversation.filter(m => m.role === 'user' || m.role === 'assistant');
-    if (userMessages.length > 0 && !isGenerating && !isTemporaryMode) {
-      const saveTimer = setTimeout(async () => {
-        try {
-          const chatId = await chatHistoryService.saveChat(conversation, currentChatId);
-          if (chatId !== currentChatId) {
-            onChatIdChange(chatId);
-          }
-          // Refresh history if panel is open to show the new chat immediately
-          if (isPanelOpen) {
-            const chats = await chatHistoryService.getAllChats();
-            setChatHistory(chats);
-          }
-        } catch (error) {
-          console.error('Error saving chat:', error);
-        }
-      }, 500); // Reduced debounce to 500ms for faster feedback
-
-      return () => clearTimeout(saveTimer);
+    if (isGenerating || !isPanelOpen || isTemporaryMode) {
+      return undefined;
     }
-    return undefined;
-  }, [conversation, currentChatId, isGenerating, onChatIdChange, isPanelOpen, isTemporaryMode]);
+    const userMessages = conversation.filter(
+      (m) => m.role === 'user' || m.role === 'assistant',
+    );
+    if (userMessages.length === 0) {
+      return undefined;
+    }
+    const saveTimer = setTimeout(async () => {
+      try {
+        const chats = await chatHistoryService.getAllChats();
+        setChatHistory(chats);
+      } catch (error) {
+        console.error('Error refreshing chat history:', error);
+      }
+    }, 500);
+    return () => clearTimeout(saveTimer);
+  }, [conversation.length, isGenerating, isPanelOpen, isTemporaryMode]);
 
   /**
    * Exit multiselect mode
@@ -1281,6 +1320,11 @@ export default function ConversationScreen({
     ]).start(() => setMenuVisible(false));
   }, [menuOpacity, menuScale]);
 
+  const handleNewChatPress = useCallback(() => {
+    aiChat.newChat();
+    onNewChat();
+  }, [aiChat.newChat, onNewChat]);
+
   /**
    * Handle chat deletion
    * 
@@ -1310,7 +1354,7 @@ export default function ConversationScreen({
               const chats = await chatHistoryService.getAllChats();
               setChatHistory(chats);
               if (currentChatId === chatId) {
-                onNewChat();
+                handleNewChatPress();
               }
             } catch (error) {
               console.error('Error deleting chat:', error);
@@ -1320,7 +1364,7 @@ export default function ConversationScreen({
         },
       ]
     );
-  }, [currentChatId, onNewChat, dismissMenu, showToast]);
+  }, [currentChatId, handleNewChatPress, dismissMenu, showToast]);
 
   /**
    * Toggle selection of a chat in multiselect mode
@@ -1473,7 +1517,7 @@ export default function ConversationScreen({
     
     // If current chat is being deleted, switch to new chat
     if (currentChatId && selectedChatIds.has(currentChatId)) {
-      onNewChat();
+      handleNewChatPress();
     }
 
     try {
@@ -1490,7 +1534,7 @@ export default function ConversationScreen({
       console.error('Error deleting chats:', error);
       showToast('Failed to delete chats');
     }
-  }, [selectedChatIds, currentChatId, onNewChat, exitMultiselectMode, showToast]);
+  }, [selectedChatIds, currentChatId, handleNewChatPress, exitMultiselectMode, showToast]);
 
   /**
    * Animate greeting fade based on user input
@@ -1657,10 +1701,11 @@ export default function ConversationScreen({
         // does not depend on async aiChat.setInput (that race was a silent no-op).
         setUserInput("");
         aiChat.setInput("");
+        setAutoScrollEnabled(true);
         await aiChat.handleSubmit(sendOptions);
-        requestAnimationFrame(() => {
-          scrollViewRef.current?.scrollToEnd({ animated: true });
-        });
+        scrollChatToEnd(true);
+        setTimeout(() => scrollChatToEnd(false), 100);
+        setTimeout(() => scrollChatToEnd(false), 320);
       } catch (error) {
         console.error("Error sending message:", error);
         showToast("Failed to send message. Please try again.");
@@ -1676,6 +1721,8 @@ export default function ConversationScreen({
     aiChat.handleSubmit,
     aiChat.setInput,
     setUserInput,
+    setAutoScrollEnabled,
+    scrollChatToEnd,
   ]);
 
   /**
@@ -1710,12 +1757,12 @@ export default function ConversationScreen({
    * @param messageIndex - Index of message in conversation array
    */
   const toggleThought = useCallback((messageIndex: number) => {
-    setConversation((prev) =>
+    aiChat.setMessages((prev) =>
       prev.map((msg, idx) =>
         idx === messageIndex ? { ...msg, showThought: !msg.showThought } : msg
       )
     );
-  }, []);
+  }, [aiChat.setMessages]);
 
   // Handle preset message selection
   const handlePresetMessage = useCallback(async (message: string) => {
@@ -1972,7 +2019,9 @@ export default function ConversationScreen({
     return () => subscription.remove();
   }, [isModelSelectorVisible, isLoadingModel, closeModelSelector]);
 
-  // Regenerate assistant message
+  // Regenerate assistant message (ChatGPT / Claude / Gemini pattern):
+  // keep the prompting user turn + prior context, drop that reply and anything
+  // after it, then auto-query the model. Never stage text in the composer.
   const handleRegenerateMessage = useCallback(async (messageIndex: number) => {
     if (!llamaProvider.isReady() || !selectedGGUF) {
       warnModelNotLoaded();
@@ -1984,61 +2033,18 @@ export default function ConversationScreen({
       return;
     }
 
-    // Find the actual index in the full conversation (accounting for system message)
-    // messageIndex is from conversation.slice(1), so actualIndex = messageIndex + 1
-    const actualIndex = messageIndex + 1;
-    
-    // Find the user message that precedes this assistant message
-    let userMessageIndex = -1;
-    let userMessageContent = "";
-    
-    // Look backwards from the assistant message to find the preceding user message
-    for (let i = actualIndex - 1; i >= 0; i--) {
-      if (conversation[i].role === "user") {
-        userMessageIndex = i;
-        userMessageContent = conversation[i].content;
-        break;
-      }
-    }
-
-    if (userMessageIndex === -1) {
-      showToast("Could not find the user message to regenerate from.");
+    // messageIndex is from conversation.slice(1); absolute index includes system.
+    const absoluteIndex = messageIndex + 1;
+    if (conversation[absoluteIndex]?.role !== "assistant") {
+      showToast("Could not find the reply to regenerate.");
       return;
     }
 
-    // Calculate how many assistant messages will be removed (including the one being regenerated)
-    // Count assistant messages from actualIndex to the end
-    let assistantMessagesToRemove = 0;
-    for (let i = actualIndex; i < conversation.length; i++) {
-      if (conversation[i].role === "assistant") {
-        assistantMessagesToRemove++;
-      }
-    }
-
-    // Remove the assistant message and all subsequent messages
-    const newConversation = conversation.slice(0, actualIndex);
-    
-    // Update conversation state
-    setConversation(newConversation);
-    
-    // Stop any ongoing generation
-    if (isGenerating) {
-      aiChat.stop();
-    }
-
-    // Regenerate by re-submitting the user message content.
-    // Note: This re-adds the user message as the last turn (same visible UX),
-    // and then streams a fresh assistant response.
-    setConversation(newConversation.slice(0, userMessageIndex));
-    setUserInput(userMessageContent);
-    aiChat.setInput(userMessageContent);
-    await aiChat.handleSubmit();
+    await aiChat.regenerate(absoluteIndex);
   }, [
     conversation,
     isGenerating,
-    aiChat,
-    setConversation,
-    setUserInput,
+    aiChat.regenerate,
     selectedGGUF,
     warnModelNotLoaded,
     showToast,
@@ -2158,6 +2164,24 @@ export default function ConversationScreen({
     return Math.max(result, NO_KEYBOARD_PADDING);
   }, [isSamsungDevice]);
 
+  // Matches the composer's animated paddingBottom so message list clears the
+  // lifted input + keyboard instead of scrolling underneath them.
+  const composerBottomPadding = useMemo(
+    () => calculatePaddingMultiplier(keyboardPadding),
+    [calculatePaddingMultiplier, keyboardPadding],
+  );
+  const scrollBottomPadding = useMemo(() => {
+    const keyboardLift = Math.max(0, composerBottomPadding - NO_KEYBOARD_PADDING);
+    // `inputOverlayHeight` includes the translucent fade above the bar. Messages
+    // should tuck into that fade and only clear the solid composer — otherwise
+    // the gap under the last bubble looks oversized.
+    const solidClearance = Math.max(
+      72,
+      inputOverlayHeight - INPUT_FADE_HEIGHT + 4,
+    );
+    return solidClearance + keyboardLift;
+  }, [inputOverlayHeight, composerBottomPadding]);
+
   // Composer padding: one timing per show/hide (layout prop, JS driver).
   useEffect(() => {
     // Block composer onLayout → setState while padding is in flight (avoids a
@@ -2167,7 +2191,7 @@ export default function ConversationScreen({
       suppressComposerMeasureRef.current = false;
     }, 320);
 
-    const target = calculatePaddingMultiplier(keyboardPadding);
+    const target = composerBottomPadding;
     const anim = Animated.timing(animatedBottomPadding, {
       toValue: target,
       duration: keyboardPadding > 0 ? 250 : 200,
@@ -2179,7 +2203,15 @@ export default function ConversationScreen({
       clearTimeout(settleTimer);
       anim.stop();
     };
-  }, [keyboardPadding, animatedBottomPadding, calculatePaddingMultiplier]);
+  }, [keyboardPadding, composerBottomPadding, animatedBottomPadding]);
+
+  // Keep the latest turn visible above the rising composer when the keyboard opens.
+  useEffect(() => {
+    if (keyboardPadding <= 0 || !autoScrollEnabled) return;
+    scrollChatToEnd(false);
+    const t = setTimeout(() => scrollChatToEnd(false), 280);
+    return () => clearTimeout(t);
+  }, [keyboardPadding, autoScrollEnabled, scrollBottomPadding, scrollChatToEnd]);
 
   // Hero lift: native translateY only. Midpoint `top` stays frozen at full-window
   // layout so Android's early resize cannot nudge it before this runs.
@@ -2314,7 +2346,7 @@ export default function ConversationScreen({
             <TouchableOpacity 
               style={styles.topRightPill} 
               onPress={() => {
-                onNewChat();
+                handleNewChatPress();
               }}
               activeOpacity={0.85}
             >
@@ -2815,7 +2847,7 @@ export default function ConversationScreen({
           }}>
             <TouchableOpacity
               onPress={() => {
-                onNewChat();
+                handleNewChatPress();
                 togglePanel();
               }}
               style={{
@@ -2853,14 +2885,24 @@ export default function ConversationScreen({
               justifyContent: "flex-end",
               paddingHorizontal: Math.max(16, Dimensions.get("window").width * 0.04),
               paddingTop: 60,
-              // Room for the floating fade + input so the last messages clear the bar
-              paddingBottom: inputOverlayHeight,
+              // Room for floating input + keyboard lift so the last bubble clears both
+              paddingBottom: scrollBottomPadding,
             }}
             ref={scrollViewRef}
             onScroll={handleScroll}
             scrollEventThrottle={16}
+            onContentSizeChange={() => {
+              // Follow new bubbles / streaming growth. Stick to bottom when the
+              // user hasn't scrolled up (including while the keyboard is open).
+              if (autoScrollEnabled && (isGenerating || keyboardPadding > 0)) {
+                scrollChatToEnd(false);
+              }
+            }}
           >
             {conversation.slice(1).map((msg, index) => {
+              const isLastVisible = index === conversation.slice(1).length - 1;
+              const isStreamingMessage =
+                msg.role === "assistant" && isGenerating && isLastVisible;
               const isAssistantDirect =
                 msg.role === "assistant" && assistantDisplayMode === "direct";
               let containerStyle = [];
@@ -2882,7 +2924,7 @@ export default function ConversationScreen({
                 (msg.role === "assistant" &&
                   (!msg.content || msg.content.trim().length === 0) &&
                   isGenerating &&
-                  index === conversation.slice(1).length - 1) ||
+                  isLastVisible) ||
                 (msg.role === "assistant" &&
                   !!msg.thought &&
                   (!msg.content || msg.content.trim().length === 0) &&
@@ -2906,7 +2948,7 @@ export default function ConversationScreen({
                         )}
                       </View>
                     )}
-                    {msg.role === "assistant" && (!msg.content || msg.content.trim().length === 0) && isGenerating && index === conversation.slice(1).length - 1 ? (
+                    {msg.role === "assistant" && (!msg.content || msg.content.trim().length === 0) && isGenerating && isLastVisible ? (
                       <ThinkingIndicator theme={theme} />
                     ) : msg.role === "assistant" && (!msg.content || msg.content.trim().length === 0) && msg.thought ? (
                       <Text style={{ 
@@ -2918,47 +2960,18 @@ export default function ConversationScreen({
                         Reasoning complete — expand Thinking below for details, or regenerate for a shorter answer.
                       </Text>
                     ) : msg.content ? (
-                      <View style={{ 
-                        flexShrink: 1, 
-                        width: "100%", 
-                        maxWidth: "100%",
-                        // overflow:hidden removed — causes height collapse on
-                        // Android when Markdown renders long content inside a
-                        // constrained flex container.
-                      }}>
-                        <Markdown
-                          style={{ 
-                            body: { 
-                              fontSize: 16, 
-                              fontFamily: "Poppins",
-                              color: msg.role === "user" ? theme.colors.primaryText : theme.colors.text,
-                              lineHeight: 24,
-                              margin: 0,
-                              padding: 0,
-                            },
-                            paragraph: {
-                              marginTop: 0,
-                              marginBottom: 0,
-                              padding: 0,
-                            },
-                            text: {
-                              lineHeight: 24,
-                              margin: 0,
-                              padding: 0,
-                            },
-                            code_inline: {
-                              margin: 0,
-                              padding: 0,
-                            },
-                            code_block: {
-                              margin: 0,
-                              padding: 0,
-                            },
-                          }}
-                        >
-                          {msg.content}
-                        </Markdown>
-                      </View>
+                      msg.role === "assistant" ? (
+                        <StreamingMessageText
+                          content={msg.content}
+                          isStreaming={isStreamingMessage}
+                          color={theme.colors.text}
+                        />
+                      ) : (
+                        <MessageMarkdown
+                          content={msg.content}
+                          color={theme.colors.primaryText}
+                        />
+                      )
                     ) : null}
                   </View>
                   )}
@@ -2980,7 +2993,7 @@ export default function ConversationScreen({
                       <Text style={styles.thoughtText}>{msg.thought}</Text>
                     </View>
                   )}
-                  {msg.role === "assistant" && msg.content.trim().length > 0 && (
+                  {msg.role === "assistant" && msg.content.trim().length > 0 && !isStreamingMessage && (
                     <View style={{
                       flexDirection: "row",
                       alignItems: "center",
@@ -3522,65 +3535,70 @@ export default function ConversationScreen({
                 availablePersonas.map((persona, index) => {
                   const isSelected = selectedPersona?.id === persona.id;
                   return (
-                    <TouchableOpacity
+                    <AnimatedModelItemWrapper
                       key={persona.id}
-                      onPress={() => {
-                        setSelectedPersona(persona);
-                        showToast(`Persona "${persona.name}" selected`);
-                      }}
-                      disabled={isSelected}
-                      style={[
-                        styles.modelButton,
-                        isSelected && styles.selectedButton,
-                        {
-                          marginVertical: 6,
-                        },
-                      ]}
+                      index={index}
+                      isVisible={isModelSelectorVisible && selectorTab === "personas"}
                     >
-                      <View style={styles.modelButtonContent}>
-                        <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-                          <Text style={[
-                            styles.buttonText,
-                            isSelected && styles.selectedButtonText,
-                            { textAlign: 'left' },
-                          ]}
-                          numberOfLines={1}
-                          ellipsizeMode="tail"
-                          >
-                            {persona.name}
-                          </Text>
-                          {persona.tagline && (
-                            <Text style={{
-                              fontSize: 12,
-                              fontFamily: 'Poppins',
-                              color: isSelected ? theme.colors.primaryText : theme.colors.textSecondary,
-                              marginTop: 4,
-                              textAlign: 'left',
-                            }}
+                      <TouchableOpacity
+                        onPress={() => {
+                          setSelectedPersona(persona);
+                          showToast(`Persona "${persona.name}" selected`);
+                        }}
+                        disabled={isSelected}
+                        style={[
+                          styles.modelButton,
+                          isSelected && styles.selectedButton,
+                          {
+                            marginVertical: 6,
+                          },
+                        ]}
+                      >
+                        <View style={styles.modelButtonContent}>
+                          <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
+                            <Text style={[
+                              styles.buttonText,
+                              isSelected && styles.selectedButtonText,
+                              { textAlign: 'left' },
+                            ]}
                             numberOfLines={1}
                             ellipsizeMode="tail"
                             >
-                              {persona.tagline}
+                              {persona.name}
                             </Text>
-                          )}
+                            {persona.tagline && (
+                              <Text style={{
+                                fontSize: 12,
+                                fontFamily: 'Poppins',
+                                color: isSelected ? theme.colors.primaryText : theme.colors.textSecondary,
+                                marginTop: 4,
+                                textAlign: 'left',
+                              }}
+                              numberOfLines={1}
+                              ellipsizeMode="tail"
+                              >
+                                {persona.tagline}
+                              </Text>
+                            )}
+                          </View>
+                          {/* Fixed-width container for checkmark so name truncates before it */}
+                          <View style={{ 
+                            width: 32, 
+                            height: 24, 
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            position: 'relative',
+                            flexShrink: 0,
+                          }}>
+                            <AnimatedCheckmark
+                              visible={isSelected}
+                              size={20}
+                              color={theme.colors.primaryText}
+                            />
+                          </View>
                         </View>
-                        {/* Fixed-width container for checkmark so name truncates before it */}
-                        <View style={{ 
-                          width: 32, 
-                          height: 24, 
-                          alignItems: 'center', 
-                          justifyContent: 'center',
-                          position: 'relative',
-                          flexShrink: 0,
-                        }}>
-                          <AnimatedCheckmark
-                            visible={isSelected}
-                            size={20}
-                            color={theme.colors.primaryText}
-                          />
-                        </View>
-                      </View>
-                    </TouchableOpacity>
+                      </TouchableOpacity>
+                    </AnimatedModelItemWrapper>
                   );
                 })
               )
