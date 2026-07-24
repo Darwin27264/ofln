@@ -38,7 +38,7 @@ Support **light** and **dark**. Persist the user’s choice. Switch with a brief
 | `secondary` | Soft chip / list row background |
 | `accent` | Optional emphasis only (links, rare highlights) — **not** for every spinner |
 | `success` / `warning` / `error` | Status only |
-| `glass` | Translucent cancel / frosted controls |
+| `glass` | Fallback / reduced-transparency fill for frosted controls (~75% opacity) |
 | `transparent` | Explicit transparent |
 
 ### 2.2 Reference palette (ofln)
@@ -63,7 +63,7 @@ Support **light** and **dark**. Persist the user’s choice. Switch with a brief
 | success | `#34C759` |
 | warning | `#FF9F0A` |
 | error | `#FF453A` |
-| glass | `rgba(255, 255, 255, 0.8)` |
+| glass | `rgba(255, 255, 255, 0.75)` |
 
 **Dark**
 
@@ -85,7 +85,7 @@ Support **light** and **dark**. Persist the user’s choice. Switch with a brief
 | success | `#34C759` |
 | warning | `#FF9F0A` |
 | error | `#FF453A` |
-| glass | `rgba(26, 26, 26, 0.8)` |
+| glass | `rgba(36, 36, 36, 0.75)` |
 
 ### 2.3 Color usage rules
 
@@ -93,6 +93,7 @@ Support **light** and **dark**. Persist the user’s choice. Switch with a brief
 - **Spinners on filled primary buttons** → `primaryText`.
 - **Destructive actions** → `error` for icon + label; destructive alert buttons use filled `error`.
 - **Do not** sprinkle `accent` on every interactive control. Prefer monochrome UI; keep accent rare.
+- **Floating chrome** (pills, composer, side panels, context menus) → frosted glass (§9.7), not solid `card` / `background`.
 
 ### 2.4 Theme switch motion
 
@@ -218,15 +219,16 @@ Use a **custom in-tree absolute overlay** (not platform `Modal` when the tree ma
 
 - Full-screen host, high z-index / elevation
 - Dim scrim: `rgba(0,0,0,0.5)`, tap-outside dismisses when cancelable
-- Card: `card` bg, `border`, radius 20, centered, horizontal inset 20
-- Title: 20 / semibold / `text`
-- Message: secondary color, readable multi-line
-- Buttons in a row:
+- Card: `card` bg, `border`, radius 20, centered, horizontal inset ~28
+- Title: 20 / semibold / `text`, centered
+- Message: secondary color, readable multi-line, centered
+- Buttons stacked full-width (not a side-by-side row):
   - **default** → filled `primary` + `primaryText`
   - **cancel** → `glass` + border + `text`
   - **destructive** → filled `error` + light label
-- Enter: opacity 0→1 in **200 ms**; scale **0.9→1** with light spring (tension ~50, friction ~7)
-- Exit: ~**150 ms** fade/scale out, then unmount
+  - Centered labels, ~14 px vertical padding, ~10 px gap between buttons
+- Enter: opacity 0→1 in **240 ms**; scale **0.98→1** in **260 ms** (ease-out cubic — same language as page enter; no spring)
+- Exit: ~**180 ms** fade/scale out (ease-in), then unmount
 - Android hardware back dismisses when cancelable
 
 `showAlert(title, message, buttons)` API — fall back to system alert only if the custom host is unavailable.
@@ -290,6 +292,56 @@ Copy should say **what**, **why it might feel slow**, and what to **cancel** vs 
 - Color = surrounding text context (`text`, `textSecondary`, or `primaryText` on fills)
 - Error actions use `error`
 
+### 9.7 Frosted glass chrome (required for floating UI)
+
+Do **not** rely on CSS `backdrop-filter` — it does nothing in React Native. Use a shared `FrostedGlass` wrapper over native blur (`@react-native-community/blur`) plus a light tint.
+
+**Where it applies (keep these visually unified):**
+
+| Surface | Variant | Notes |
+| --- | --- | --- |
+| Top action pills (menu, model, settings, new chat) | `chrome` | Border + radius ~30, overflow hidden |
+| Bottom composer (+ button, input bar, attachment chip) | `chrome` | Same frost as top pills |
+| Chat history side panel | `panel` | Full-height drawer; transparent shell + frost fill |
+| Context / attach menus | `chrome` | Frosted rows, not solid `card` |
+
+**Shared constants (`FROSTED_GLASS`):**
+
+| Token | Value | Use |
+| --- | --- | --- |
+| `chromeBlurAmount` | **14** | Pills, input, menus |
+| `chromeTintOpacity` | **0.45** | Tint over blur for compact chrome |
+| `panelBlurAmount` | **18** | Side panel / large frost surfaces |
+| `panelTintOpacity` | **0.55** | Slightly denser tint for readability on large areas |
+
+**Tint base colors**
+
+- Light: `rgba(255, 255, 255, tint)`
+- Dark: `rgba(36, 36, 36, tint)`
+- Inverted (e.g. temporary-mode on): swap to text-colored tint at the same opacity
+
+**Implementation rules**
+
+1. Host control: `backgroundColor: transparent`, `overflow: 'hidden'`, 1 px `border`.
+2. `FrostedGlass` as `absoluteFill` behind content (or `variant="panel"` for drawers).
+3. Fallback when blur/reduced transparency is unavailable: theme `glass` (~75% opacity).
+4. Native rebuild required after adding the blur package (Metro reload is not enough).
+5. Never leave a solid black/white bar under floating chrome — use edge fades (§9.8) instead.
+6. While a frosted history/drawer panel is open, restyle **status bar + nav/home bar + Safe Area shell** to the panel’s opaque frost tone (`frostedPanelSystemBarColor`). Crossfade over ~**220 ms** (ease-out) in sync with the drawer — never snap. Restore `background` the same way on close.
+
+### 9.8 Chat edge fades
+
+On immersive chat (and similar full-bleed content), content scrolls under floating chrome. Soft vertical fades keep hierarchy without opaque bars.
+
+| Edge | Height | Opacity ramp | Notes |
+| --- | --- | --- | --- |
+| Top (under pills) | **~72 px** | **0.75 → 0** downward | Behind pills (`zIndex` below controls) |
+| Bottom (above composer) | **~40 px** fade into overlay | **0 → 0.75** downward | Never reach full opacity (no solid bar) |
+
+- Fade color = theme `background`.
+- Composer floats absolutely; message list uses padding so the last turn clears the input.
+- Fade layers are `pointerEvents: 'none'`.
+
 ---
 
 ## 10. Motion “vocabulary” summary
@@ -298,12 +350,15 @@ Copy should say **what**, **why it might feel slow**, and what to **cancel** vs 
 | --- | --- |
 | Enter page | Center fade + 2% scale-up, ~240–260 ms, then settle/unbind |
 | Theme flip | Top dim overlay 150 → swap → 200 fade out |
-| Alert in | Fade 200 + spring scale from 0.9 |
-| Alert out | Fade/scale ~150 |
+| Alert / centered modal in | Same as page: fade 240 + scale 0.98→1 over 260 ms (ease-out; no spring) |
+| Alert / centered modal out | Fade/scale ~180 ms (ease-in) |
 | Menus / small panels | ~120–200 ms fade or short ease |
 | Lists appear | Optional 25 ms stagger, max 200 ms |
+| History panel | Spring / ease slide from left; frosted surface (not solid card) |
+| Chat edge fades | Static gradient overlays; no motion required |
+| Keyboard / input bar | Padding tracks keyboard height 1:1 (no nested timing / bounce) |
 
-No slide-stack page chrome. No perpetual parent opacity.
+No slide-stack page chrome. No perpetual parent opacity. No solid opaque bars under floating frosted chrome.
 
 ---
 
@@ -314,6 +369,8 @@ No slide-stack page chrome. No perpetual parent opacity.
 - Respect Safe Area / system bars.
 - On Android, treat hardware back as dismiss for overlays first, then navigate.
 - Prefer portable overlay alerts for cross-platform consistency.
+- Frosted blur is a progressive enhancement — `glass` fallback must stay readable without blur.
+- When a frosted side panel is open, match **status bar** and **navigation / home indicator bar** (and Safe Area shell) to the panel’s opaque frost tone — not the darker page `background` — so system chrome does not read as a black strip.
 
 ---
 
@@ -326,22 +383,27 @@ When applying this system to a new product:
 | Token set + light/dark invert primary | Feature screens and domain UI |
 | Page fade/scale enter | Content widgets (timelines, canvases, players) |
 | Floating Back pill | Input paradigms (composer, timeline scrubber, toolbar) |
+| Frosted glass for floating chrome / drawers | Exact blur radius if platform-limited |
+| Soft edge fades under floating chrome | Fade heights tuned to control size |
 | Sectioned scrolling layouts | Domain terminology and icons |
 | Neutral loaders | Charts, media previews, editors |
 | Confirm-before-heavy/destructive | Exact copy and workflows |
 | Absolute overlays (not opacity-trapped Modals) | Sheet vs full-screen for secondary flows |
 | Poppins + monospace for raw data | Brand wordmark / marketing pages |
 
-**Litmus test:** If you remove product-specific widgets, does the shell still feel like ofln — monochrome, soft center-fade pages, clear hierarchy, calm alerts? If yes, the design transfer succeeded.
+**Litmus test:** If you remove product-specific widgets, does the shell still feel like ofln — monochrome, soft center-fade pages, frosted floating chrome, clear hierarchy, calm alerts? If yes, the design transfer succeeded.
 
 ---
 
 ## 13. Quick checklist for implementers
 
 - [ ] Light + dark tokens match §2 (or intentional brand-safe remap of the same roles)
+- [ ] `glass` is ~75% opacity (not fully opaque, not clear)
 - [ ] Every route uses the same page enter animation and unbinds after settle
 - [ ] Theme toggle uses overlay dim, not opacity-wrapping the tree
 - [ ] Alerts/menus are absolute overlays with defined enter/exit timing
+- [ ] Floating chrome (pills, composer, side panel, menus) uses shared `FrostedGlass` (§9.7)
+- [ ] Chat (or similar) uses soft top/bottom edge fades — never a solid bar (§9.8)
 - [ ] Spinners are black/white appropriate to surface
 - [ ] Screens: title → sections → content → floating Back
 - [ ] Destructive / long jobs confirm first with honest copy

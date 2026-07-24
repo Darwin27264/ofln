@@ -66,7 +66,7 @@ const lightTheme: Theme = {
     error: '#FF453A',
 
     transparent: 'transparent',
-    glass: 'rgba(255, 255, 255, 0.8)',
+    glass: 'rgba(255, 255, 255, 0.75)',
   },
 };
 
@@ -95,7 +95,7 @@ const darkTheme: Theme = {
     error: '#FF453A',
 
     transparent: 'transparent',
-    glass: 'rgba(26, 26, 26, 0.8)',
+    glass: 'rgba(36, 36, 36, 0.75)',
   },
 };
 

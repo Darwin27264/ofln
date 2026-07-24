@@ -27,7 +27,6 @@ import {
   ScrollView,
   Platform,
   Animated,
-  KeyboardAvoidingView,
   TouchableWithoutFeedback,
   Dimensions,
   Pressable,
@@ -40,6 +39,27 @@ import {
   StyleSheet,
 } from "react-native";
 import { launchImageLibrary, launchCamera } from "react-native-image-picker";
+
+/** Empty-chat hero lines — one is picked at random per empty session. */
+const GREETING_LINES = ["How can I help?", "Let's chat!"] as const;
+
+function pickGreetingLine(): (typeof GREETING_LINES)[number] {
+  return GREETING_LINES[Math.floor(Math.random() * GREETING_LINES.length)];
+}
+
+/** Survives ConversationScreen remounts so returning from Settings doesn't swap copy. */
+let persistedGreetingLine: (typeof GREETING_LINES)[number] = pickGreetingLine();
+
+/** Bottom edge of the top pill row (top: 8 + minHeight 42), plus a little breathing room. */
+const TOP_CHROME_BOTTOM = 8 + 42 + 8;
+
+/** Midpoint `top` for the empty-state hero between top pills and the composer. */
+function computeGreetingTop(layoutHeight: number, overlayHeight: number): number {
+  const bandTop = TOP_CHROME_BOTTOM;
+  const bandBottom = layoutHeight - overlayHeight;
+  const mid = (bandTop + bandBottom) / 2;
+  return Math.max(bandTop, mid - 70);
+}
 
 /** Returns false if the image picker native module is not linked (e.g. app not rebuilt after install). */
 function isImagePickerAvailable(): boolean {
@@ -54,11 +74,13 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import Markdown from "react-native-markdown-display";
 import Clipboard from "@react-native-clipboard/clipboard";
 import RNFS from "react-native-fs";
-import { createStyles } from "../styles/styles";
+import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect } from "react-native-svg";
+import { createStyles, INPUT_FADE_HEIGHT, TOP_FADE_HEIGHT } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { chatHistoryService, ChatConversation } from "../services/chatHistoryService";
 import { showAlert } from "../components/CustomAlert";
 import { BottomSheet } from "../components/BottomSheet";
+import { FrostedGlass } from "../components/FrostedGlass";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useKeyboardPadding } from "../hooks/useKeyboardPadding";
 import { Persona, getPersonas } from "../services/personaService";
@@ -550,6 +572,8 @@ interface Props {
   checkDownloadedModels: () => Promise<void>;
   selectedPersona: Persona | null;
   setSelectedPersona: (persona: Persona | null) => void;
+  /** Fired when the history drawer opens/closes so the shell can match system bars. */
+  onHistoryPanelChange?: (open: boolean) => void;
 }
 
 export default function ConversationScreen({
@@ -586,11 +610,12 @@ export default function ConversationScreen({
   checkDownloadedModels,
   selectedPersona,
   setSelectedPersona,
+  onHistoryPanelChange,
 }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
   const insets = useSafeAreaInsets();
-  const { keyboardHeight: keyboardPadding, animatedHeight, syncKeyboardState } = useKeyboardPadding();
+  const { keyboardHeight: keyboardPadding, syncKeyboardState } = useKeyboardPadding();
   // Layout measurements live in refs (not state) because they're read inside the
   // keyboard-padding animated listener on every frame of the keyboard animation.
   // Storing them in state would force a re-render on every layout tick during
@@ -598,6 +623,10 @@ export default function ConversationScreen({
   // can trigger React's "Maximum update depth exceeded" guard.
   const initialLayoutHeightRef = useRef<number | null>(null);
   const currentLayoutHeightRef = useRef<number | null>(null);
+  /** Tallest chat layout — used so hero midpoint never tracks a keyboard-shrunk window. */
+  const fullLayoutHeightRef = useRef(0);
+  /** Ignore composer onLayout while keyboard padding is animating. */
+  const suppressComposerMeasureRef = useRef(false);
   
   // Detect Samsung devices for keyboard padding adjustments
   // Samsung devices often have different keyboard behavior that requires extra padding
@@ -654,6 +683,18 @@ export default function ConversationScreen({
   // Animated padding value for smooth transitions above the keyboard.
   // Initialize with 12px (no keyboard state) to prevent jump on first render.
   const animatedBottomPadding = useRef(new Animated.Value(12)).current;
+  // Measured height of the floating input overlay so messages can scroll under the fade.
+  // Only updated while the keyboard is closed — live updates during padding animation
+  // re-render the tree every frame and make the hero jitter.
+  const [inputOverlayHeight, setInputOverlayHeight] = useState(INPUT_FADE_HEIGHT + 72);
+  // Estimate from window − safe area so remounts don't flash at a hardcoded 180 then jump.
+  const initialGreetingTop = computeGreetingTop(
+    Dimensions.get("window").height - insets.top - insets.bottom,
+    INPUT_FADE_HEIGHT + 72
+  );
+  /** Fixed pixel top for the empty-state hero (midpoint), frozen while keyboard is up. */
+  const [greetingTop, setGreetingTop] = useState(initialGreetingTop);
+  const greetingTopRef = useRef(initialGreetingTop);
 
   // Chat history state
   const [chatHistory, setChatHistory] = useState<ChatConversation[]>([]);
@@ -853,7 +894,7 @@ export default function ConversationScreen({
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const panelAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
-  
+
   // Reset multiselect header animation when panel closes
   useEffect(() => {
     if (!isPanelOpen && isMultiselectMode) {
@@ -862,13 +903,39 @@ export default function ConversationScreen({
     }
   }, [isPanelOpen, isMultiselectMode, multiselectHeaderHeight, multiselectHeaderOpacity]);
 
-  // Manage greeting fade animation.
+  // Always restore system bars if this screen unmounts while the panel was open
+  useEffect(() => {
+    return () => {
+      onHistoryPanelChange?.(false);
+    };
+  }, [onHistoryPanelChange]);
+
+  // Manage greeting fade + keyboard lift.
   const noMessages = conversation.slice(1).length === 0;
-  const greetingOpacity = useRef(new Animated.Value(1)).current;
+  // Match typed-input visibility on remount so we don't flash the hero then fade it out.
+  const greetingOpacity = useRef(
+    new Animated.Value(userInput.trim().length > 0 ? 0 : 1)
+  ).current;
+  const greetingOpacityReadyRef = useRef(false);
+  /** Shifts the empty-state hero up with the keyboard so it stays in the visible band. */
+  const greetingKeyboardShift = useRef(new Animated.Value(0)).current;
+  const [greetingLine, setGreetingLine] = useState(persistedGreetingLine);
+  const hadMessagesRef = useRef(!noMessages);
+
+  // Re-roll greeting copy whenever we return to an empty chat (new chat / clear).
+  useEffect(() => {
+    if (noMessages && hadMessagesRef.current) {
+      const next = pickGreetingLine();
+      persistedGreetingLine = next;
+      setGreetingLine(next);
+    }
+    hadMessagesRef.current = !noMessages;
+  }, [noMessages]);
   
   // Animation for temporary mode content transitions
   const presetMessagesAnim = useRef(new Animated.Value(1)).current;
   const tempModeExplanationAnim = useRef(new Animated.Value(0)).current;
+  const tempModeAnimReadyRef = useRef(false);
 
   // Persona indicator animation
   const personaIndicatorOpacity = useRef(new Animated.Value(selectedPersona ? 1 : 0)).current;
@@ -1055,6 +1122,9 @@ export default function ConversationScreen({
     }
 
     if (isPanelOpen) {
+      // Fade system bars with the close motion (don't wait until slide ends)
+      onHistoryPanelChange?.(false);
+
       // Close panel with fast slide animation
       // Keep panel visible during animation by not updating state yet
       panelAnimationRef.current = Animated.parallel([
@@ -1085,6 +1155,8 @@ export default function ConversationScreen({
         }
       });
     } else {
+      // Soften system bars as the frosted panel slides in
+      onHistoryPanelChange?.(true);
       // Update state immediately for instant responsiveness
       setIsPanelOpen(true);
       
@@ -1114,7 +1186,7 @@ export default function ConversationScreen({
         panelAnimationRef.current = null;
       });
     }
-  }, [isPanelOpen, panelAnim, panelWidth, backdropOpacity, isMultiselectMode, exitMultiselectMode]);
+  }, [isPanelOpen, panelAnim, panelWidth, backdropOpacity, isMultiselectMode, exitMultiselectMode, onHistoryPanelChange]);
 
   // Handle chat selection
   const handleChatSelect = useCallback(async (chat: ChatConversation) => {
@@ -1425,14 +1497,21 @@ export default function ConversationScreen({
    * Hides greeting when user starts typing
    */
   useEffect(() => {
-    if (noMessages) {
-      Animated.timing(greetingOpacity, {
-        toValue: userInput.trim().length > 0 ? 0 : 1,
-        duration: ANIMATION_DURATIONS.SLOW,
-        easing: EASING.STANDARD,
-        useNativeDriver: true,
-      }).start();
+    if (!noMessages) return;
+    const target = userInput.trim().length > 0 ? 0 : 1;
+    // First run after mount: snap (value already initialized). Animating 1→1
+    // during PageFadeIn still schedules work that can hitch the enter transition.
+    if (!greetingOpacityReadyRef.current) {
+      greetingOpacityReadyRef.current = true;
+      greetingOpacity.setValue(target);
+      return;
     }
+    Animated.timing(greetingOpacity, {
+      toValue: target,
+      duration: ANIMATION_DURATIONS.SLOW,
+      easing: EASING.STANDARD,
+      useNativeDriver: true,
+    }).start();
   }, [userInput, noMessages, greetingOpacity]);
 
   /**
@@ -1440,15 +1519,24 @@ export default function ConversationScreen({
    * Smoothly transitions between preset messages and temporary mode explanation
    */
   useEffect(() => {
+    const presetTarget = isTemporaryMode ? 0 : 1;
+    const explanationTarget = isTemporaryMode ? 1 : 0;
+    // Snap on remount so PageFadeIn isn't competing with a no-op 250ms timing.
+    if (!tempModeAnimReadyRef.current) {
+      tempModeAnimReadyRef.current = true;
+      presetMessagesAnim.setValue(presetTarget);
+      tempModeExplanationAnim.setValue(explanationTarget);
+      return;
+    }
     Animated.parallel([
       Animated.timing(presetMessagesAnim, {
-        toValue: isTemporaryMode ? 0 : 1,
+        toValue: presetTarget,
         duration: ANIMATION_DURATIONS.PAGE,
         easing: EASING.EASE_OUT,
         useNativeDriver: true,
       }),
       Animated.timing(tempModeExplanationAnim, {
-        toValue: isTemporaryMode ? 1 : 0,
+        toValue: explanationTarget,
         duration: ANIMATION_DURATIONS.PAGE,
         easing: EASING.EASE_OUT,
         useNativeDriver: true,
@@ -1981,18 +2069,47 @@ export default function ConversationScreen({
    */
   const handleOverlayPress = useCallback(() => {
     if (isPanelOpen) {
+      onHistoryPanelChange?.(false);
       Animated.timing(panelAnim, {
         toValue: -panelWidth,
         ...ANIMATION_CONFIG.panel,
       }).start(() => setIsPanelOpen(false));
     }
-  }, [isPanelOpen, panelAnim, panelWidth]);
+  }, [isPanelOpen, panelAnim, panelWidth, onHistoryPanelChange]);
 
   const handleLayout = useCallback((event: LayoutChangeEvent) => {
     const { height } = event.nativeEvent.layout;
     if (initialLayoutHeightRef.current === null) initialLayoutHeightRef.current = height;
     currentLayoutHeightRef.current = height;
-  }, []);
+
+    // Remember the tallest layout as "keyboard closed". Android often resizes the
+    // window *before* keyboardDidShow, so keyboardPadding is still 0 here — if we
+    // recomputed greetingTop from the shrunk height we'd get a one-frame jump.
+    if (height > (fullLayoutHeightRef.current || 0)) {
+      fullLayoutHeightRef.current = height;
+    }
+    const fullH = fullLayoutHeightRef.current;
+    if (fullH > 0 && height < fullH - 8) {
+      return;
+    }
+
+    const nextTop = computeGreetingTop(fullH, inputOverlayHeight);
+    if (Math.abs(nextTop - greetingTopRef.current) > 1) {
+      greetingTopRef.current = nextTop;
+      setGreetingTop(nextTop);
+    }
+  }, [inputOverlayHeight]);
+
+  // Recompute midpoint when composer chrome is measured (full-height only).
+  useEffect(() => {
+    const fullH = fullLayoutHeightRef.current;
+    if (fullH <= 0) return;
+    const nextTop = computeGreetingTop(fullH, inputOverlayHeight);
+    if (Math.abs(nextTop - greetingTopRef.current) > 1) {
+      greetingTopRef.current = nextTop;
+      setGreetingTop(nextTop);
+    }
+  }, [inputOverlayHeight]);
 
   const NO_KEYBOARD_PADDING = 12;
   const MIN_PADDING_RATIO = 0.20; // Raised from 0.10 so we always push at least 20% of keyboard when visible
@@ -2041,58 +2158,90 @@ export default function ConversationScreen({
     return Math.max(result, NO_KEYBOARD_PADDING);
   }, [isSamsungDevice]);
 
-  const paddingAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
-  const targetPaddingRef = useRef(12);
-  const PADDING_ANIM_DURATION = 250;
-
+  // Composer padding: one timing per show/hide (layout prop, JS driver).
   useEffect(() => {
-    const updatePadding = (keyboardH: number) => {
-      const padding = calculatePaddingMultiplier(keyboardH);
-      if (Math.abs(targetPaddingRef.current - padding) < 1) return;
-      targetPaddingRef.current = padding;
+    // Block composer onLayout → setState while padding is in flight (avoids a
+    // one-shot greetingTop jump when the keyboard has already reported closed).
+    suppressComposerMeasureRef.current = true;
+    const settleTimer = setTimeout(() => {
+      suppressComposerMeasureRef.current = false;
+    }, 320);
 
-      if (paddingAnimationRef.current) paddingAnimationRef.current.stop();
-      paddingAnimationRef.current = Animated.timing(animatedBottomPadding, {
-        toValue: padding,
-        duration: PADDING_ANIM_DURATION,
-        easing: EASING.STANDARD,
-        useNativeDriver: false,
-      });
-      paddingAnimationRef.current.start(() => {
-        paddingAnimationRef.current = null;
-      });
-    };
-
-    const listenerId = animatedHeight.addListener(({ value }) => updatePadding(value));
-    const initialPadding = calculatePaddingMultiplier(keyboardPadding);
-    targetPaddingRef.current = initialPadding;
-    animatedBottomPadding.setValue(initialPadding);
-
+    const target = calculatePaddingMultiplier(keyboardPadding);
+    const anim = Animated.timing(animatedBottomPadding, {
+      toValue: target,
+      duration: keyboardPadding > 0 ? 250 : 200,
+      easing: EASING.EASE_OUT,
+      useNativeDriver: false,
+    });
+    anim.start();
     return () => {
-      animatedHeight.removeListener(listenerId);
-      paddingAnimationRef.current?.stop();
-      paddingAnimationRef.current = null;
+      clearTimeout(settleTimer);
+      anim.stop();
     };
-  }, [animatedHeight, animatedBottomPadding, calculatePaddingMultiplier, keyboardPadding]);
+  }, [keyboardPadding, animatedBottomPadding, calculatePaddingMultiplier]);
+
+  // Hero lift: native translateY only. Midpoint `top` stays frozen at full-window
+  // layout so Android's early resize cannot nudge it before this runs.
+  useEffect(() => {
+    // Aim for the visual midpoint between top pills and the raised composer.
+    // ~half the keyboard intrusion, capped so it doesn't tuck under the pills.
+    const lift =
+      keyboardPadding > 0 ? Math.min(keyboardPadding * 0.42, 200) : 0;
+
+    const anim = Animated.timing(greetingKeyboardShift, {
+      toValue: -lift,
+      duration: keyboardPadding > 0 ? 250 : 200,
+      easing: EASING.EASE_OUT,
+      useNativeDriver: true,
+    });
+    anim.start();
+    return () => {
+      anim.stop();
+    };
+  }, [keyboardPadding, greetingKeyboardShift]);
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={0}
-      enabled={Platform.OS === "ios"}
-    >
+    <View style={{ flex: 1 }}>
       <View style={{ flex: 1, overflow: 'hidden' }} onLayout={handleLayout}>
+        {/* Soft fade under top pills — never fully opaque */}
+        <View style={styles.topFade} pointerEvents="none">
+          <Svg
+            width={Dimensions.get("window").width}
+            height={TOP_FADE_HEIGHT}
+            preserveAspectRatio="none"
+          >
+            <Defs>
+              <SvgLinearGradient id="chatTopFade" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor={theme.colors.background} stopOpacity="0.75" />
+                <Stop offset="0.3" stopColor={theme.colors.background} stopOpacity="0.45" />
+                <Stop offset="0.65" stopColor={theme.colors.background} stopOpacity="0.25" />
+                <Stop offset="1" stopColor={theme.colors.background} stopOpacity="0" />
+              </SvgLinearGradient>
+            </Defs>
+            <Rect
+              x="0"
+              y="0"
+              width={Dimensions.get("window").width}
+              height={TOP_FADE_HEIGHT}
+              fill="url(#chatTopFade)"
+            />
+          </Svg>
+        </View>
+
         {/* Top-left pills for slide-out panel and model selector */}
         {/* Keep buttons mounted but behind panel when open */}
         <View style={{ zIndex: 10, pointerEvents: isPanelOpen ? 'none' : 'auto' }}>
-          <TouchableOpacity style={styles.topLeftPill} onPress={togglePanel}>
+          <TouchableOpacity style={styles.topLeftPill} onPress={togglePanel} activeOpacity={0.85}>
+            <FrostedGlass style={StyleSheet.absoluteFillObject} />
             <Ionicons name="reorder-two-outline" size={23} color={theme.colors.text} />
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.topLeftPill, { left: 73, maxWidth: screenWidth * 0.4, minHeight: 42, paddingRight: selectedPersona ? 8 : 12 }]} 
             onPress={openModelSelector}
+            activeOpacity={0.85}
           >
+            <FrostedGlass style={StyleSheet.absoluteFillObject} />
             <Ionicons name="cube-outline" size={20} color={theme.colors.text} style={{ marginRight: 6 }} />
             <Text 
               style={{
@@ -2146,16 +2295,11 @@ export default function ConversationScreen({
           {!hasStartedChat ? (
             // Show temporary mode toggle button before first message is sent
             <TouchableOpacity 
-              style={[
-                styles.topRightPill,
-                {
-                  backgroundColor: isTemporaryMode 
-                    ? (theme.mode === 'dark' ? theme.colors.text : theme.colors.text)
-                    : (theme.mode === 'dark' ? theme.colors.background : theme.colors.background),
-                },
-              ]} 
+              style={styles.topRightPill}
               onPress={toggleTemporaryMode}
+              activeOpacity={0.85}
             >
+              <FrostedGlass style={StyleSheet.absoluteFillObject} inverted={isTemporaryMode} />
               <Ionicons 
                 name={isTemporaryMode ? "flash" : "flash-outline"} 
                 size={23} 
@@ -2172,11 +2316,14 @@ export default function ConversationScreen({
               onPress={() => {
                 onNewChat();
               }}
+              activeOpacity={0.85}
             >
+              <FrostedGlass style={StyleSheet.absoluteFillObject} />
               <Ionicons name="add-outline" size={23} color={theme.colors.text} />
             </TouchableOpacity>
           )}
-          <TouchableOpacity style={styles.topRightPill} onPress={onOpenSettings}>
+          <TouchableOpacity style={styles.topRightPill} onPress={onOpenSettings} activeOpacity={0.85}>
+            <FrostedGlass style={StyleSheet.absoluteFillObject} />
             <Ionicons name="settings-outline" size={23} color={theme.colors.text} />
           </TouchableOpacity>
         </View>
@@ -2233,7 +2380,7 @@ export default function ConversationScreen({
               const chat = chatHistory.find(c => c.id === selectedChatId);
               const isPinned = chat?.pinned || false;
               const menuBlockStyle = {
-                backgroundColor: theme.colors.card,
+                backgroundColor: 'transparent' as const,
                 borderRadius: 12,
                 paddingVertical: 12,
                 paddingHorizontal: 14,
@@ -2241,6 +2388,7 @@ export default function ConversationScreen({
                 alignItems: 'center' as const,
                 borderWidth: 1,
                 borderColor: theme.colors.border,
+                overflow: 'hidden' as const,
               };
               return (
                 <Animated.View
@@ -2260,7 +2408,9 @@ export default function ConversationScreen({
                     <TouchableOpacity
                       onPress={() => selectedChatId && handleRename(selectedChatId)}
                       style={menuBlockStyle}
+                      activeOpacity={0.85}
                     >
+                      <FrostedGlass style={StyleSheet.absoluteFillObject} />
                       <Ionicons name="pencil-outline" size={18} color={theme.colors.text} />
                       <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>Rename</Text>
                     </TouchableOpacity>
@@ -2269,7 +2419,9 @@ export default function ConversationScreen({
                     <TouchableOpacity
                       onPress={() => selectedChatId && handlePinToggle(selectedChatId)}
                       style={menuBlockStyle}
+                      activeOpacity={0.85}
                     >
+                      <FrostedGlass style={StyleSheet.absoluteFillObject} />
                       <Ionicons name={isPinned ? "bookmark" : "bookmark-outline"} size={18} color={theme.colors.text} />
                       <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>{isPinned ? 'Unpin' : 'Pin'}</Text>
                     </TouchableOpacity>
@@ -2278,7 +2430,9 @@ export default function ConversationScreen({
                     <TouchableOpacity
                       onPress={() => selectedChatId && enterMultiselectMode(selectedChatId)}
                       style={menuBlockStyle}
+                      activeOpacity={0.85}
                     >
+                      <FrostedGlass style={StyleSheet.absoluteFillObject} />
                       <Ionicons name="checkbox-outline" size={18} color={theme.colors.text} />
                       <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>Select Multiple</Text>
                     </TouchableOpacity>
@@ -2287,7 +2441,9 @@ export default function ConversationScreen({
                     <TouchableOpacity
                       onPress={() => selectedChatId && handleDeleteChat(selectedChatId)}
                       style={menuBlockStyle}
+                      activeOpacity={0.85}
                     >
+                      <FrostedGlass style={StyleSheet.absoluteFillObject} />
                       <Ionicons name="trash-outline" size={18} color={theme.colors.error} />
                       <Text style={{ color: theme.colors.error, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>Delete</Text>
                     </TouchableOpacity>
@@ -2349,7 +2505,7 @@ export default function ConversationScreen({
                   <TouchableOpacity
                     onPress={() => dismissAttachMenu(takePhoto)}
                     style={{
-                      backgroundColor: theme.colors.card,
+                      backgroundColor: 'transparent',
                       borderRadius: 12,
                       paddingVertical: 12,
                       paddingHorizontal: 14,
@@ -2357,8 +2513,11 @@ export default function ConversationScreen({
                       alignItems: 'center',
                       borderWidth: 1,
                       borderColor: theme.colors.border,
+                      overflow: 'hidden',
                     }}
+                    activeOpacity={0.85}
                   >
+                    <FrostedGlass style={StyleSheet.absoluteFillObject} />
                     <Ionicons name="camera-outline" size={18} color={theme.colors.text} />
                     <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
                       Take photo (OCR)
@@ -2374,7 +2533,7 @@ export default function ConversationScreen({
                   <TouchableOpacity
                     onPress={() => dismissAttachMenu(choosePhoto)}
                     style={{
-                      backgroundColor: theme.colors.card,
+                      backgroundColor: 'transparent',
                       borderRadius: 12,
                       paddingVertical: 12,
                       paddingHorizontal: 14,
@@ -2382,8 +2541,11 @@ export default function ConversationScreen({
                       alignItems: 'center',
                       borderWidth: 1,
                       borderColor: theme.colors.border,
+                      overflow: 'hidden',
                     }}
+                    activeOpacity={0.85}
                   >
+                    <FrostedGlass style={StyleSheet.absoluteFillObject} />
                     <Ionicons name="image-outline" size={18} color={theme.colors.text} />
                     <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
                       Gallery (OCR text)
@@ -2413,7 +2575,7 @@ export default function ConversationScreen({
           </TouchableWithoutFeedback>
         )}
 
-        {/* Slide-out panel from the left */}
+        {/* Slide-out panel from the left — frosted glass, matches chat chrome */}
         <Animated.View
           style={[
             styles.slideOutPanel,
@@ -2425,16 +2587,19 @@ export default function ConversationScreen({
               left: 0,
               height: "100%",
               width: panelWidth,
-              backgroundColor: theme.colors.card,
               borderTopLeftRadius: 0,
               borderTopRightRadius: 20,
               borderBottomLeftRadius: 0,
               borderBottomRightRadius: 20,
-              overflow: 'hidden', // Ensure children respect border radius
+              overflow: 'hidden',
             },
           ]}
           pointerEvents={isPanelOpen ? 'auto' : 'none'}
         >
+          <FrostedGlass
+            variant="panel"
+            style={StyleSheet.absoluteFillObject}
+          />
           {/* Multiselect header: height and opacity split so native driver only sees opacity (height is not supported by native driver) */}
           <Animated.View
             style={{
@@ -2455,7 +2620,7 @@ export default function ConversationScreen({
                 paddingVertical: 12,
                 borderBottomWidth: 1,
                 borderBottomColor: theme.colors.border,
-                backgroundColor: theme.colors.card,
+                backgroundColor: 'transparent',
               }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                 <Text style={{
@@ -2637,15 +2802,16 @@ export default function ConversationScreen({
             ) : null}
           </ScrollView>
 
-          {/* New Chat button at bottom - full width */}
+          {/* New Chat — sits on the panel frost (no separate frosted footer) */}
           <View style={{
             position: "absolute",
             bottom: 0,
             left: 0,
             right: 0,
-            padding: 16,
-            backgroundColor: theme.colors.card,
-            borderBottomRightRadius: 20, // Match panel's rounded corner
+            paddingHorizontal: 16,
+            paddingTop: 12,
+            paddingBottom: Math.max(16, insets.bottom + 8),
+            backgroundColor: 'transparent',
           }}>
             <TouchableOpacity
               onPress={() => {
@@ -2687,7 +2853,8 @@ export default function ConversationScreen({
               justifyContent: "flex-end",
               paddingHorizontal: Math.max(16, Dimensions.get("window").width * 0.04),
               paddingTop: 60,
-              paddingBottom: 16,
+              // Room for the floating fade + input so the last messages clear the bar
+              paddingBottom: inputOverlayHeight,
             }}
             ref={scrollViewRef}
             onScroll={handleScroll}
@@ -2882,16 +3049,32 @@ export default function ConversationScreen({
 
           {noMessages && (
             <Animated.View
-              style={[styles.greetingContainer, { opacity: greetingOpacity }]}
+              style={[
+                styles.greetingContainer,
+                {
+                  top: greetingTop,
+                  opacity: greetingOpacity,
+                  transform: [{ translateY: greetingKeyboardShift }],
+                },
+              ]}
+              pointerEvents="box-none"
             >
+              {isTemporaryMode && (
+                <Ionicons
+                  name="flash"
+                  size={36}
+                  color={theme.colors.text}
+                  style={{ marginBottom: 12 }}
+                />
+              )}
               <Text style={styles.greetingText}>
-                {isTemporaryMode ? "Temporary Mode" : "How can I help you?"}
+                {isTemporaryMode ? "Temporary Mode" : greetingLine}
               </Text>
               
               {/* Preset message suggestions or temporary mode explanation */}
               {userInput.trim().length === 0 && (
                 <View style={{
-                  marginTop: 24,
+                  marginTop: 20,
                   alignItems: 'center',
                   width: '100%',
                 }}>
@@ -2909,25 +3092,16 @@ export default function ConversationScreen({
                         alignItems: 'center',
                       }}
                     >
-                      <View style={{
-                        backgroundColor: 'transparent',
+                      <Text style={{
+                        color: theme.colors.text,
+                        fontSize: 18,
+                        fontFamily: 'Poppins',
+                        textAlign: 'center',
+                        lineHeight: 24,
                         paddingHorizontal: 20,
-                        paddingVertical: 16,
-                        borderRadius: 16,
-                        borderWidth: 1,
-                        borderColor: theme.colors.border,
-                        width: '100%',
                       }}>
-                        <Text style={{
-                          color: theme.colors.text,
-                          fontSize: 18,
-                          fontFamily: 'Poppins',
-                          textAlign: 'left',
-                          lineHeight: 24,
-                        }}>
-                          Conversations in temporary mode are not saved. This chat will not appear in history. Photos still run on-device OCR before the model sees them.
-                        </Text>
-                      </View>
+                        Conversations in temporary mode are not saved. This chat will not appear in history. Photos still run on-device OCR before the model sees them.
+                      </Text>
                     </Animated.View>
                   ) : (
                     <Animated.View
@@ -2985,96 +3159,136 @@ export default function ConversationScreen({
           )}
         </View>
 
-        {/* Bottom input bar */}
-        <Animated.View
-          style={[
-            styles.bottomContainer,
-            {
-              paddingBottom: animatedBottomPadding,
-            },
-          ]}
+        {/* Floating input — soft fade only, never a solid bar */}
+        <View
+          style={styles.bottomContainer}
+          onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            if (suppressComposerMeasureRef.current || keyboardPadding > 0) return;
+            if (h > 0 && Math.abs(h - inputOverlayHeight) > 1) {
+              setInputOverlayHeight(h);
+            }
+          }}
+          pointerEvents="box-none"
         >
-          {pendingAttachment && (
-            <View style={styles.attachmentPreviewRow}>
-              <Image
-                source={{ uri: pendingAttachment.uri }}
-                style={styles.attachmentThumb}
-                resizeMode="cover"
+          <View style={styles.inputFade} pointerEvents="none">
+            <Svg
+              width={Dimensions.get("window").width}
+              height={inputOverlayHeight}
+              preserveAspectRatio="none"
+            >
+              <Defs>
+                <SvgLinearGradient id="chatInputFade" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor={theme.colors.background} stopOpacity="0" />
+                  <Stop offset="0.35" stopColor={theme.colors.background} stopOpacity="0.35" />
+                  <Stop offset="0.7" stopColor={theme.colors.background} stopOpacity="0.6" />
+                  <Stop offset="1" stopColor={theme.colors.background} stopOpacity="0.75" />
+                </SvgLinearGradient>
+              </Defs>
+              <Rect
+                x="0"
+                y="0"
+                width={Dimensions.get("window").width}
+                height={inputOverlayHeight}
+                fill="url(#chatInputFade)"
               />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.attachmentLabel} numberOfLines={1}>
-                  {pendingAttachment.fileName || "Image ready"}
-                </Text>
-                {isOcrRunning && (
-                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4, gap: 6 }}>
-                    <ActivityIndicator size="small" color={theme.colors.text} />
-                    <Text style={[styles.attachmentLabel, { fontSize: 12 }]}>Extracting text on-device…</Text>
-                  </View>
-                )}
-                {!isOcrRunning && (
-                  <Text style={[styles.attachmentLabel, { fontSize: 12, marginTop: 2 }]}>
-                    Text will be read with OCR when you send
+            </Svg>
+          </View>
+          <Animated.View
+            style={[
+              styles.inputBarArea,
+              {
+                paddingBottom: animatedBottomPadding,
+              },
+            ]}
+            pointerEvents="box-none"
+          >
+            {pendingAttachment && (
+              <View style={styles.attachmentPreviewRow}>
+                <FrostedGlass style={StyleSheet.absoluteFillObject} />
+                <Image
+                  source={{ uri: pendingAttachment.uri }}
+                  style={styles.attachmentThumb}
+                  resizeMode="cover"
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.attachmentLabel} numberOfLines={1}>
+                    {pendingAttachment.fileName || "Image ready"}
                   </Text>
+                  {isOcrRunning && (
+                    <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4, gap: 6 }}>
+                      <ActivityIndicator size="small" color={theme.colors.text} />
+                      <Text style={[styles.attachmentLabel, { fontSize: 12 }]}>Extracting text on-device…</Text>
+                    </View>
+                  )}
+                  {!isOcrRunning && (
+                    <Text style={[styles.attachmentLabel, { fontSize: 12, marginTop: 2 }]}>
+                      Text will be read with OCR when you send
+                    </Text>
+                  )}
+                </View>
+                <TouchableOpacity
+                  style={[styles.attachmentRemove, { backgroundColor: theme.colors.surface }]}
+                  onPress={() => setPendingAttachment(null)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  disabled={isOcrRunning}
+                >
+                  <Ionicons name="close" size={20} color={theme.colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            )}
+            <View style={styles.inputRowWrapper}>
+              <View ref={addButtonRef} collapsable={false}>
+                <TouchableOpacity
+                  style={styles.addButtonOutside}
+                  onPress={openAttachMenu}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  activeOpacity={0.85}
+                >
+                  <FrostedGlass style={StyleSheet.absoluteFillObject} />
+                  <Ionicons name="add" size={28} color={theme.colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <View style={[styles.inputBar, styles.inputBarInRow]}>
+                <FrostedGlass style={StyleSheet.absoluteFillObject} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Message..."
+                  placeholderTextColor={theme.colors.textTertiary}
+                  value={userInput}
+                  onChangeText={setUserInput}
+                  multiline
+                  onFocus={() => {
+                    syncKeyboardState();
+                    setTimeout(syncKeyboardState, 100);
+                    setTimeout(syncKeyboardState, 300);
+                  }}
+                />
+                {isGenerating ? (
+                  <Animated.View style={{ marginLeft: "auto" }}>
+                    <TouchableOpacity style={styles.stopButton} onPress={stopGeneration}>
+                      <Ionicons name="stop-circle" size={40} color={theme.colors.error} />
+                    </TouchableOpacity>
+                  </Animated.View>
+                ) : (
+                  <Animated.View style={{ transform: [{ scale: scaleAnim }], marginLeft: "auto" }}>
+                    <TouchableOpacity
+                      style={styles.sendIconButton}
+                      onPress={handleSendMessage}
+                      disabled={sendButtonDisabled || isLoading}
+                    >
+                      <Ionicons
+                        name="arrow-up-circle"
+                        size={40}
+                        color={sendButtonDisabled ? theme.colors.textTertiary : theme.colors.text}
+                      />
+                    </TouchableOpacity>
+                  </Animated.View>
                 )}
               </View>
-              <TouchableOpacity
-                style={[styles.attachmentRemove, { backgroundColor: theme.colors.surface }]}
-                onPress={() => setPendingAttachment(null)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                disabled={isOcrRunning}
-              >
-                <Ionicons name="close" size={20} color={theme.colors.textSecondary} />
-              </TouchableOpacity>
             </View>
-          )}
-          <View style={styles.inputRowWrapper}>
-            <View ref={addButtonRef} collapsable={false}>
-              <TouchableOpacity
-                style={styles.addButtonOutside}
-                onPress={openAttachMenu}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="add" size={28} color={theme.colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-            <View style={[styles.inputBar, styles.inputBarInRow]}>
-              <TextInput
-                style={styles.input}
-                placeholder="Message..."
-                placeholderTextColor={theme.colors.textTertiary}
-                value={userInput}
-                onChangeText={setUserInput}
-                multiline
-                onFocus={() => {
-                  syncKeyboardState();
-                  setTimeout(syncKeyboardState, 100);
-                  setTimeout(syncKeyboardState, 300);
-                }}
-              />
-              {isGenerating ? (
-                <Animated.View style={{ marginLeft: "auto" }}>
-                  <TouchableOpacity style={styles.stopButton} onPress={stopGeneration}>
-                    <Ionicons name="stop-circle" size={40} color={theme.colors.error} />
-                  </TouchableOpacity>
-                </Animated.View>
-              ) : (
-                <Animated.View style={{ transform: [{ scale: scaleAnim }], marginLeft: "auto" }}>
-                  <TouchableOpacity
-                    style={styles.sendIconButton}
-                    onPress={handleSendMessage}
-                    disabled={sendButtonDisabled || isLoading}
-                  >
-                    <Ionicons
-                      name="arrow-up-circle"
-                      size={40}
-                      color={sendButtonDisabled ? theme.colors.textTertiary : theme.colors.text}
-                    />
-                  </TouchableOpacity>
-                </Animated.View>
-              )}
-            </View>
-          </View>
-        </Animated.View>
+          </Animated.View>
+        </View>
 
         {/* Model & Persona Selector Bottom Sheet */}
         <BottomSheet
@@ -3408,6 +3622,6 @@ export default function ConversationScreen({
         )}
 
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }

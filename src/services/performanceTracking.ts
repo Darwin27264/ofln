@@ -298,6 +298,38 @@ export async function clearUsageRecords(): Promise<void> {
   }
 }
 
+/**
+ * Remove usage rows for one model. Rewrites the log (or deletes it if empty).
+ * Returns the remaining records.
+ */
+export async function clearUsageRecordsForModel(
+  model: string,
+): Promise<UsageMetrics[]> {
+  const key = normalizeModelName(model);
+  if (!key) return loadUsageRecords();
+
+  const records = await loadUsageRecords();
+  const remaining = records.filter(
+    (r) => normalizeModelName(r.model) !== key,
+  );
+
+  try {
+    if (remaining.length === 0) {
+      if (await RNFS.exists(USAGE_LOG_PATH)) {
+        await RNFS.unlink(USAGE_LOG_PATH);
+      }
+    } else {
+      const content =
+        remaining.map((r) => JSON.stringify(r)).join("\n") + "\n";
+      await RNFS.writeFile(USAGE_LOG_PATH, content, "utf8");
+    }
+    return remaining;
+  } catch (error) {
+    console.error("[performanceTracking] clear-for-model failed:", error);
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+}
+
 export function filterRecordsForModel(
   records: UsageMetrics[],
   model: string | null | undefined,

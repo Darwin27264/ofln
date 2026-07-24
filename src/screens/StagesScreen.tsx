@@ -25,6 +25,7 @@ import {
 import {
   loadUsageRecords,
   clearUsageRecords,
+  clearUsageRecordsForModel,
   computeUsageAverages,
   computeModelPerformanceStats,
   filterRecordsForModel,
@@ -34,6 +35,8 @@ import {
   type ModelPerformanceStats,
 } from '../services/performanceTracking';
 import { llamaProvider } from '../providers/llamaProvider';
+import { EASING, OVERLAY_MOTION } from '../utils/animationConfig';
+import { FrostedGlass } from '../components/FrostedGlass';
 
 /* ──────────────────────────────────── constants ──────────────────────────────────── */
 const RADIUS = 30;
@@ -67,7 +70,15 @@ const useUsageData = () => {
     }
   };
 
-  const clearUsageData = async () => {
+  const clearUsageDataForModel = async (model: string) => {
+    try {
+      setUsageRecords(await clearUsageRecordsForModel(model));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to clear usage data');
+    }
+  };
+
+  const clearAllUsageData = async () => {
     try {
       await clearUsageRecords();
       setUsageRecords([]);
@@ -80,7 +91,7 @@ const useUsageData = () => {
     loadUsageData();
   }, []);
 
-  return { usageRecords, isLoading, error, clearUsageData };
+  return { usageRecords, isLoading, error, clearUsageDataForModel, clearAllUsageData };
 };
 
 const useModelStats = (
@@ -123,7 +134,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   const { theme, isDark } = useTheme();
   const graphLineColor = isDark ? '#FFFFFF' : '#6B7280';
   const shared = createStyles(theme.colors);
-  const { usageRecords, isLoading, error, clearUsageData } = useUsageData();
+  const { usageRecords, isLoading, error, clearUsageDataForModel, clearAllUsageData } = useUsageData();
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [modalVisible, setModalVisible] = useState(false);
   const [graphType, setGraphType] = useState<'tps' | 'inf' | null>(null);
@@ -183,6 +194,14 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   const hasNextModel = useMemo(() => {
     return currentModelIndex >= 0 && currentModelIndex < sortedModels.length - 1;
   }, [currentModelIndex, sortedModels.length]);
+
+  const selectedModelHasRecords = useMemo(() => {
+    if (!selectedModel) return false;
+    const key = normalizeModelName(selectedModel);
+    return usageRecords.some((r) => normalizeModelName(r.model) === key);
+  }, [selectedModel, usageRecords]);
+
+  const hasAnyUsageRecords = usageRecords.length > 0;
 
   // Helper to stop current animation
   const stopCurrentAnimation = useCallback(() => {
@@ -523,18 +542,29 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   // Animations
   const tpsAnim = useChartAnimations(stats?.tpsData);
   const infAnim = useChartAnimations(stats?.timeData);
-  const modalAnim = useRef(new Animated.Value(0.8)).current;
+  const modalAnim = useRef(new Animated.Value(OVERLAY_MOTION.FROM_SCALE)).current;
+  const modalOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (modalVisible) {
-      modalAnim.setValue(0.8);
-      Animated.spring(modalAnim, {
-        toValue: 1,
-        friction: 6,
-        useNativeDriver: true,
-      }).start();
+      modalAnim.setValue(OVERLAY_MOTION.FROM_SCALE);
+      modalOpacity.setValue(0);
+      Animated.parallel([
+        Animated.timing(modalOpacity, {
+          toValue: 1,
+          duration: OVERLAY_MOTION.FADE_IN_MS,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+        Animated.timing(modalAnim, {
+          toValue: 1,
+          duration: OVERLAY_MOTION.SCALE_IN_MS,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+      ]).start();
     }
-  }, [modalVisible]);
+  }, [modalVisible, modalAnim, modalOpacity]);
 
   const stylesLocalWithTheme = createStylesLocal(theme.colors);
   
@@ -678,73 +708,68 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
         contentContainerStyle={stylesLocalWithTheme.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Hardware acceleration — available vs currently on */}
-        <View style={[stylesLocalWithTheme.statusCard, { backgroundColor: theme.colors.glass }]}>
-          <View style={stylesLocalWithTheme.statusHeader}>
-            <Ionicons name="hardware-chip-outline" size={20} color={theme.colors.text} />
-            <Text style={[stylesLocalWithTheme.statusTitle, { color: theme.colors.text }]}>
-              Hardware acceleration
-            </Text>
-          </View>
-          {accelStatus ? (
-            <>
-              <View style={stylesLocalWithTheme.statusRow}>
-                <Text style={[stylesLocalWithTheme.statusLabel, { color: theme.colors.textSecondary }]}>
-                  Available
-                </Text>
-                <View style={stylesLocalWithTheme.statusValueWrap}>
-                  <View
-                    style={[
-                      stylesLocalWithTheme.statusDot,
-                      {
-                        backgroundColor: accelStatus.available
-                          ? theme.colors.success
-                          : theme.colors.textSecondary,
-                      },
-                    ]}
-                  />
-                  <Text style={[stylesLocalWithTheme.statusValue, { color: theme.colors.text }]}>
-                    {accelStatus.available ? accelStatus.availableLabel : 'Not available'}
+        {selectedModel && stats && (
+          <>
+            {/* Stats cards */}
+            <View style={stylesLocal.row}>
+              <View style={[stylesLocalWithTheme.statCard, { marginRight: 10, backgroundColor: theme.colors.glass }]}>
+                <View style={stylesLocalWithTheme.statInner}>
+                  <Text style={[stylesLocalWithTheme.statValue, { color: theme.colors.text }]}>
+                    {stats.valid}
+                  </Text>
+                  <Text style={[stylesLocalWithTheme.statCaption, { color: theme.colors.textSecondary }]}>
+                    {stats.valid === stats.total
+                      ? 'valid runs'
+                      : `valid of ${stats.total} logged`}
                   </Text>
                 </View>
               </View>
-              <View style={stylesLocalWithTheme.statusRow}>
-                <Text style={[stylesLocalWithTheme.statusLabel, { color: theme.colors.textSecondary }]}>
-                  Currently on
-                </Text>
-                <View style={stylesLocalWithTheme.statusValueWrap}>
-                  <View
-                    style={[
-                      stylesLocalWithTheme.statusDot,
-                      {
-                        backgroundColor:
-                          accelStatus.on === true
-                            ? theme.colors.success
-                            : accelStatus.on === false
-                              ? theme.colors.warning
-                              : theme.colors.textSecondary,
-                      },
-                    ]}
-                  />
-                  <Text
-                    style={[stylesLocalWithTheme.statusValue, { color: theme.colors.text }]}
-                    numberOfLines={2}
-                  >
-                    {accelStatus.on === true
-                      ? `On · ${accelStatus.onLabel}`
-                      : accelStatus.on === false
-                        ? accelStatus.onLabel
-                        : 'No model loaded'}
+
+              <View style={[stylesLocalWithTheme.statCard, { backgroundColor: perfColor(stats.perf) }]}>
+                <View style={stylesLocalWithTheme.statInner}>
+                  <Text style={[stylesLocalWithTheme.perfValue, { color: (stats.perf === 'High' || stats.perf === 'Medium') ? theme.colors.primaryText : theme.colors.text }]}>
+                    {stats.perf}
+                  </Text>
+                  <Text style={[stylesLocalWithTheme.statCaption, { color: (stats.perf === 'High' || stats.perf === 'Medium') ? theme.colors.primaryText : theme.colors.text }]}>
+                    from avg tok/s
                   </Text>
                 </View>
               </View>
-            </>
-          ) : (
-            <Text style={[stylesLocalWithTheme.statusHint, { color: theme.colors.textSecondary }]}>
-              Checking device backends…
-            </Text>
-          )}
-        </View>
+            </View>
+
+            {/* Graph cards */}
+            <View style={stylesLocalWithTheme.row}>
+              <TouchableOpacity
+                onPress={() => { setGraphType('tps'); setModalVisible(true); }}
+                style={{ marginRight: 10 }}
+              >
+                <View style={[stylesLocalWithTheme.graphCard, { backgroundColor: theme.colors.surface }]}>
+                  <Text style={[stylesLocalWithTheme.graphValue, { color: theme.colors.text }]}>{stats.avgTps.toFixed(1)}</Text>
+                  <Text style={[stylesLocalWithTheme.graphCaption, { color: theme.colors.textSecondary }]}>avg tok/s</Text>
+                  {stats.tpsData.length ? (
+                    <Chart data={stats.tpsData.slice(-20)} anim={tpsAnim} />
+                  ) : (
+                    <ActivityIndicator color={theme.colors.text} />
+                  )}
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => { setGraphType('inf'); setModalVisible(true); }}
+              >
+                <View style={[stylesLocalWithTheme.graphCard, { backgroundColor: theme.colors.surface }]}>
+                  <Text style={[stylesLocalWithTheme.graphValue, { color: theme.colors.text }]}>{stats.avgTime.toFixed(0)}</Text>
+                  <Text style={[stylesLocalWithTheme.graphCaption, { color: theme.colors.textSecondary }]}>avg decode ms</Text>
+                  {stats.timeData.length ? (
+                    <Chart data={stats.timeData.slice(-20)} anim={infAnim} />
+                  ) : (
+                    <ActivityIndicator color={theme.colors.text} />
+                  )}
+                </View>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
 
         {/* Avg resource usage from usage log (not realtime) */}
         <View style={[stylesLocalWithTheme.statusCard, { backgroundColor: theme.colors.glass }]}>
@@ -823,68 +848,73 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           </Text>
         </View>
 
-        {selectedModel && stats && (
-          <>
-            {/* Stats cards */}
-            <View style={stylesLocal.row}>
-              <View style={[stylesLocalWithTheme.statCard, { marginRight: 10, backgroundColor: theme.colors.glass }]}>
-                <View style={stylesLocalWithTheme.statInner}>
-                  <Text style={[stylesLocalWithTheme.statValue, { color: theme.colors.text }]}>
-                    {stats.valid}
-                  </Text>
-                  <Text style={[stylesLocalWithTheme.statCaption, { color: theme.colors.textSecondary }]}>
-                    {stats.valid === stats.total
-                      ? 'valid runs'
-                      : `valid of ${stats.total} logged`}
+        {/* Hardware acceleration — available vs currently on */}
+        <View style={[stylesLocalWithTheme.statusCard, { backgroundColor: theme.colors.glass }]}>
+          <View style={stylesLocalWithTheme.statusHeader}>
+            <Ionicons name="hardware-chip-outline" size={20} color={theme.colors.text} />
+            <Text style={[stylesLocalWithTheme.statusTitle, { color: theme.colors.text }]}>
+              Hardware acceleration
+            </Text>
+          </View>
+          {accelStatus ? (
+            <>
+              <View style={stylesLocalWithTheme.statusRow}>
+                <Text style={[stylesLocalWithTheme.statusLabel, { color: theme.colors.textSecondary }]}>
+                  Available
+                </Text>
+                <View style={stylesLocalWithTheme.statusValueWrap}>
+                  <View
+                    style={[
+                      stylesLocalWithTheme.statusDot,
+                      {
+                        backgroundColor: accelStatus.available
+                          ? theme.colors.success
+                          : theme.colors.textSecondary,
+                      },
+                    ]}
+                  />
+                  <Text style={[stylesLocalWithTheme.statusValue, { color: theme.colors.text }]}>
+                    {accelStatus.available ? accelStatus.availableLabel : 'Not available'}
                   </Text>
                 </View>
               </View>
-
-              <View style={[stylesLocalWithTheme.statCard, { backgroundColor: perfColor(stats.perf) }]}>
-                <View style={stylesLocalWithTheme.statInner}>
-                  <Text style={[stylesLocalWithTheme.perfValue, { color: (stats.perf === 'High' || stats.perf === 'Medium') ? theme.colors.primaryText : theme.colors.text }]}>
-                    {stats.perf}
-                  </Text>
-                  <Text style={[stylesLocalWithTheme.statCaption, { color: (stats.perf === 'High' || stats.perf === 'Medium') ? theme.colors.primaryText : theme.colors.text }]}>
-                    from avg tok/s
+              <View style={stylesLocalWithTheme.statusRow}>
+                <Text style={[stylesLocalWithTheme.statusLabel, { color: theme.colors.textSecondary }]}>
+                  Currently on
+                </Text>
+                <View style={stylesLocalWithTheme.statusValueWrap}>
+                  <View
+                    style={[
+                      stylesLocalWithTheme.statusDot,
+                      {
+                        backgroundColor:
+                          accelStatus.on === true
+                            ? theme.colors.success
+                            : accelStatus.on === false
+                              ? theme.colors.warning
+                              : theme.colors.textSecondary,
+                      },
+                    ]}
+                  />
+                  <Text
+                    style={[stylesLocalWithTheme.statusValue, { color: theme.colors.text }]}
+                    numberOfLines={2}
+                  >
+                    {accelStatus.on === true
+                      ? `On · ${accelStatus.onLabel}`
+                      : accelStatus.on === false
+                        ? accelStatus.onLabel
+                        : 'No model loaded'}
                   </Text>
                 </View>
               </View>
-            </View>
-
-            {/* Graph cards */}
-            <View style={stylesLocalWithTheme.row}>
-              <TouchableOpacity
-                onPress={() => { setGraphType('tps'); setModalVisible(true); }}
-                style={{ marginRight: 10 }}
-              >
-                <View style={[stylesLocalWithTheme.graphCard, { backgroundColor: theme.colors.surface }]}>
-                  <Text style={[stylesLocalWithTheme.graphValue, { color: theme.colors.text }]}>{stats.avgTps.toFixed(1)}</Text>
-                  <Text style={[stylesLocalWithTheme.graphCaption, { color: theme.colors.textSecondary }]}>avg tok/s</Text>
-                  {stats.tpsData.length ? (
-                    <Chart data={stats.tpsData.slice(-20)} anim={tpsAnim} />
-                  ) : (
-                    <ActivityIndicator color={theme.colors.text} />
-                  )}
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => { setGraphType('inf'); setModalVisible(true); }}
-              >
-                <View style={[stylesLocalWithTheme.graphCard, { backgroundColor: theme.colors.surface }]}>
-                  <Text style={[stylesLocalWithTheme.graphValue, { color: theme.colors.text }]}>{stats.avgTime.toFixed(0)}</Text>
-                  <Text style={[stylesLocalWithTheme.graphCaption, { color: theme.colors.textSecondary }]}>avg decode ms</Text>
-                  {stats.timeData.length ? (
-                    <Chart data={stats.timeData.slice(-20)} anim={infAnim} />
-                  ) : (
-                    <ActivityIndicator color={theme.colors.text} />
-                  )}
-                </View>
-              </TouchableOpacity>
-            </View>
-          </>
-        )}
+            </>
+          ) : (
+            <Text style={[stylesLocalWithTheme.statusHint, { color: theme.colors.textSecondary }]}>
+              Checking device backends…
+            </Text>
+          )}
+        </View>
 
         {/* Suggestions */}
         <View style={[stylesLocalWithTheme.suggestionCard, { backgroundColor: theme.colors.glass }]}>
@@ -898,16 +928,17 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
         </View>
       </ScrollView>
 
-      {/* Model selector - centered pill with swipe and arrow buttons (surface/card style, readable text) */}
+      {/* Model selector - centered frosted pill with swipe and arrow buttons */}
       <View style={stylesLocalWithTheme.modelBar}>
         <View style={stylesLocalWithTheme.modelContainer}>
           {/* Left arrow button - absolutely positioned */}
           {hasPreviousModel && (
             <TouchableOpacity
               onPress={navigateToPrevious}
-              style={[stylesLocalWithTheme.arrowButton, stylesLocalWithTheme.arrowButtonLeft, { backgroundColor: theme.colors.surface }]}
+              style={[stylesLocalWithTheme.arrowButton, stylesLocalWithTheme.arrowButtonLeft, { borderColor: theme.colors.border }]}
               activeOpacity={0.7}
             >
+              <FrostedGlass style={StyleSheet.absoluteFillObject} />
               <Ionicons name="chevron-back" size={20} color={theme.colors.text} />
             </TouchableOpacity>
           )}
@@ -918,12 +949,13 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
             style={[
               stylesLocalWithTheme.modelChip,
               {
-                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
                 transform: [{ translateX: pillTranslateX }],
                 opacity: pillOpacity,
               },
             ]}
           >
+            <FrostedGlass style={StyleSheet.absoluteFillObject} />
             <Text
               style={[stylesLocalWithTheme.modelText, { color: theme.colors.text }]}
               numberOfLines={2}
@@ -937,9 +969,10 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           {hasNextModel && (
             <TouchableOpacity
               onPress={navigateToNext}
-              style={[stylesLocalWithTheme.arrowButton, stylesLocalWithTheme.arrowButtonRight, { backgroundColor: theme.colors.surface }]}
+              style={[stylesLocalWithTheme.arrowButton, stylesLocalWithTheme.arrowButtonRight, { borderColor: theme.colors.border }]}
               activeOpacity={0.7}
             >
+              <FrostedGlass style={StyleSheet.absoluteFillObject} />
               <Ionicons name="chevron-forward" size={20} color={theme.colors.text} />
             </TouchableOpacity>
           )}
@@ -947,7 +980,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
       </View>
 
       {/* Detail modal */}
-      <Modal visible={modalVisible} transparent animationType="fade">
+      <Modal visible={modalVisible} transparent animationType="none">
         <TouchableOpacity
           style={[stylesLocalWithTheme.modalOverlay, { backgroundColor: theme.colors.overlay }]}
           activeOpacity={1}
@@ -957,6 +990,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
             <Animated.View style={[
               stylesLocalWithTheme.modalCard,
               { 
+                opacity: modalOpacity,
                 transform: [{ scale: modalAnim }], 
                 alignItems: 'flex-start',
                 backgroundColor: theme.colors.card,
@@ -1007,21 +1041,50 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
         </TouchableOpacity>
       </View>
 
-      <View style={[stylesLocalWithTheme.fixedBtn, { right: 15, bottom: 20, backgroundColor: "transparent" }]}>
+      <View style={[stylesLocalWithTheme.fixedBtn, { right: 15, bottom: 20, backgroundColor: 'transparent' }]}>
         <TouchableOpacity
-          style={[stylesLocalWithTheme.btn, { backgroundColor: theme.colors.error }]}
-          onPress={() => showAlert(
-            'Clear Usage Data',
-            'Are you sure?',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
+          style={[
+            stylesLocalWithTheme.btn,
+            {
+              backgroundColor: theme.colors.error,
+              opacity: hasAnyUsageRecords ? 1 : 0.45,
+            },
+          ]}
+          disabled={!hasAnyUsageRecords}
+          onPress={() => {
+            const label = selectedModel ? stripFileExtension(selectedModel) : 'this model';
+            const buttons: {
+              text: string;
+              style?: 'default' | 'destructive' | 'cancel';
+              onPress?: () => void;
+            }[] = [];
+
+            if (selectedModelHasRecords && selectedModel) {
+              buttons.push({
                 text: 'Clear',
                 style: 'destructive',
-                onPress: clearUsageData
-              },
-            ]
-          )}
+                onPress: () => clearUsageDataForModel(selectedModel),
+              });
+            }
+
+            if (hasAnyUsageRecords) {
+              buttons.push({
+                text: 'Clear All',
+                style: 'destructive',
+                onPress: clearAllUsageData,
+              });
+            }
+
+            buttons.push({ text: 'Cancel', style: 'cancel' });
+
+            showAlert(
+              'Clear usage data',
+              selectedModelHasRecords
+                ? `Clear history for "${label}", or remove data for every model.`
+                : 'Remove performance history for every model? This cannot be undone.',
+              buttons,
+            );
+          }}
         >
           <Text style={[stylesLocalWithTheme.btnText, { marginLeft: 0 }]}>Clear</Text>
         </TouchableOpacity>
@@ -1167,6 +1230,9 @@ const createStylesLocal = (colors: any) => StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    overflow: 'hidden',
   },
   modelText: {
     fontSize: 15,
@@ -1181,6 +1247,10 @@ const createStylesLocal = (colors: any) => StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     position: 'absolute',
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    overflow: 'hidden',
+    zIndex: 1,
   },
   arrowButtonLeft: {
     left: 0,

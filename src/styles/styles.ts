@@ -4,6 +4,11 @@ import type { ThemeColors } from "../context/ThemeContext";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
+/** Height of the soft fade above the chat input bar */
+export const INPUT_FADE_HEIGHT = 40;
+/** Height of the soft fade under the top action pills */
+export const TOP_FADE_HEIGHT = 72;
+
 export const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
@@ -23,7 +28,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     flexDirection: "row",
   },
   topRightPill: {
-    backgroundColor: colors.glass,
+    backgroundColor: colors.transparent,
     borderRadius: 30,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -32,7 +37,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     marginLeft: 8,
     borderWidth: 1,
     borderColor: colors.border,
-    backdropFilter: "blur(10px)",
+    overflow: "hidden",
   },
   topRightPillText: {
     fontFamily: "Poppins",
@@ -47,7 +52,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     top: 8,
     left: 16,
     zIndex: 10,
-    backgroundColor: colors.glass,
+    backgroundColor: colors.transparent,
     borderRadius: 30,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -55,38 +60,37 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: colors.border,
-    backdropFilter: "blur(10px)",
+    overflow: "hidden",
   },
 
-  /* Slide-out panel style */
+  /* Slide-out panel style — frosted; tint comes from FrostedGlass */
   slideOutPanel: {
     position: "absolute",
     top: 0,
     bottom: 0,
     left: 0,
     width: 250,
-    backgroundColor: colors.card,
+    backgroundColor: colors.transparent,
     zIndex: 5,
     borderRightWidth: 1,
     borderRightColor: colors.border,
+    overflow: "hidden",
   },
 
   greetingContainer: {
     position: "absolute",
-    top: "50%",
     left: 0,
     right: 0,
     paddingHorizontal: 20,
     alignItems: "center",
     zIndex: 2,
-    transform: [{ translateY: -50 }],
   },
   greetingText: {
-    fontSize: 32,
+    fontSize: 26,
     fontWeight: "300",
     textAlign: "center",
     color: colors.text,
-    lineHeight: 36,
+    lineHeight: 32,
     fontFamily: "Poppins",
   },
 
@@ -135,7 +139,6 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.glass,
     borderWidth: 1,
     borderColor: colors.border,
-    backdropFilter: "blur(10px)",
     minHeight: 36,
     overflow: "hidden",
   },
@@ -159,8 +162,26 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
 
   bottomContainer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: colors.transparent,
-    paddingTop: 8,
+  },
+  inputFade: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  inputBarArea: {
+    backgroundColor: colors.transparent,
+    paddingTop: INPUT_FADE_HEIGHT,
+  },
+  topFade: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: TOP_FADE_HEIGHT,
+    zIndex: 9,
   },
   inputRowWrapper: {
     flexDirection: "row",
@@ -172,11 +193,12 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: colors.glass,
+    backgroundColor: colors.transparent,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
   inputBar: {
     flexDirection: "row",
@@ -189,8 +211,8 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     paddingVertical: 2,
     marginHorizontal: 16,
     marginBottom: 8,
-    backgroundColor: colors.glass,
-    backdropFilter: "blur(10px)",
+    backgroundColor: colors.transparent,
+    overflow: "hidden",
   },
   inputBarInRow: {
     flex: 1,
@@ -238,9 +260,10 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 12,
-    backgroundColor: colors.glass,
+    backgroundColor: colors.transparent,
     borderWidth: 1,
     borderColor: colors.border,
+    overflow: "hidden",
   },
   attachmentThumb: {
     width: 40,
@@ -456,7 +479,6 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     height: "100%",
     borderWidth: 1,
     borderColor: colors.border,
-    backdropFilter: "blur(10px)",
   },
   blockIcon: {
     position: "absolute",
@@ -509,7 +531,6 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     margin: 2,
     alignItems: "center",
     justifyContent: "center",
-    backdropFilter: "blur(10px)",
   },
   modelFormatBoxText: {
     fontSize: 28,
@@ -583,5 +604,5 @@ export const styles = createStyles({
   warning: "#FF9F0A",
   error: "#FF453A",
   transparent: "transparent",
-  glass: "rgba(255, 255, 255, 0.8)",
+  glass: "rgba(255, 255, 255, 0.75)",
 } as ThemeColors);

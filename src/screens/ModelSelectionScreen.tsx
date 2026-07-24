@@ -42,6 +42,7 @@ import { ModelCard, ModelInfo } from "../components/ModelCard";
 import { useModelFilter } from "../hooks/useModelFilter";
 import { prettifyModelName, getQuantRecommendLabel } from "../utils/modelUtils";
 import { createCancellationToken, DownloadCancellationToken } from "../api/model";
+import { EASING, OVERLAY_MOTION } from "../utils/animationConfig";
 
 // Type for quantization options (used internally in this file)
 interface QuantizationOption {
@@ -273,28 +274,28 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const [isQuantModalExiting, setIsQuantModalExiting] = useState(false);
   const [selectedModelForDownload, setSelectedModelForDownload] = useState<ModelInfo | null>(null);
 
-  // Quantization modal pop-in animation (matches CustomAlert pattern)
+  // Quantization modal — page-style fade + scale (no spring bounce)
   const quantModalOpacity = useRef(new Animated.Value(0)).current;
-  const quantModalScale = useRef(new Animated.Value(0.92)).current;
+  const quantModalScale = useRef(new Animated.Value(OVERLAY_MOTION.FROM_SCALE)).current;
 
   const customUrlModalOpacity = useRef(new Animated.Value(0)).current;
-  const customUrlModalScale = useRef(new Animated.Value(0.92)).current;
+  const customUrlModalScale = useRef(new Animated.Value(OVERLAY_MOTION.FROM_SCALE)).current;
 
   useEffect(() => {
     if (showQuantSelector && !isQuantModalExiting) {
       quantModalOpacity.setValue(0);
-      quantModalScale.setValue(0.92);
+      quantModalScale.setValue(OVERLAY_MOTION.FROM_SCALE);
       Animated.parallel([
         Animated.timing(quantModalOpacity, {
           toValue: 1,
-          duration: 200,
+          duration: OVERLAY_MOTION.FADE_IN_MS,
+          easing: EASING.EASE_OUT,
           useNativeDriver: true,
         }),
-        Animated.spring(quantModalScale, {
+        Animated.timing(quantModalScale, {
           toValue: 1,
-          tension: 100,
-          friction: 14,
-          overshootClamping: true,
+          duration: OVERLAY_MOTION.SCALE_IN_MS,
+          easing: EASING.EASE_OUT,
           useNativeDriver: true,
         }),
       ]).start();
@@ -302,12 +303,14 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       Animated.parallel([
         Animated.timing(quantModalOpacity, {
           toValue: 0,
-          duration: 150,
+          duration: OVERLAY_MOTION.FADE_OUT_MS,
+          easing: EASING.EASE_IN,
           useNativeDriver: true,
         }),
         Animated.timing(quantModalScale, {
-          toValue: 0.92,
-          duration: 150,
+          toValue: OVERLAY_MOTION.FROM_SCALE,
+          duration: OVERLAY_MOTION.SCALE_OUT_MS,
+          easing: EASING.EASE_IN,
           useNativeDriver: true,
         }),
       ]).start(() => {
@@ -330,18 +333,18 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   useEffect(() => {
     if (showCustomUrlModal && !isCustomUrlModalExiting) {
       customUrlModalOpacity.setValue(0);
-      customUrlModalScale.setValue(0.92);
+      customUrlModalScale.setValue(OVERLAY_MOTION.FROM_SCALE);
       Animated.parallel([
         Animated.timing(customUrlModalOpacity, {
           toValue: 1,
-          duration: 200,
+          duration: OVERLAY_MOTION.FADE_IN_MS,
+          easing: EASING.EASE_OUT,
           useNativeDriver: true,
         }),
-        Animated.spring(customUrlModalScale, {
+        Animated.timing(customUrlModalScale, {
           toValue: 1,
-          tension: 100,
-          friction: 14,
-          overshootClamping: true,
+          duration: OVERLAY_MOTION.SCALE_IN_MS,
+          easing: EASING.EASE_OUT,
           useNativeDriver: true,
         }),
       ]).start();
@@ -349,12 +352,14 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       Animated.parallel([
         Animated.timing(customUrlModalOpacity, {
           toValue: 0,
-          duration: 150,
+          duration: OVERLAY_MOTION.FADE_OUT_MS,
+          easing: EASING.EASE_IN,
           useNativeDriver: true,
         }),
         Animated.timing(customUrlModalScale, {
-          toValue: 0.92,
-          duration: 150,
+          toValue: OVERLAY_MOTION.FROM_SCALE,
+          duration: OVERLAY_MOTION.SCALE_OUT_MS,
+          easing: EASING.EASE_IN,
           useNativeDriver: true,
         }),
       ]).start(() => {

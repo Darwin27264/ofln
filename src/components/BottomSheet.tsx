@@ -52,11 +52,6 @@ const MIN_DRAG_DISTANCE = 10; // Minimum distance before recognizing drag
 // Bottom sheet specific animation configs
 // Uses centralized configs with slight variations for this component
 const BOTTOM_SHEET_ANIMATIONS = {
-  open: {
-    ...ANIMATION_CONFIG.panel,
-    duration: 300, // Slightly longer for bottom sheet opening
-    easing: EASING.EASE_OUT,
-  },
   close: {
     ...ANIMATION_CONFIG.panel,
     duration: 250,

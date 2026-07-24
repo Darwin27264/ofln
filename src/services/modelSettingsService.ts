@@ -1,5 +1,4 @@
 // modelSettingsService.ts
-import RNFS from "react-native-fs";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export interface ModelSettings {
@@ -9,9 +8,36 @@ export interface ModelSettings {
   temperature: number; // Sampling temperature (0.0 - 2.0)
   top_p: number; // Top-p sampling (0.0 - 1.0)
   top_k: number; // Top-k sampling (1 - 100)
-  repeat_penalty: number; // Repeat penalty (0.0 - 2.0)
+  repeat_penalty: number; // Repeat penalty (1.0 - 2.0)
   n_predict: number; // Max tokens to predict
 }
+
+/**
+ * Allowed ranges for each numeric setting.
+ * Tuned for on-device llama.rn / llama.cpp on phones:
+ * - n_ctx: power-of-two sizes only (KV-friendly); Android load may still soft-cap ~2048
+ * - n_gpu_layers: 0 = CPU; 99 ≈ offload all (llama.cpp convention)
+ * - temperature / top_p / top_k: standard llama.cpp sampling bounds
+ * - repeat_penalty: ≥ 1.0 (values < 1 encourage repetition)
+ * - n_predict: capped for battery / latency on mobile
+ */
+export const SETTING_RANGES = {
+  n_ctx: {
+    /** Discrete allowed context sizes (slider snaps to these). */
+    values: [512, 1024, 2048, 4096, 8192] as const,
+    min: 512,
+    max: 8192,
+    step: 1,
+  },
+  n_gpu_layers: { min: 0, max: 99, step: 1 },
+  temperature: { min: 0, max: 2, step: 0.05 },
+  top_p: { min: 0.05, max: 1, step: 0.01 },
+  top_k: { min: 1, max: 100, step: 1 },
+  repeat_penalty: { min: 1, max: 2, step: 0.05 },
+  n_predict: { min: 64, max: 2048, step: 32 },
+} as const;
+
+export type NCtxAllowed = (typeof SETTING_RANGES.n_ctx.values)[number];
 
 export const DEFAULT_SETTINGS: ModelSettings = {
   systemPrompt:
@@ -22,35 +48,114 @@ export const DEFAULT_SETTINGS: ModelSettings = {
   n_ctx: 2048, // Enough headroom for multi-turn chats without overflow
   n_gpu_layers: 1,
   temperature: 0.65, // Recommended for Q4 models
-  top_p: 0.90, // Recommended for Q4 models
+  top_p: 0.9, // Recommended for Q4 models
   top_k: 40, // Recommended for Q4 models
-  repeat_penalty: 1.20, // Stronger penalty reduces repetition in long chats
+  repeat_penalty: 1.2, // Stronger penalty reduces repetition in long chats
   n_predict: 256, // Slightly more room than 192; still conservative for phone inference
 };
 
 const MODEL_SETTINGS_KEY_PREFIX = "@model_settings_";
 
+function clamp(n: number, min: number, max: number): number {
+  if (!Number.isFinite(n)) return min;
+  return Math.min(max, Math.max(min, n));
+}
+
+/** Snap to nearest step within [min, max]. */
+export function snapToStep(
+  value: number,
+  min: number,
+  max: number,
+  step: number,
+): number {
+  const clamped = clamp(value, min, max);
+  if (step <= 0) return clamped;
+  const snapped = Math.round((clamped - min) / step) * step + min;
+  // Avoid float drift (e.g. 0.7000000001)
+  const decimals = String(step).includes(".")
+    ? (String(step).split(".")[1]?.length ?? 0)
+    : 0;
+  const rounded =
+    decimals > 0 ? Number(snapped.toFixed(decimals)) : Math.round(snapped);
+  return clamp(rounded, min, max);
+}
+
+/** Nearest allowed n_ctx from the discrete list. */
+export function snapNCtx(value: number): NCtxAllowed {
+  const allowed = SETTING_RANGES.n_ctx.values;
+  let best: NCtxAllowed = allowed[0];
+  let bestDist = Math.abs(value - best);
+  for (const v of allowed) {
+    const d = Math.abs(value - v);
+    if (d < bestDist) {
+      best = v;
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
 /**
- * Validate and sanitize model settings
- * Ensures all values are within valid ranges and all required fields exist
+ * Validate and sanitize model settings.
+ * Ensures all values are within valid ranges and all required fields exist.
  */
-const validateSettings = (settings: Partial<ModelSettings>): ModelSettings => {
+export const validateSettings = (
+  settings: Partial<ModelSettings>,
+): ModelSettings => {
   const validated = { ...DEFAULT_SETTINGS, ...settings };
-  
-  // Validate and clamp values to safe ranges
-  validated.n_ctx = Math.max(128, Math.min(8192, validated.n_ctx || DEFAULT_SETTINGS.n_ctx));
-  validated.n_gpu_layers = Math.max(0, Math.min(100, validated.n_gpu_layers ?? DEFAULT_SETTINGS.n_gpu_layers));
-  validated.temperature = Math.max(0.0, Math.min(2.0, validated.temperature ?? DEFAULT_SETTINGS.temperature));
-  validated.top_p = Math.max(0.0, Math.min(1.0, validated.top_p ?? DEFAULT_SETTINGS.top_p));
-  validated.top_k = Math.max(1, Math.min(100, validated.top_k ?? DEFAULT_SETTINGS.top_k));
-  validated.repeat_penalty = Math.max(0.0, Math.min(2.0, validated.repeat_penalty ?? DEFAULT_SETTINGS.repeat_penalty));
-  validated.n_predict = Math.max(1, Math.min(10000, validated.n_predict ?? DEFAULT_SETTINGS.n_predict));
-  
-  // Ensure systemPrompt is a string
-  if (typeof validated.systemPrompt !== 'string') {
+
+  validated.n_ctx = snapNCtx(
+    typeof validated.n_ctx === "number"
+      ? validated.n_ctx
+      : DEFAULT_SETTINGS.n_ctx,
+  );
+
+  validated.n_gpu_layers = snapToStep(
+    Number(validated.n_gpu_layers),
+    SETTING_RANGES.n_gpu_layers.min,
+    SETTING_RANGES.n_gpu_layers.max,
+    SETTING_RANGES.n_gpu_layers.step,
+  );
+
+  validated.temperature = snapToStep(
+    Number(validated.temperature),
+    SETTING_RANGES.temperature.min,
+    SETTING_RANGES.temperature.max,
+    SETTING_RANGES.temperature.step,
+  );
+
+  validated.top_p = snapToStep(
+    Number(validated.top_p),
+    SETTING_RANGES.top_p.min,
+    SETTING_RANGES.top_p.max,
+    SETTING_RANGES.top_p.step,
+  );
+
+  validated.top_k = snapToStep(
+    Number(validated.top_k),
+    SETTING_RANGES.top_k.min,
+    SETTING_RANGES.top_k.max,
+    SETTING_RANGES.top_k.step,
+  );
+
+  validated.repeat_penalty = snapToStep(
+    Number(validated.repeat_penalty),
+    SETTING_RANGES.repeat_penalty.min,
+    SETTING_RANGES.repeat_penalty.max,
+    SETTING_RANGES.repeat_penalty.step,
+  );
+
+  validated.n_predict = snapToStep(
+    Number(validated.n_predict),
+    SETTING_RANGES.n_predict.min,
+    SETTING_RANGES.n_predict.max,
+    SETTING_RANGES.n_predict.step,
+  );
+
+  if (typeof validated.systemPrompt !== "string") {
     validated.systemPrompt = DEFAULT_SETTINGS.systemPrompt;
   }
-  
+
   return validated;
 };
 
@@ -58,7 +163,9 @@ const validateSettings = (settings: Partial<ModelSettings>): ModelSettings => {
  * Get settings for a specific model
  * Returns validated settings with defaults merged in for any missing fields
  */
-export const getModelSettings = async (modelFileName: string): Promise<ModelSettings> => {
+export const getModelSettings = async (
+  modelFileName: string,
+): Promise<ModelSettings> => {
   try {
     const key = `${MODEL_SETTINGS_KEY_PREFIX}${modelFileName}`;
     const settingsJson = await AsyncStorage.getItem(key);
@@ -80,7 +187,7 @@ export const getModelSettings = async (modelFileName: string): Promise<ModelSett
  */
 export const saveModelSettings = async (
   modelFileName: string,
-  settings: Partial<ModelSettings>
+  settings: Partial<ModelSettings>,
 ): Promise<void> => {
   try {
     const key = `${MODEL_SETTINGS_KEY_PREFIX}${modelFileName}`;
@@ -97,7 +204,9 @@ export const saveModelSettings = async (
 /**
  * Reset settings to defaults for a specific model
  */
-export const resetModelSettings = async (modelFileName: string): Promise<void> => {
+export const resetModelSettings = async (
+  modelFileName: string,
+): Promise<void> => {
   try {
     const key = `${MODEL_SETTINGS_KEY_PREFIX}${modelFileName}`;
     await AsyncStorage.setItem(key, JSON.stringify(DEFAULT_SETTINGS));
@@ -110,7 +219,9 @@ export const resetModelSettings = async (modelFileName: string): Promise<void> =
 /**
  * Delete settings for a specific model
  */
-export const deleteModelSettings = async (modelFileName: string): Promise<void> => {
+export const deleteModelSettings = async (
+  modelFileName: string,
+): Promise<void> => {
   try {
     const key = `${MODEL_SETTINGS_KEY_PREFIX}${modelFileName}`;
     await AsyncStorage.removeItem(key);
@@ -119,4 +230,3 @@ export const deleteModelSettings = async (modelFileName: string): Promise<void> 
     throw error;
   }
 };
-

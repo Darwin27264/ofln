@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { ScrollView, StatusBar, Platform } from "react-native";
+import { ScrollView, StatusBar, Platform, Animated } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -24,7 +24,9 @@ import axios from "axios";
 
 // Theme
 import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
-import { applySystemBarTheme } from "./src/utils/systemBars";
+import { applySystemBarTheme, lerpHexColor } from "./src/utils/systemBars";
+import { frostedPanelSystemBarColor } from "./src/components/FrostedGlass";
+import { EASING } from "./src/utils/animationConfig";
 
 // Components
 import { CustomAlertProvider } from "./src/components/CustomAlert";
@@ -82,20 +84,70 @@ function AppContent(): React.JSX.Element {
     }
   }, []);
 
-  // Determine status bar and nav bar colors based on app theme
-  // Use theme background color for system bars to match app theme
-  const statusBarColor = theme.colors.background;
-  const navBarColor = theme.colors.background;
-  
-  // Apply system bar theme when theme changes
-  useEffect(() => {
-    if (Platform.OS === 'android') {
-      applySystemBarTheme({ 
-        statusBarColor, 
-        navBarColor 
-      });
+  // Soft crossfade for status / home bars when the frosted history panel opens.
+  // Native bars can't interpolate themselves — we lerp hex and push frames.
+  const [historyPanelOpen, setHistoryPanelOpen] = useState(false);
+  const [shellBackground, setShellBackground] = useState(theme.colors.background);
+  const shellColorAnim = useRef(new Animated.Value(0)).current;
+  const shellAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+  const lastShellColorRef = useRef(theme.colors.background);
+  const SYSTEM_BAR_FADE_MS = 220;
+
+  const applyShellColor = useCallback((hex: string) => {
+    if (hex === lastShellColorRef.current) return;
+    lastShellColorRef.current = hex;
+    setShellBackground(hex);
+    if (Platform.OS === "android") {
+      applySystemBarTheme({ statusBarColor: hex, navBarColor: hex });
     }
-  }, [statusBarColor, navBarColor]);
+  }, []);
+
+  // Theme flips: snap shell to the correct endpoint for the current panel state
+  useEffect(() => {
+    const target = historyPanelOpen
+      ? frostedPanelSystemBarColor(theme.mode)
+      : theme.colors.background;
+    shellColorAnim.stopAnimation();
+    shellAnimRef.current?.stop();
+    shellColorAnim.setValue(historyPanelOpen ? 1 : 0);
+    applyShellColor(target);
+    // Only react to theme changes — panel open/close has its own eased effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme.mode, theme.colors.background]);
+
+  // Panel open/close: ease shell + system bars with the drawer
+  useEffect(() => {
+    const from = theme.colors.background;
+    const to = frostedPanelSystemBarColor(theme.mode);
+    const end = historyPanelOpen ? 1 : 0;
+
+    shellAnimRef.current?.stop();
+    shellAnimRef.current = Animated.timing(shellColorAnim, {
+      toValue: end,
+      duration: SYSTEM_BAR_FADE_MS,
+      easing: EASING.EASE_OUT,
+      useNativeDriver: false,
+    });
+
+    const listenerId = shellColorAnim.addListener(({ value }) => {
+      applyShellColor(lerpHexColor(from, to, value));
+    });
+
+    shellAnimRef.current.start(({ finished }) => {
+      if (finished) {
+        applyShellColor(lerpHexColor(from, to, end));
+      }
+      shellAnimRef.current = null;
+    });
+
+    return () => {
+      shellColorAnim.removeListener(listenerId);
+    };
+  }, [historyPanelOpen, theme.mode, theme.colors.background, shellColorAnim, applyShellColor]);
+
+  const statusBarColor = shellBackground;
+  const navBarColor = shellBackground;
+
   const INITIAL_CONVERSATION: Message[] = [
     {
       role: "system",
@@ -110,6 +162,14 @@ function AppContent(): React.JSX.Element {
   const [selectedGGUF, setSelectedGGUF] = useState<string | null>(null);
   type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "info" | "diagnostics";
   const [currentPage, setCurrentPage] = useState<PageType>("conversation");
+
+  // Leaving conversation always clears panel-driven bar styling
+  useEffect(() => {
+    if (currentPage !== "conversation" && historyPanelOpen) {
+      setHistoryPanelOpen(false);
+    }
+  }, [currentPage, historyPanelOpen]);
+
   const [editingPersona, setEditingPersona] = useState<Persona | null | undefined>(undefined);
   const [selectedModelForSettings, setSelectedModelForSettings] = useState<ModelInfo | null>(null);
   const [tokensPerSecond, setTokensPerSecond] = useState<number[]>([]);
@@ -381,7 +441,7 @@ function AppContent(): React.JSX.Element {
         backgroundColor={statusBarColor}
       />
       <SafeAreaView 
-        style={[styles.container, { backgroundColor: theme.colors.background }]}
+        style={[styles.container, { backgroundColor: shellBackground }]}
         edges={['top', 'bottom', 'left', 'right']}
       >
         {currentPage === "modelSelection" && (
@@ -461,6 +521,7 @@ function AppContent(): React.JSX.Element {
           checkDownloadedModels={checkDownloadedModels}
           selectedPersona={selectedPersona}
           setSelectedPersona={setSelectedPersona}
+          onHistoryPanelChange={setHistoryPanelOpen}
           />
         </PageFadeIn>
       )}

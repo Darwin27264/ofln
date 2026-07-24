@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,13 +9,23 @@ import {
   Alert,
   Platform,
   BackHandler,
+  ScrollView,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { EASING, OVERLAY_MOTION } from '../utils/animationConfig';
 
 interface AlertButton {
   text: string;
   onPress?: () => void;
   style?: 'default' | 'destructive' | 'cancel';
+}
+
+type AlertTextAlign = 'center' | 'left';
+
+interface ShowAlertOptions {
+  cancelable?: boolean;
+  /** Body (and title) alignment. Defaults to center; use left for long readable copy. */
+  textAlign?: AlertTextAlign;
 }
 
 interface CustomAlertProps {
@@ -25,17 +35,35 @@ interface CustomAlertProps {
   buttons: AlertButton[];
   onDismiss?: () => void;
   cancelable?: boolean;
+  textAlign?: AlertTextAlign;
 }
 
 let alertRef: {
-  show: (title: string, message: string, buttons: AlertButton[], cancelable?: boolean) => void;
+  show: (
+    title: string,
+    message: string,
+    buttons: AlertButton[],
+    options?: boolean | ShowAlertOptions,
+  ) => void;
   hide: () => void;
 } | null = null;
+
+function resolveAlertOptions(
+  options?: boolean | ShowAlertOptions,
+): { cancelable: boolean; textAlign: AlertTextAlign } {
+  if (typeof options === 'boolean') {
+    return { cancelable: options, textAlign: 'center' };
+  }
+  return {
+    cancelable: options?.cancelable ?? true,
+    textAlign: options?.textAlign ?? 'center',
+  };
+}
 
 /**
  * In-tree absolute overlay alert (no RN Modal).
  * Modals nested under native-driven opacity/transform parents often fail on
- * Android — this pattern stays reliable while keeping the same pop-in animation.
+ * Android — this pattern stays reliable while matching page enter/exit motion.
  */
 export const CustomAlert: React.FC<CustomAlertProps> = ({
   visible,
@@ -44,48 +72,85 @@ export const CustomAlert: React.FC<CustomAlertProps> = ({
   buttons,
   onDismiss,
   cancelable = true,
+  textAlign = 'center',
 }) => {
   const { theme } = useTheme();
   const alertOpacity = useRef(new Animated.Value(0)).current;
-  const alertScale = useRef(new Animated.Value(0.9)).current;
+  const alertScale = useRef(new Animated.Value(OVERLAY_MOTION.FROM_SCALE)).current;
   const [mounted, setMounted] = useState(visible);
+  const animRef = useRef<Animated.CompositeAnimation | null>(null);
+  const visibleGenRef = useRef(0);
 
-  useEffect(() => {
+  // Mount before paint when opening so the fade/scale actually runs on attached views.
+  useLayoutEffect(() => {
     if (visible) {
       setMounted(true);
+    }
+  }, [visible]);
+
+  useEffect(() => {
+    // Wait until the overlay is in the tree so native-driver fade/scale actually paints.
+    if (!mounted) return;
+
+    animRef.current?.stop();
+    animRef.current = null;
+
+    if (visible) {
+      const gen = ++visibleGenRef.current;
       alertOpacity.setValue(0);
-      alertScale.setValue(0.9);
-      Animated.parallel([
+      alertScale.setValue(OVERLAY_MOTION.FROM_SCALE);
+      const animation = Animated.parallel([
         Animated.timing(alertOpacity, {
           toValue: 1,
-          duration: 200,
+          duration: OVERLAY_MOTION.FADE_IN_MS,
+          easing: EASING.EASE_OUT,
           useNativeDriver: true,
         }),
-        Animated.spring(alertScale, {
+        Animated.timing(alertScale, {
           toValue: 1,
-          tension: 50,
-          friction: 7,
+          duration: OVERLAY_MOTION.SCALE_IN_MS,
+          easing: EASING.EASE_OUT,
           useNativeDriver: true,
         }),
-      ]).start();
-      return;
+      ]);
+      animRef.current = animation;
+      animation.start(({ finished }) => {
+        if (finished && gen === visibleGenRef.current) {
+          animRef.current = null;
+        }
+      });
+      return () => {
+        animation.stop();
+      };
     }
 
-    Animated.parallel([
+    const gen = visibleGenRef.current;
+    const animation = Animated.parallel([
       Animated.timing(alertOpacity, {
         toValue: 0,
-        duration: 150,
+        duration: OVERLAY_MOTION.FADE_OUT_MS,
+        easing: EASING.EASE_IN,
         useNativeDriver: true,
       }),
       Animated.timing(alertScale, {
-        toValue: 0.9,
-        duration: 150,
+        toValue: OVERLAY_MOTION.FROM_SCALE,
+        duration: OVERLAY_MOTION.SCALE_OUT_MS,
+        easing: EASING.EASE_IN,
         useNativeDriver: true,
       }),
-    ]).start(({ finished }) => {
-      if (finished) setMounted(false);
+    ]);
+    animRef.current = animation;
+    animation.start(({ finished }) => {
+      // Ignore stale exit if the alert was re-opened mid-dismiss.
+      if (finished && gen === visibleGenRef.current) {
+        animRef.current = null;
+        setMounted(false);
+      }
     });
-  }, [visible, alertOpacity, alertScale]);
+    return () => {
+      animation.stop();
+    };
+  }, [visible, mounted, alertOpacity, alertScale]);
 
   useEffect(() => {
     if (!visible || Platform.OS !== 'android') return;
@@ -113,6 +178,11 @@ export const CustomAlert: React.FC<CustomAlertProps> = ({
       onDismiss();
     }
   };
+
+  const orderedButtons = [
+    ...buttons.filter((b) => b.style !== 'cancel'),
+    ...buttons.filter((b) => b.style === 'cancel'),
+  ];
 
   if (!mounted) {
     return null;
@@ -144,12 +214,19 @@ export const CustomAlert: React.FC<CustomAlertProps> = ({
             },
           ]}
         >
-          <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
-          <Text style={[styles.message, { color: theme.colors.textSecondary }]}>
-            {message}
-          </Text>
+          <Text style={[styles.title, { color: theme.colors.text, textAlign }]}>{title}</Text>
+          <ScrollView
+            style={styles.messageScroll}
+            contentContainerStyle={styles.messageScrollContent}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            <Text style={[styles.message, { color: theme.colors.textSecondary, textAlign }]}>
+              {message}
+            </Text>
+          </ScrollView>
           <View style={styles.buttonContainer}>
-            {buttons.map((button, index) => (
+            {orderedButtons.map((button, index) => (
               <TouchableOpacity
                 key={`${button.text}-${index}`}
                 onPress={() => handleButtonPress(button)}
@@ -164,7 +241,7 @@ export const CustomAlert: React.FC<CustomAlertProps> = ({
                           : theme.colors.primary,
                     borderWidth: button.style === 'cancel' ? 1 : 0,
                     borderColor: theme.colors.border,
-                    marginLeft: index > 0 ? 12 : 0,
+                    marginTop: index > 0 ? 10 : 0,
                   },
                 ]}
               >
@@ -205,7 +282,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 28,
   },
   alertContainer: {
     borderRadius: 20,
@@ -220,27 +297,36 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins',
     marginBottom: 12,
   },
+  messageScroll: {
+    maxHeight: 320,
+    marginBottom: 24,
+  },
+  messageScrollContent: {
+    flexGrow: 0,
+  },
   message: {
     fontSize: 16,
     fontFamily: 'Poppins',
-    marginBottom: 24,
     lineHeight: 22,
   },
   buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    width: '100%',
   },
   button: {
-    paddingVertical: 10,
+    width: '100%',
+    paddingVertical: 14,
     paddingHorizontal: 20,
-    borderRadius: 12,
-    minWidth: 80,
+    borderRadius: 14,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonText: {
     fontSize: 16,
     fontWeight: '600',
     fontFamily: 'Poppins',
+    textAlign: 'center',
   },
   providerRoot: {
     flex: 1,
@@ -251,10 +337,12 @@ export const showAlert = (
   title: string,
   message: string,
   buttons: AlertButton[] = [{ text: 'OK' }],
-  cancelable: boolean = true,
+  options: boolean | ShowAlertOptions = true,
 ) => {
+  const { cancelable, textAlign } = resolveAlertOptions(options);
+
   if (alertRef) {
-    alertRef.show(title, message, buttons, cancelable);
+    alertRef.show(title, message, buttons, { cancelable, textAlign });
     return;
   }
 
@@ -279,23 +367,27 @@ export const CustomAlertProvider: React.FC<{ children: React.ReactNode }> = ({
     message: string;
     buttons: AlertButton[];
     cancelable: boolean;
+    textAlign: AlertTextAlign;
   }>({
     visible: false,
     title: '',
     message: '',
     buttons: [],
     cancelable: true,
+    textAlign: 'center',
   });
 
   useEffect(() => {
     alertRef = {
-      show: (title, message, buttons, cancelable = true) => {
+      show: (title, message, buttons, options = true) => {
+        const resolved = resolveAlertOptions(options);
         setAlertState({
           visible: true,
           title,
           message,
           buttons,
-          cancelable,
+          cancelable: resolved.cancelable,
+          textAlign: resolved.textAlign,
         });
       },
       hide: () => {
@@ -318,6 +410,7 @@ export const CustomAlertProvider: React.FC<{ children: React.ReactNode }> = ({
         buttons={alertState.buttons}
         onDismiss={() => setAlertState((prev) => ({ ...prev, visible: false }))}
         cancelable={alertState.cancelable}
+        textAlign={alertState.textAlign}
       />
     </View>
   );
