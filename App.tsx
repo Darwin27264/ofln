@@ -26,7 +26,7 @@ import axios from "axios";
 import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
 import { applySystemBarTheme, lerpHexColor } from "./src/utils/systemBars";
 import { frostedPanelSystemBarColor } from "./src/components/FrostedGlass";
-import { EASING } from "./src/utils/animationConfig";
+import { EASING, OVERLAY_MOTION } from "./src/utils/animationConfig";
 
 // Components
 import { CustomAlertProvider } from "./src/components/CustomAlert";
@@ -45,20 +45,12 @@ import DiagnosticsScreen from "./src/screens/DiagnosticsScreen";
 import { Persona, getPersonas } from "./src/services/personaService";
 import { ModelInfo } from "./src/components/ModelCard";
 
-// Services (legacy llama.rn — kept for backward compat)
-import {
-  loadModel,
-  stopGeneration,
-  handleSendMessageCompletion,
-  checkFileExists,
-  type SendMessageOptions,
-} from "./src/services/llamaService";
+// Services (legacy helpers still used for download / existence checks)
+import { checkFileExists } from "./src/services/llamaService";
 import { validateLocalModels, LocalModelInfo } from "./src/services/localModelService";
 
 // Vercel AI SDK integration layer
 import { llamaProvider } from "./src/providers/llamaProvider";
-import type { ModelStatus } from "./src/types/ai";
-import { tokensPerSecondFromMessages } from "./src/services/performanceTracking";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -86,12 +78,12 @@ function AppContent(): React.JSX.Element {
 
   // Soft crossfade for status / home bars when the frosted history panel opens.
   // Native bars can't interpolate themselves — we lerp hex and push frames.
-  const [historyPanelOpen, setHistoryPanelOpen] = useState(false);
+  // Frosted chrome open (history drawer OR quick model/persona panel) —
+  // drives status/nav bar + SafeArea shell to the same frost endpoint.
+  const [frostedChromeOpen, setFrostedChromeOpen] = useState(false);
   const [shellBackground, setShellBackground] = useState(theme.colors.background);
   const shellColorAnim = useRef(new Animated.Value(0)).current;
-  const shellAnimRef = useRef<Animated.CompositeAnimation | null>(null);
   const lastShellColorRef = useRef(theme.colors.background);
-  const SYSTEM_BAR_FADE_MS = 220;
 
   const applyShellColor = useCallback((hex: string) => {
     if (hex === lastShellColorRef.current) return;
@@ -102,51 +94,44 @@ function AppContent(): React.JSX.Element {
     }
   }, []);
 
-  // Theme flips: snap shell to the correct endpoint for the current panel state
+  // Theme change: snap shell to the correct endpoint for current chrome state.
   useEffect(() => {
-    const target = historyPanelOpen
+    const target = frostedChromeOpen
       ? frostedPanelSystemBarColor(theme.mode)
       : theme.colors.background;
     shellColorAnim.stopAnimation();
-    shellAnimRef.current?.stop();
-    shellColorAnim.setValue(historyPanelOpen ? 1 : 0);
+    shellColorAnim.setValue(frostedChromeOpen ? 1 : 0);
     applyShellColor(target);
-    // Only react to theme changes — panel open/close has its own eased effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme.mode, theme.colors.background]);
 
-  // Panel open/close: ease shell + system bars with the drawer
+  // Panel chrome open/close — same duration as overlay/history exit.
   useEffect(() => {
-    const from = theme.colors.background;
-    const to = frostedPanelSystemBarColor(theme.mode);
-    const end = historyPanelOpen ? 1 : 0;
+    const from = lastShellColorRef.current;
+    const to = frostedChromeOpen
+      ? frostedPanelSystemBarColor(theme.mode)
+      : theme.colors.background;
+    if (from.toLowerCase() === to.toLowerCase()) return;
 
-    shellAnimRef.current?.stop();
-    shellAnimRef.current = Animated.timing(shellColorAnim, {
-      toValue: end,
-      duration: SYSTEM_BAR_FADE_MS,
-      easing: EASING.EASE_OUT,
-      useNativeDriver: false,
-    });
-
+    shellColorAnim.setValue(0);
     const listenerId = shellColorAnim.addListener(({ value }) => {
       applyShellColor(lerpHexColor(from, to, value));
     });
-
-    shellAnimRef.current.start(({ finished }) => {
-      if (finished) {
-        applyShellColor(lerpHexColor(from, to, end));
-      }
-      shellAnimRef.current = null;
+    const anim = Animated.timing(shellColorAnim, {
+      toValue: 1,
+      duration: OVERLAY_MOTION.FADE_OUT_MS,
+      easing: EASING.EASE_OUT,
+      useNativeDriver: false,
     });
-
+    anim.start(({ finished }) => {
+      if (finished) applyShellColor(to);
+    });
     return () => {
       shellColorAnim.removeListener(listenerId);
+      anim.stop();
     };
-  }, [historyPanelOpen, theme.mode, theme.colors.background, shellColorAnim, applyShellColor]);
-
-  const statusBarColor = shellBackground;
-  const navBarColor = shellBackground;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frostedChromeOpen, applyShellColor]);
 
   const INITIAL_CONVERSATION: Message[] = [
     {
@@ -158,36 +143,23 @@ function AppContent(): React.JSX.Element {
   const [context, setContext] = useState<any>(null);
   const [conversation, setConversation] = useState<Message[]>(INITIAL_CONVERSATION);
   const [userInput, setUserInput] = useState<string>("");
-  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedGGUF, setSelectedGGUF] = useState<string | null>(null);
   type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "info" | "diagnostics";
   const [currentPage, setCurrentPage] = useState<PageType>("conversation");
 
-  // Leaving conversation always clears panel-driven bar styling
+  // Leaving conversation always clears frosted chrome bar styling
   useEffect(() => {
-    if (currentPage !== "conversation" && historyPanelOpen) {
-      setHistoryPanelOpen(false);
+    if (currentPage !== "conversation" && frostedChromeOpen) {
+      setFrostedChromeOpen(false);
     }
-  }, [currentPage, historyPanelOpen]);
+  }, [currentPage, frostedChromeOpen]);
 
   const [editingPersona, setEditingPersona] = useState<Persona | null | undefined>(undefined);
   const [selectedModelForSettings, setSelectedModelForSettings] = useState<ModelInfo | null>(null);
-  const [tokensPerSecond, setTokensPerSecond] = useState<number[]>([]);
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
   const [downloadedModels, setDownloadedModels] = useState<string[]>([]);
   const [localModels, setLocalModels] = useState<LocalModelInfo[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
-
-  // AI SDK provider status — tracks readiness of the Vercel AI SDK model.
-  // The provider is NOT auto-loaded alongside the legacy path to avoid
-  // double memory usage.  Screens that adopt useAIChat should call
-  // llamaProvider.loadModel() explicitly when they need the AI SDK path.
-  const [aiModelStatus, setAiModelStatus] = useState<ModelStatus>(llamaProvider.getStatus());
-
-  useEffect(() => {
-    return llamaProvider.subscribe(setAiModelStatus);
-  }, []);
 
   const [assistantDisplayMode, setAssistantDisplayModeState] = useState<"bubble" | "direct">(
     "bubble"
@@ -305,7 +277,6 @@ function AppContent(): React.JSX.Element {
     llamaProvider.unloadModel();
     setConversation(INITIAL_CONVERSATION);
     setSelectedGGUF(null);
-    setTokensPerSecond([]);
     setCurrentChatId(null);
     setCurrentPage("modelSelection");
   }, []);
@@ -317,12 +288,10 @@ function AppContent(): React.JSX.Element {
    * 
    * Edge cases handled:
    * - Preserves model context (model stays loaded)
-   * - Resets performance metrics
    */
   const handleNewChat = useCallback(() => {
     setConversation(INITIAL_CONVERSATION);
     setCurrentChatId(null);
-    setTokensPerSecond([]);
   }, []);
 
   /**
@@ -333,7 +302,6 @@ function AppContent(): React.JSX.Element {
    * 
    * Edge cases handled:
    * - Validates messages array is not empty
-   * - Resets performance metrics for loaded chat
    */
   const handleLoadChat = useCallback(async (chatId: string, messages: Message[]) => {
     if (!messages || messages.length === 0) {
@@ -344,7 +312,6 @@ function AppContent(): React.JSX.Element {
     
     setConversation(messages);
     setCurrentChatId(chatId);
-    setTokensPerSecond(tokensPerSecondFromMessages(messages));
     setCurrentPage("conversation");
   }, []);
 
@@ -383,9 +350,10 @@ function AppContent(): React.JSX.Element {
     
     // Check if model already exists locally
     if (await checkFileExists(destPath)) {
-      // Model exists - load it directly without downloading
-      const success = await loadModel(destPath, context, setContext);
+      // Model exists - load via provider (same path as chat model switch)
+      const success = await llamaProvider.loadModel({ modelPath: destPath });
       if (success) {
+        setContext(llamaProvider.getNativeContext());
         setSelectedGGUF(file);
         await checkDownloadedModels(); // Refresh downloaded models list
         setCurrentPage("conversation");
@@ -409,9 +377,10 @@ function AppContent(): React.JSX.Element {
       
       await checkDownloadedModels(); // Refresh downloaded models list
       
-      // Load model after successful download
-      const success = await loadModel(destPath, context, setContext);
+      // Load model after successful download via provider
+      const success = await llamaProvider.loadModel({ modelPath: destPath });
       if (success) {
+        setContext(llamaProvider.getNativeContext());
         setSelectedGGUF(file);
         setCurrentPage("conversation");
       } else {
@@ -430,7 +399,7 @@ function AppContent(): React.JSX.Element {
       setSelectedGGUF(null); // Reset selection on error
       // Error is already handled by downloadModel, but we ensure state is clean
     }
-  }, [context, setContext, checkDownloadedModels]);
+  }, [setContext, checkDownloadedModels]);
 
   return (
     <>
@@ -438,7 +407,7 @@ function AppContent(): React.JSX.Element {
         translucent={false}
         // Android: 'light-content' = light text/icons; 'dark-content' = dark icons
         barStyle={theme.mode === 'dark' ? 'light-content' : 'dark-content'}
-        backgroundColor={statusBarColor}
+        backgroundColor={shellBackground}
       />
       <SafeAreaView 
         style={[styles.container, { backgroundColor: shellBackground }]}
@@ -451,8 +420,6 @@ function AppContent(): React.JSX.Element {
           localModels={localModels}
           setLocalModels={setLocalModels}
           handleDownloadModel={handleDownloadModel}
-          loadModel={loadModel}
-          context={context}
           setContext={setContext}
           setCurrentPage={setCurrentPage}
           checkDownloadedModels={checkDownloadedModels}
@@ -473,12 +440,6 @@ function AppContent(): React.JSX.Element {
           setConversation={setConversation}
           userInput={userInput}
           setUserInput={setUserInput}
-          isLoading={isLoading}
-          setIsLoading={setIsLoading}
-          isGenerating={isGenerating}
-          setIsGenerating={setIsGenerating}
-          tokensPerSecond={tokensPerSecond}
-          setTokensPerSecond={setTokensPerSecond}
           scrollViewRef={scrollViewRef}
           scrollPositionRef={scrollPositionRef}
           contentHeightRef={contentHeightRef}
@@ -490,38 +451,18 @@ function AppContent(): React.JSX.Element {
           onLoadChat={handleLoadChat}
           onNewChat={handleNewChat}
           onBackToModelSelection={handleBackToModelSelection}
-          stopGeneration={() =>
-            stopGeneration(context, setIsGenerating, setIsLoading, setConversation)
-          }
-          handleSendMessageCompletion={(messages, userMsg, sendOptions?: SendMessageOptions) =>
-            handleSendMessageCompletion(
-              messages,
-              userMsg,
-              context,
-              setConversation,
-              setUserInput,
-              setIsLoading,
-              setIsGenerating,
-              setAutoScrollEnabled,
-              tokensPerSecond,
-              setTokensPerSecond,
-              scrollViewRef,
-              selectedGGUF || "unknown",
-              selectedPersona,
-              sendOptions
-            )
-          }
+          onGoToModelSelection={() => setCurrentPage("modelSelection")}
           assistantDisplayMode={assistantDisplayMode}
           onOpenSettings={() => setCurrentPage("settings")}
           selectedGGUF={selectedGGUF}
           setSelectedGGUF={setSelectedGGUF}
           downloadedModels={downloadedModels}
-          loadModel={loadModel}
           setContext={setContext}
           checkDownloadedModels={checkDownloadedModels}
           selectedPersona={selectedPersona}
           setSelectedPersona={setSelectedPersona}
-          onHistoryPanelChange={setHistoryPanelOpen}
+          onHistoryPanelChange={setFrostedChromeOpen}
+          shellBackground={shellBackground}
           />
         </PageFadeIn>
       )}

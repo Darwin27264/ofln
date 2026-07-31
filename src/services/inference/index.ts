@@ -5,12 +5,7 @@ export {
   type ModelFamilyProfile,
 } from './modelFamily';
 
-export {
-  isComplexQuery,
-  isSimplePrompt,
-  resolveEnableThinking,
-  resolveNPredict,
-} from './promptHeuristics';
+export { adaptSystemPromptForThinking } from './promptHeuristics';
 
 export {
   buildCompletionParams,
@@ -19,17 +14,10 @@ export {
 } from './completionParams';
 
 export {
-  STOP_WORDS,
-  SIMPLE_PROMPT_STOP_EXTRAS,
-  buildStopSequences,
-  isLikelyChainOfThought,
-  extractAnswerFromCotDump,
+  isThinkingMetaLoop,
   stripThinkBlocks,
   trimDegenerateRepetition,
-  createThinkStreamState,
-  ingestThinkDelta,
   finalizeVisibleAndThought,
-  type ThinkStreamState,
 } from './thinkStreamParser';
 
 export { trimConversation, type TrimableMessage } from './contextTrim';

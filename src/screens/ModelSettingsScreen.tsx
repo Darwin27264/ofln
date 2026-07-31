@@ -54,22 +54,22 @@ const metricExplanations: { [key: string]: { title: string; explanation: string 
   temperature: {
     title: "Temperature",
     explanation:
-      "What it is:\nControls randomness vs focus in replies.\n\nAllowed range:\n0.00–2.00 (steps of 0.05).\n\nEffects of tuning:\n• Lower (0.2–0.5): More deterministic — good for facts / code\n• Mid (0.6–0.8): Balanced chat (app default ~0.65)\n• Higher (0.9–1.5): More creative; too high can ramble\n• Recommended: 0.6–0.8 for most chats",
+      "What it is:\nControls randomness vs focus in replies.\n\nAllowed range:\n0.00–2.00 (steps of 0.05).\n\nEffects of tuning:\n• Lower (0.2–0.5): More deterministic — good for facts / code\n• Mid (0.7–0.9): Balanced chat (app default 0.80; Qwen thinking may raise toward 0.85)\n• Higher (1.0–1.5): More creative; too high can ramble\n• Recommended: 0.7–1.0 for Qwen3.5",
   },
   topP: {
     title: "Top P (Nucleus Sampling)",
     explanation:
-      "What it is:\nOnly considers tokens in the top probability mass.\n\nAllowed range:\n0.05–1.00 (steps of 0.01).\n\nEffects of tuning:\n• Lower (0.5–0.8): Tighter, more focused wording\n• Higher (0.9–0.95): More variety\n• Works with temperature\n• Recommended: ~0.90 (app default)",
+      "What it is:\nOnly considers tokens in the top probability mass.\n\nAllowed range:\n0.05–1.00 (steps of 0.01).\n\nEffects of tuning:\n• Lower (0.5–0.8): Tighter, more focused wording\n• Higher (0.95–1.0): More variety (Qwen3.5 official ~0.95)\n• Works with temperature\n• Recommended: 0.95 (app default)",
   },
   topK: {
     title: "Top K",
     explanation:
-      "What it is:\nLimits choices to the K most likely next tokens.\n\nAllowed range:\n1–100.\n\nEffects of tuning:\n• Lower (10–20): More predictable\n• Higher (40–100): More diversity\n• Recommended: 40 (app default)",
+      "What it is:\nLimits choices to the K most likely next tokens.\n\nAllowed range:\n1–100.\n\nEffects of tuning:\n• Lower (10–20): More predictable (Qwen3.5 official = 20)\n• Higher (40–100): More diversity\n• Recommended: 20 (app default); Qwen turns cap at 20 automatically",
   },
   repeatPenalty: {
     title: "Repeat Penalty",
     explanation:
-      "What it is:\nDiscourages repeating the same phrases.\n\nAllowed range:\n1.00–2.00 (steps of 0.05). Values below 1.0 are blocked — they encourage loops.\n\nEffects of tuning:\n• 1.0: Little / no penalty\n• 1.1–1.3: Cuts loops without sounding odd (default ~1.20)\n• Above ~1.5: May dodge common words awkwardly\n• Recommended: 1.15–1.25",
+      "What it is:\nDiscourages repeating the same token sequences (llama.rn penalty_repeat).\n\nAllowed range:\n1.00–2.00 (steps of 0.05). Values below 1.0 are blocked — they encourage loops.\n\nEffects of tuning:\n• 1.0: Off (Qwen thinking turns use this automatically)\n• 1.05–1.15: Mild; default for chat\n• Above ~1.4: May dodge common words awkwardly\n• Note: For Qwen models, presence penalty (auto) fights phrase loops better than a high repeat penalty",
   },
   maxPredict: {
     title: "Max Predict Tokens (n_predict)",

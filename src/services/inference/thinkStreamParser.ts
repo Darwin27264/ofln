@@ -3,7 +3,7 @@
  * used by nativeCompletion, streamChat, and legacy llamaService.
  */
 
-export const STOP_WORDS = [
+const STOP_WORDS = [
   '</s>',
   '<|end|>',
   'user:',
@@ -19,7 +19,7 @@ export const STOP_WORDS = [
 ];
 
 /** Extra stops for simple prompts so CoT monologues cut off early. */
-export const SIMPLE_PROMPT_STOP_EXTRAS = [
+const SIMPLE_PROMPT_STOP_EXTRAS = [
   '<think>',
   'Thinking in English',
   'Thinking Process:',
@@ -29,7 +29,7 @@ export function buildStopSequences(simple: boolean): string[] {
   return simple ? [...STOP_WORDS, ...SIMPLE_PROMPT_STOP_EXTRAS] : [...STOP_WORDS];
 }
 
-export function isLikelyChainOfThought(text: string): boolean {
+function isLikelyChainOfThought(text: string): boolean {
   const t = text.trim();
   if (t.length < 80) return false;
   if (/^Thinking\b/i.test(t)) return true;
@@ -44,7 +44,7 @@ export function isLikelyChainOfThought(text: string): boolean {
 /**
  * Prefer a short trailing sentence that looks like an answer, not internal monologue.
  */
-export function extractAnswerFromCotDump(text: string): string | null {
+function extractAnswerFromCotDump(text: string): string | null {
   const cleaned = text
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/<\/?think>/gi, '')
@@ -100,61 +100,64 @@ export function trimDegenerateRepetition(text: string): string {
     return text.slice(0, wordSpam.index + wordSpam[1].length).trim();
   }
 
+  // "Wait, … Wait, …" meta-loops (Qwen3.5-0.8B thinking doom loops).
+  const waitLoop = text.match(
+    /((?:\*?Wait,?[^*\n]{0,120}\*?\s*){3,})/i,
+  );
+  if (waitLoop && waitLoop.index != null && waitLoop.index > 40) {
+    return text.slice(0, waitLoop.index).trim();
+  }
+
   return text;
 }
 
-export interface ThinkStreamState {
-  inThinkBlock: boolean;
-  thought: string;
-  visibleAccum: string;
-}
-
-export function createThinkStreamState(): ThinkStreamState {
-  return { inThinkBlock: false, thought: '', visibleAccum: '' };
-}
-
 /**
- * Feed one streamed delta into think/visible state.
- * Returns whether the delta was consumed into thought (caller should skip
- * pushing raw think tokens into the visible bubble).
+ * True when thinking text is stuck debating instructions / history instead of
+ * the user question. Callers should stopCompletion() (Qwen recommends
+ * interrupting anomalous 0.8B thinking streams).
  */
-export function ingestThinkDelta(
-  state: ThinkStreamState,
-  delta: string,
-  supportsThinkTags: boolean,
-): { consumedAsThought: boolean; visibleText: string } {
-  if (!supportsThinkTags) {
-    state.visibleAccum += delta;
-    return { consumedAsThought: false, visibleText: state.visibleAccum };
-  }
+export function isThinkingMetaLoop(thought: string): boolean {
+  const t = thought.trim();
+  if (t.length < 100) return false;
 
-  if (delta.includes('<think>')) {
-    state.inThinkBlock = true;
-    state.thought += delta.replace(/<think>/gi, '');
-    return { consumedAsThought: true, visibleText: stripThinkBlocks(state.visibleAccum) };
-  }
+  const waitCount = (t.match(/\bWait[, ]/gi) || []).length;
+  if (waitCount >= 4) return true;
 
-  if (state.inThinkBlock) {
-    if (delta.includes('</think>')) {
-      state.inThinkBlock = false;
-      state.thought += delta.replace(/<\/think>/gi, '');
-      state.thought = state.thought.trim();
-    } else {
-      state.thought += delta;
+  const historyCount = (t.match(/conversation history/gi) || []).length;
+  if (historyCount >= 3) return true;
+
+  const constraintCount = (t.match(/\bConstraint\s*\d/gi) || []).length;
+  if (constraintCount >= 4) return true;
+
+  if ((t.match(/do not (repeat facts|debate)/gi) || []).length >= 3) return true;
+
+  // Same ~40–120 char line repeated 3+ times.
+  const lines = t
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter((l) => l.length >= 40 && l.length <= 160);
+  if (lines.length >= 3) {
+    const counts = new Map<string, number>();
+    for (const l of lines) {
+      const key = l.toLowerCase();
+      const n = (counts.get(key) || 0) + 1;
+      if (n >= 3) return true;
+      counts.set(key, n);
     }
-    return { consumedAsThought: true, visibleText: stripThinkBlocks(state.visibleAccum) };
   }
 
-  state.visibleAccum += delta;
-  return {
-    consumedAsThought: false,
-    visibleText: stripThinkBlocks(state.visibleAccum),
-  };
+  return false;
 }
 
-/**
- * After generation: repair visible vs thought when CoT leaked without tags.
- */
+/** Drop UI-duplicate labels the model sometimes echoes into the think block. */
+function sanitizeThoughtText(thought: string): string {
+  if (!thought) return thought;
+  let t = thought.replace(/^(?:\s*Thinking Process:\s*)+/i, '').trim();
+  t = trimDegenerateRepetition(t);
+  return t;
+}
+
+/** After generation: repair visible vs thought when CoT leaked without tags. */
 export function finalizeVisibleAndThought(
   combined: string,
   currentThought: string,
@@ -181,5 +184,6 @@ export function finalizeVisibleAndThought(
   }
 
   visibleContent = trimDegenerateRepetition(visibleContent);
+  thought = thought ? sanitizeThoughtText(thought) : thought;
   return { visibleContent, thought };
 }

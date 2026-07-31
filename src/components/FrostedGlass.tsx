@@ -22,10 +22,11 @@ export const FROSTED_GLASS = {
   panelBlurAmount: 18,
   panelTintOpacity: 0.55,
   /**
-   * Opaque system-bar colors approximating panel frost over the canvas.
+   * Opaque system-bar / shell colors approximating panel frost over the canvas.
    * (Status / nav bars cannot be translucent on Android.)
+   * Light must be clearly distinct from #FFFFFF or the chrome open fade reads as "no change".
    */
-  panelSystemBarLight: "#F2F2F2",
+  panelSystemBarLight: "#E8E8E8",
   panelSystemBarDark: "#181818",
 } as const;
 

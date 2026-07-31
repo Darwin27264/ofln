@@ -310,9 +310,11 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
-    width: "100%",
-    flexShrink: 1,
-    flexWrap: "wrap",
+    // stretch under messageWrapper's alignItems:flex-start so the box
+    // gets a definite width; otherwise long thought text expands past the screen
+    alignSelf: "stretch",
+    maxWidth: "100%",
+    overflow: "hidden",
   },
   thoughtTitle: {
     color: colors.textSecondary,
@@ -320,7 +322,6 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontWeight: "600",
     marginBottom: 4,
     fontFamily: "Poppins",
-    flexWrap: "wrap",
   },
   thoughtText: {
     color: colors.textSecondary,
@@ -328,7 +329,8 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontStyle: "italic",
     lineHeight: 16,
     fontFamily: "Poppins",
-    flexWrap: "wrap",
+    width: "100%",
+    flexShrink: 1,
   },
 
   card: {
@@ -570,19 +572,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontFamily: "Poppins",
   },
 
-  /* Overlay behind the slide-up panel */
-  overlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: colors.overlay,
-    zIndex: 999,
-  },
-
-  /* Note: Bottom sheet styles have been moved to src/components/BottomSheet.tsx
-     for unified implementation across all slide-up panels */
+  /* Note: floating selector panel lives in src/components/BottomSheet.tsx */
 });
 
 // Legacy export for backward compatibility (will be phased out)

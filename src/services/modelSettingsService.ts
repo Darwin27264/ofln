@@ -18,7 +18,7 @@ export interface ModelSettings {
  * - n_ctx: power-of-two sizes only (KV-friendly); Android load may still soft-cap ~2048
  * - n_gpu_layers: 0 = CPU; 99 ≈ offload all (llama.cpp convention)
  * - temperature / top_p / top_k: standard llama.cpp sampling bounds
- * - repeat_penalty: ≥ 1.0 (values < 1 encourage repetition)
+ * - repeat_penalty: stored as OpenAI-style name; mapped to llama.rn `penalty_repeat` at completion time
  * - n_predict: capped for battery / latency on mobile
  */
 export const SETTING_RANGES = {
@@ -39,18 +39,41 @@ export const SETTING_RANGES = {
 
 export type NCtxAllowed = (typeof SETTING_RANGES.n_ctx.values)[number];
 
-export const DEFAULT_SETTINGS: ModelSettings = {
-  systemPrompt:
-    "You are a helpful assistant. " +
+/** Prior shipped defaults — upgraded in validateSettings so existing installs pick up the new prompt. */
+const LEGACY_DEFAULT_SYSTEM_PROMPTS = [
+  "You are a helpful assistant. " +
     "For simple questions, reply in 1–3 short sentences with the answer only. " +
     "Never write chain-of-thought, planning, or phrases like \"Thinking in English\", \"I need to\", or \"Wait,\". " +
     "Do not repeat facts already given in this conversation.",
+  "You are a helpful, friendly assistant running on the user's device. " +
+    "Be accurate, clear, and useful. Match reply length to the question — " +
+    "short questions get short answers; harder questions get fuller explanations. " +
+    "Prefer a direct answer in the user-visible reply. " +
+    "Do not narrate planning or inner monologue in the reply " +
+    "(avoid phrases like \"Thinking in English\", \"I need to\", or \"Wait,\"). " +
+    "Do not repeat facts already given in this conversation.",
+  "This is a conversation between user and assistant, a friendly chatbot.",
+];
+
+/**
+ * Keep this short and positive. Tiny on-device models (e.g. Qwen3.5 0.8B) burn
+ * their thinking budget listing/debating long negative rule lists — especially
+ * "do not repeat facts" / conversation-history meta-checks.
+ */
+export const DEFAULT_SETTINGS: ModelSettings = {
+  systemPrompt:
+    "You are a helpful assistant on the user's device. " +
+    "Answer the latest user message clearly and accurately. " +
+    "Keep simple asks short; give more detail only when the question needs it. " +
+    "Start with the answer — avoid reply openers like \"I need to\" or \"Wait,\".",
   n_ctx: 2048, // Enough headroom for multi-turn chats without overflow
   n_gpu_layers: 1,
-  temperature: 0.65, // Recommended for Q4 models
-  top_p: 0.9, // Recommended for Q4 models
-  top_k: 40, // Recommended for Q4 models
-  repeat_penalty: 1.2, // Stronger penalty reduces repetition in long chats
+  // Closer to Qwen3.5 text defaults; per-turn builder still overrides for thinking.
+  temperature: 0.8,
+  top_p: 0.95,
+  top_k: 20,
+  // Mapped to llama.rn `penalty_repeat`. Keep mild — presence_penalty handles loops.
+  repeat_penalty: 1.05,
   n_predict: 256, // Slightly more room than 192; still conservative for phone inference
 };
 
@@ -154,6 +177,13 @@ export const validateSettings = (
 
   if (typeof validated.systemPrompt !== "string") {
     validated.systemPrompt = DEFAULT_SETTINGS.systemPrompt;
+  } else {
+    const trimmed = validated.systemPrompt.trim();
+    if (
+      LEGACY_DEFAULT_SYSTEM_PROMPTS.some((legacy) => legacy.trim() === trimmed)
+    ) {
+      validated.systemPrompt = DEFAULT_SETTINGS.systemPrompt;
+    }
   }
 
   return validated;

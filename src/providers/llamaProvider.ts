@@ -154,8 +154,12 @@ class LlamaProviderService {
   async loadModel(config: LlamaProviderConfig): Promise<boolean> {
     const { modelPath, projectorPath, projectorUseGpu = true, contextParams } = config;
 
-    // Already ready for this exact path — do not unload/reload (freezes UI / wastes RAM).
-    if (this.isReady() && this.status.modelPath === modelPath) {
+    // Already ready for this exact path with a live native context — skip reload.
+    if (
+      this.isReady() &&
+      this.status.modelPath === modelPath &&
+      this.getNativeContext()
+    ) {
       return true;
     }
 

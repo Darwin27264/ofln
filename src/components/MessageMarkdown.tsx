@@ -1,9 +1,9 @@
 /**
  * Themed markdown for chat messages.
  *
- * Fixes dark-mode code blocks (library defaults are light-only) and adds a
- * per-fence copy control. Fenced ``` blocks render via the `fence` rule —
- * styling only `code_block` is not enough.
+ * Dark-mode code fences + copy control. Uses markdown-it `breaks: true` with a
+ * full-width hardbreak so lone newlines survive after streaming (library
+ * paragraphs are row+wrap; plain Text during stream already kept `\n`).
  */
 
 import React, { useCallback, useMemo, useState } from 'react';
@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import Markdown from 'react-native-markdown-display';
+import Markdown, { MarkdownIt } from 'react-native-markdown-display';
 
 import { useTheme, type ThemeColors } from '../context/ThemeContext';
 
@@ -31,6 +31,8 @@ type Props = {
 };
 
 const MONO = Platform.select({ ios: 'Courier', android: 'monospace', default: 'monospace' });
+
+const chatMarkdownIt = MarkdownIt({ typographer: true, breaks: true });
 
 function codePalette(isDark: boolean, colors: ThemeColors) {
   if (isDark) {
@@ -183,7 +185,6 @@ export const MessageMarkdown = React.memo(function MessageMarkdown({
       paddingHorizontal: 4,
       paddingVertical: 1,
     };
-    // View-safe keys for fence wrapper (actual UI is custom rule).
     const fenceShell: ViewStyle = {
       margin: 0,
       padding: 0,
@@ -199,11 +200,25 @@ export const MessageMarkdown = React.memo(function MessageMarkdown({
         margin: 0,
         padding: 0,
       },
-      paragraph: { marginTop: 0, marginBottom: 0, padding: 0 },
+      // Keep row+wrap so width:100% hardbreaks wrap to the next line.
+      paragraph: {
+        marginTop: 0,
+        marginBottom: 8,
+        padding: 0,
+        flexWrap: 'wrap',
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        justifyContent: 'flex-start',
+        width: '100%',
+      },
       text: { lineHeight, margin: 0, padding: 0 },
+      textgroup: { lineHeight },
+      // Full-width, zero-height wrap marker (overrides library height: 1).
+      hardbreak: {
+        width: '100%',
+        height: 0,
+      },
       code_inline: inline,
-      // Indented code / leftovers — match fence colors so inherited body
-      // color (white in dark mode) never sits on the library's #f5f5f5.
       code_block: {
         fontFamily: MONO,
         fontSize: 13,
@@ -224,10 +239,15 @@ export const MessageMarkdown = React.memo(function MessageMarkdown({
         marginLeft: 0,
         paddingHorizontal: 10,
         paddingVertical: 4,
+        marginBottom: 8,
       },
+      bullet_list: { marginBottom: 8 },
+      ordered_list: { marginBottom: 8 },
+      list_item: { marginBottom: 4 },
       hr: {
         backgroundColor: theme.colors.border,
         height: 1,
+        marginVertical: 8,
       },
       link: {
         color: theme.colors.accent,
@@ -261,13 +281,26 @@ export const MessageMarkdown = React.memo(function MessageMarkdown({
           />
         );
       },
+      // Full-width spacer → next line without an extra blank gap.
+      hardbreak: (node: any, _children: any, _parent: any, styles: any) => (
+        <Text key={node.key} style={styles.hardbreak} />
+      ),
     }),
     [palette],
   );
 
+  if (!content) {
+    return null;
+  }
+
   return (
     <View style={{ flexShrink: 1, width: '100%', maxWidth: '100%' }}>
-      <Markdown style={mdStyles} rules={rules}>
+      <Markdown
+        style={mdStyles}
+        rules={rules}
+        markdownit={chatMarkdownIt}
+        mergeStyle
+      >
         {content}
       </Markdown>
     </View>

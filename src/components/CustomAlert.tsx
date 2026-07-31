@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,8 @@ import {
   ScrollView,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
-import { EASING, OVERLAY_MOTION } from '../utils/animationConfig';
+import { OVERLAY_MOTION } from '../utils/animationConfig';
+import { useFadeScalePresence } from '../hooks/useFadeScalePresence';
 
 interface AlertButton {
   text: string;
@@ -77,80 +78,7 @@ export const CustomAlert: React.FC<CustomAlertProps> = ({
   const { theme } = useTheme();
   const alertOpacity = useRef(new Animated.Value(0)).current;
   const alertScale = useRef(new Animated.Value(OVERLAY_MOTION.FROM_SCALE)).current;
-  const [mounted, setMounted] = useState(visible);
-  const animRef = useRef<Animated.CompositeAnimation | null>(null);
-  const visibleGenRef = useRef(0);
-
-  // Mount before paint when opening so the fade/scale actually runs on attached views.
-  useLayoutEffect(() => {
-    if (visible) {
-      setMounted(true);
-    }
-  }, [visible]);
-
-  useEffect(() => {
-    // Wait until the overlay is in the tree so native-driver fade/scale actually paints.
-    if (!mounted) return;
-
-    animRef.current?.stop();
-    animRef.current = null;
-
-    if (visible) {
-      const gen = ++visibleGenRef.current;
-      alertOpacity.setValue(0);
-      alertScale.setValue(OVERLAY_MOTION.FROM_SCALE);
-      const animation = Animated.parallel([
-        Animated.timing(alertOpacity, {
-          toValue: 1,
-          duration: OVERLAY_MOTION.FADE_IN_MS,
-          easing: EASING.EASE_OUT,
-          useNativeDriver: true,
-        }),
-        Animated.timing(alertScale, {
-          toValue: 1,
-          duration: OVERLAY_MOTION.SCALE_IN_MS,
-          easing: EASING.EASE_OUT,
-          useNativeDriver: true,
-        }),
-      ]);
-      animRef.current = animation;
-      animation.start(({ finished }) => {
-        if (finished && gen === visibleGenRef.current) {
-          animRef.current = null;
-        }
-      });
-      return () => {
-        animation.stop();
-      };
-    }
-
-    const gen = visibleGenRef.current;
-    const animation = Animated.parallel([
-      Animated.timing(alertOpacity, {
-        toValue: 0,
-        duration: OVERLAY_MOTION.FADE_OUT_MS,
-        easing: EASING.EASE_IN,
-        useNativeDriver: true,
-      }),
-      Animated.timing(alertScale, {
-        toValue: OVERLAY_MOTION.FROM_SCALE,
-        duration: OVERLAY_MOTION.SCALE_OUT_MS,
-        easing: EASING.EASE_IN,
-        useNativeDriver: true,
-      }),
-    ]);
-    animRef.current = animation;
-    animation.start(({ finished }) => {
-      // Ignore stale exit if the alert was re-opened mid-dismiss.
-      if (finished && gen === visibleGenRef.current) {
-        animRef.current = null;
-        setMounted(false);
-      }
-    });
-    return () => {
-      animation.stop();
-    };
-  }, [visible, mounted, alertOpacity, alertScale]);
+  const mounted = useFadeScalePresence(visible, alertOpacity, alertScale);
 
   useEffect(() => {
     if (!visible || Platform.OS !== 'android') return;

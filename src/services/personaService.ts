@@ -161,17 +161,30 @@ export const buildPersonaSystemPrompt = (
   persona: Persona | null,
   baseSystemPrompt: string
 ): string => {
-  const appendConciseRule = (prompt: string): string => {
-    if (/Never include chain-of-thought/i.test(prompt)) return prompt;
+  const appendHelpfulReplyRules = (prompt: string): string => {
+    // Already has our reply-style guidance (new or legacy phrasing).
+    if (
+      /Prefer a direct answer/i.test(prompt) ||
+      /Never include chain-of-thought/i.test(prompt) ||
+      /Never write chain-of-thought/i.test(prompt) ||
+      /Do not narrate planning/i.test(prompt) ||
+      /Start with the answer/i.test(prompt) ||
+      /Keep simple asks short/i.test(prompt)
+    ) {
+      return prompt;
+    }
+    // Keep appended rules minimal — long negative lists stall tiny models.
     return (
       `${prompt.trim()} ` +
-      `Reply briefly with the answer only. ` +
-      `Never include chain-of-thought, planning narration, or phrases like "Thinking in English".`
+      `Answer clearly. Keep simple asks short. ` +
+      `Start with the answer — avoid openers like "I need to" or "Wait,".`
     );
   };
 
   if (!persona) {
-    return appendConciseRule(baseSystemPrompt || "You are a helpful assistant.");
+    return appendHelpfulReplyRules(
+      baseSystemPrompt || "You are a helpful, friendly assistant.",
+    );
   }
 
   const personaParts: string[] = [];
@@ -226,17 +239,17 @@ export const buildPersonaSystemPrompt = (
 
   if (isDefaultPrompt) {
     if (personaContent) {
-      return appendConciseRule(`You are ${persona.name}. ${personaContent}`);
+      return appendHelpfulReplyRules(`You are ${persona.name}. ${personaContent}`);
     } else {
-      return appendConciseRule(`You are ${persona.name}.`);
+      return appendHelpfulReplyRules(`You are ${persona.name}.`);
     }
   } else {
     if (personaContent) {
-      return appendConciseRule(
+      return appendHelpfulReplyRules(
         `${baseSystemPrompt}\n\nYou are roleplaying as ${persona.name}.\n\n${personaContent}`,
       );
     } else {
-      return appendConciseRule(
+      return appendHelpfulReplyRules(
         `${baseSystemPrompt}\n\nYou are roleplaying as ${persona.name}.`,
       );
     }

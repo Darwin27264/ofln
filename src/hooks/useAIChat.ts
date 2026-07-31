@@ -1,8 +1,15 @@
 /**
  * useAIChat — on-device chat hook (useChat-compatible surface)
  *
- * Owns the live transcript. Parent screens may seed via chatId changes and
- * take idle snapshots for remount — they must not mirror every token update.
+ * Owns the live transcript, generation, and history persistence.
+ * Parent screens seed via chatId changes (load / new) and may take idle
+ * snapshots for remount — they must not mirror every token update.
+ *
+ * Chat-identity rules:
+ * - Persist may assign the first id (null → id); that is marked synced so
+ *   the seed effect does not wipe the live transcript.
+ * - newChat / external switches bump persistEpoch so late save callbacks
+ *   cannot rebind an old id onto a fresh session.
  */
 
 import { useState, useCallback, useRef, useEffect, startTransition } from 'react';
@@ -28,7 +35,7 @@ export interface UseAIChatOptions {
   modelName: string;
   persona?: Persona | null;
   chatId?: string | null;
-  onChatIdChange?: (chatId: string) => void;
+  onChatIdChange?: (chatId: string | null) => void;
   scrollViewRef?: React.RefObject<ScrollView>;
   /** Prefer llama.rn completion (thinking / stopCompletion parity). */
   useNativeCompletion?: boolean;
@@ -160,6 +167,11 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
   const isGeneratingRef = useRef(false);
   /** Bumps on each submit/stop/newChat so late tokens from an old run are ignored. */
   const generationIdRef = useRef(0);
+  /**
+   * Bumps on newChat / external chat switch so in-flight saveChat callbacks
+   * cannot rebind an old id onto a fresh session.
+   */
+  const persistEpochRef = useRef(0);
   const pendingPatchRef = useRef<AssistantPatch | null>(null);
   const flushRafRef = useRef<number | null>(null);
 
@@ -172,7 +184,26 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
   onModelNotReadyRef.current = onModelNotReady;
   const initialMessagesRef = useRef(initialMessages);
   initialMessagesRef.current = initialMessages;
+  /** Last chat id we intentionally synced (seed / persist / newChat). */
   const lastSyncedChatIdRef = useRef<string | null | undefined>(undefined);
+
+  const abortInFlight = useCallback(() => {
+    generationIdRef.current += 1;
+    try {
+      abortRef.current?.();
+    } catch {
+      // ignore
+    }
+    abortRef.current = null;
+    pendingPatchRef.current = null;
+    if (flushRafRef.current != null) {
+      cancelAnimationFrame(flushRafRef.current);
+      flushRafRef.current = null;
+    }
+    isGeneratingRef.current = false;
+    setIsGenerating(false);
+    setIsLoading(false);
+  }, []);
 
   /** Commit messages + keep messagesRef in lockstep (safe for external setMessages). */
   const commitMessages = useCallback((next: ChatMessage[]) => {
@@ -190,31 +221,38 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     [commitMessages],
   );
 
-  useEffect(() => {
-    chatIdRef.current = externalChatId ?? null;
-  }, [externalChatId]);
-
   useEffect(() => llamaProvider.subscribe(setModelStatus), []);
 
-  // Seed from parent only when chat identity changes (history load / new chat).
+  // Seed from parent only on real identity changes (history load / App new chat).
+  // Self-assigned ids from persist mark lastSynced first so this no-ops.
   useEffect(() => {
     const chatKey = externalChatId ?? null;
-    if (lastSyncedChatIdRef.current === chatKey) return;
-    lastSyncedChatIdRef.current = chatKey;
+    if (lastSyncedChatIdRef.current === chatKey) {
+      chatIdRef.current = chatKey;
+      return;
+    }
 
-    // Drop in-flight generation if the user switched chats.
-    if (isGeneratingRef.current) {
-      generationIdRef.current += 1;
-      abortRef.current?.();
-      abortRef.current = null;
-      pendingPatchRef.current = null;
-      if (flushRafRef.current != null) {
-        cancelAnimationFrame(flushRafRef.current);
-        flushRafRef.current = null;
+    // null → id while we already have a live turn and parent seed is still
+    // empty: adopt the id (persist race). Real history loads always include
+    // at least one user message in the parent seed.
+    const prevKey = lastSyncedChatIdRef.current;
+    if ((prevKey === null || prevKey === undefined) && chatKey != null) {
+      const incoming = initialMessagesRef.current;
+      const parentHasUser = !!incoming?.some((m) => m.role === 'user');
+      const localHasUser = messagesRef.current.some((m) => m.role === 'user');
+      if (localHasUser && !parentHasUser) {
+        chatIdRef.current = chatKey;
+        lastSyncedChatIdRef.current = chatKey;
+        return;
       }
-      isGeneratingRef.current = false;
-      setIsGenerating(false);
-      setIsLoading(false);
+    }
+
+    persistEpochRef.current += 1;
+    lastSyncedChatIdRef.current = chatKey;
+    chatIdRef.current = chatKey;
+
+    if (isGeneratingRef.current) {
+      abortInFlight();
     }
 
     const incoming = initialMessagesRef.current;
@@ -223,7 +261,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     );
     setCurrentThought('');
     setError(null);
-  }, [externalChatId, commitMessages]);
+  }, [externalChatId, commitMessages, abortInFlight]);
 
   const scrollToEnd = useCallback(() => {
     if (!scrollViewRef?.current) return;
@@ -301,13 +339,18 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
 
   const persistMessages = useCallback((toSave: ChatMessage[]) => {
     if (disablePersistenceRef.current) return;
+    const epoch = persistEpochRef.current;
+    const existingId = chatIdRef.current;
     chatHistoryService
-      .saveChat(toSave as any, chatIdRef.current)
+      .saveChat(toSave as any, existingId)
       .then((savedId) => {
-        if (!chatIdRef.current) {
-          chatIdRef.current = savedId;
-          onChatIdChangeRef.current?.(savedId);
-        }
+        // Session changed (newChat / history load) while save was in flight.
+        if (epoch !== persistEpochRef.current) return;
+        if (chatIdRef.current) return;
+        // First save for this session: adopt id without reseeding.
+        chatIdRef.current = savedId;
+        lastSyncedChatIdRef.current = savedId;
+        onChatIdChangeRef.current?.(savedId);
       })
       .catch((err) => {
         if (__DEV__) console.warn('[useAIChat] Save failed:', err);
@@ -380,12 +423,28 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
             }
           }
 
+          // Cancel any leftover native session before starting a new one.
+          if (typeof nativeContext.stopCompletion === 'function') {
+            await Promise.resolve(nativeContext.stopCompletion()).catch(() => {});
+          }
+          if (generationId !== generationIdRef.current) return;
+
+          // Wire abort so End stops native completion even mid-thought.
+          const abortController = new AbortController();
+          abortRef.current = () => {
+            abortController.abort();
+            if (typeof nativeContext.stopCompletion === 'function') {
+              Promise.resolve(nativeContext.stopCompletion()).catch(() => {});
+            }
+          };
+
           completion = await nativeCompletion(
             nativeContext,
             nativeMessages,
             modelName,
             settings,
             { onToken, onThought },
+            abortController.signal,
           );
         } else {
           const prior = messagesRef.current.slice(0, -2);
@@ -603,16 +662,29 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
   }, [regenerate]);
 
   const stop = useCallback(() => {
+    // Invalidate in-flight generation first so late tokens/thoughts are ignored.
     generationIdRef.current += 1;
-    abortRef.current?.();
+
+    try {
+      abortRef.current?.();
+    } catch {
+      // ignore
+    }
     abortRef.current = null;
 
+    // Always hit the live provider context — App.tsx's legacy context may be stale.
     const ctx = llamaProvider.getNativeContext();
     if (ctx && typeof ctx.stopCompletion === 'function') {
-      ctx.stopCompletion().catch(() => {});
+      Promise.resolve(ctx.stopCompletion()).catch(() => {});
     }
 
+    // Clear UI immediately; do not wait for native completion to unwind.
     flushAssistantPatch();
+    pendingPatchRef.current = null;
+    if (flushRafRef.current != null) {
+      cancelAnimationFrame(flushRafRef.current);
+      flushRafRef.current = null;
+    }
     isGeneratingRef.current = false;
     setIsGenerating(false);
     setIsLoading(false);
@@ -625,34 +697,40 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     if (last.role !== 'assistant' || last.content.includes(STOPPED_MARKER)) {
       return;
     }
+    const stoppedContent =
+      last.content.trim().length > 0
+        ? last.content + STOPPED_MARKER
+        : `*Generation stopped by user*`;
     const stopped = [
       ...prev.slice(0, -1),
-      { ...last, content: last.content + STOPPED_MARKER },
+      {
+        ...last,
+        content: stoppedContent,
+        // Keep any partial thought visible after an early stop mid-think.
+        showThought: !!(last.thought && last.thought.trim()) || last.showThought,
+      },
     ];
     commitMessages(stopped);
     persistMessages(stopped);
   }, [flushAssistantPatch, commitMessages, persistMessages]);
 
   const newChat = useCallback(() => {
-    generationIdRef.current += 1;
-    abortRef.current?.();
-    abortRef.current = null;
-    pendingPatchRef.current = null;
-    if (flushRafRef.current != null) {
-      cancelAnimationFrame(flushRafRef.current);
-      flushRafRef.current = null;
-    }
-    isGeneratingRef.current = false;
-    setIsGenerating(false);
-    setIsLoading(false);
+    // Invalidate generation + in-flight persists so a late save cannot
+    // rebind the previous chat id onto this empty session.
+    persistEpochRef.current += 1;
+    abortInFlight();
 
     commitMessages([SYSTEM_MESSAGE]);
     setInput('');
     setCurrentThought('');
     setError(null);
     chatIdRef.current = null;
-    lastSyncedChatIdRef.current = undefined;
-  }, [commitMessages]);
+    // Mark synced to null BEFORE notifying App. If we cleared messages first
+    // and left lastSynced stale, a render with the old currentChatId would
+    // reseed the previous transcript back into the empty UI.
+    lastSyncedChatIdRef.current = null;
+    onChatIdChangeRef.current?.(null);
+  }, [abortInFlight, commitMessages]);
 
   return {
     messages,

@@ -16,8 +16,7 @@
  * simple `streamChat()` function consumable by the `useAIChat` hook.
  *
  * Model-family detection, prompt heuristics, completion params, think
- * parsing, and context trim live in `./inference` (re-exported below
- * for backward-compatible imports).
+ * parsing, and context trim live in `./inference`.
  */
 
 import { streamText } from 'ai';
@@ -43,13 +42,8 @@ import {
   stripThinkBlocks,
   trimDegenerateRepetition,
   finalizeVisibleAndThought,
-} from './inference';
-
-// Re-export heuristics for callers that imported them from this module.
-export {
-  isSimplePrompt,
-  resolveEnableThinking,
-  resolveNPredict,
+  adaptSystemPromptForThinking,
+  isThinkingMetaLoop,
 } from './inference';
 
 import type {
@@ -206,9 +200,20 @@ async function _runStream(
   const {
     n_predict: maxTokens,
     temperature,
+    top_p: topP,
     stop: stopSequences,
     supportsThinkTags,
+    enable_thinking: enableThinking,
   } = completion;
+
+  // Keep anti-CoT rules out of thinking turns (same as nativeCompletion).
+  if (enableThinking) {
+    aiMessages = aiMessages.map((m: any) =>
+      m.role === 'system'
+        ? { ...m, content: adaptSystemPromptForThinking(String(m.content ?? ''), true) }
+        : m,
+    );
+  }
 
   // ── Stream via Vercel AI SDK ────────────────────────────────────────────
   const startTime = Date.now();
@@ -221,7 +226,7 @@ async function _runStream(
       messages: aiMessages as any, // AI SDK message type
       maxTokens,
       temperature,
-      topP: settings.top_p,
+      topP,
       stopSequences,
       abortSignal: signal,
     });
@@ -335,7 +340,10 @@ export async function nativeCompletion(
   const {
     n_predict: nPredict,
     temperature,
-    repeat_penalty: repeatPenalty,
+    top_p: topP,
+    top_k: topK,
+    penalty_repeat: penaltyRepeat,
+    penalty_present: penaltyPresent,
     stop,
     enable_thinking: enableThinking,
     reasoning_format: reasoningFormat,
@@ -351,7 +359,10 @@ export async function nativeCompletion(
 
   const llamaMessages = messages.map((m) => ({
     role: m.role,
-    content: m.content,
+    content:
+      m.role === 'system'
+        ? adaptSystemPromptForThinking(m.content, !!enableThinking)
+        : m.content,
   }));
 
   interface TokenData {
@@ -365,6 +376,10 @@ export async function nativeCompletion(
       modelName,
       n_predict: nPredict,
       temperature,
+      top_p: topP,
+      top_k: topK,
+      penalty_repeat: penaltyRepeat,
+      penalty_present: penaltyPresent,
       enableThinking,
       simple,
       reasoningFormat,
@@ -381,6 +396,10 @@ export async function nativeCompletion(
       modelName,
       n_predict: nPredict,
       temperature,
+      top_p: topP,
+      top_k: topK,
+      penalty_repeat: penaltyRepeat,
+      penalty_present: penaltyPresent,
       enableThinking,
       simple,
       reasoningFormat,
@@ -396,14 +415,31 @@ export async function nativeCompletion(
     // If native metadata marshalling failed, pass an explicit text Jinja template
     // so getFormattedChat does not depend on model.metadata.
     const needsExplicitTemplate = !nativeContext?.model?.metadata?.['tokenizer.chat_template'];
+
+    // Ensure AbortSignal also stops the native session (thinking can ignore JS-only abort).
+    const onAbort = () => {
+      if (typeof nativeContext?.stopCompletion === 'function') {
+        Promise.resolve(nativeContext.stopCompletion()).catch(() => {});
+      }
+    };
+    if (signal) {
+      if (signal.aborted) {
+        onAbort();
+      } else {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+    }
+
     result = await nativeContext.completion(
       {
         messages: llamaMessages,
         n_predict: nPredict,
         temperature,
-        top_p: settings.top_p,
-        top_k: settings.top_k,
-        repeat_penalty: repeatPenalty,
+        top_p: topP,
+        top_k: topK,
+        // llama.rn 0.12+ native keys (OpenAI-style `repeat_penalty` is ignored).
+        penalty_repeat: penaltyRepeat,
+        penalty_present: penaltyPresent,
         stop,
         // Always pass an explicit boolean for Qwen so template v4 injects empty
         // <think></think> when false (skips CoT on "another fun fact").
@@ -422,6 +458,10 @@ export async function nativeCompletion(
         if (data.reasoning_content && data.reasoning_content !== currentThought) {
           currentThought = data.reasoning_content;
           callbacks.onThought?.(currentThought);
+          // Qwen3.5-0.8B can doom-loop in thinking — interrupt early (HF guidance).
+          if (isThinkingMetaLoop(currentThought)) {
+            Promise.resolve(nativeContext.stopCompletion?.()).catch(() => {});
+          }
           return;
         }
 
@@ -451,6 +491,9 @@ export async function nativeCompletion(
             } else {
               currentThought += token;
               callbacks.onThought?.(currentThought);
+              if (isThinkingMetaLoop(currentThought)) {
+                Promise.resolve(nativeContext.stopCompletion?.()).catch(() => {});
+              }
             }
             return;
           }
@@ -464,7 +507,26 @@ export async function nativeCompletion(
         }
       },
     );
+
+    if (signal) {
+      signal.removeEventListener('abort', onAbort);
+    }
   } catch (err) {
+    // User stop / abort should not surface as a hard failure.
+    if (signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
+      const finalized = finalizeVisibleAndThought(
+        fullText,
+        currentThought,
+        supportsThinkTags,
+      );
+      return {
+        text: finalized.visibleContent,
+        thought: finalized.thought || undefined,
+        tokensPerSecond: 0,
+        totalTokens: tokenCount,
+        inferenceTimeMs: Date.now() - startTime,
+      };
+    }
     await logError(
       'Inference',
       `nativeCompletion threw: ${err instanceof Error ? err.message : String(err)}`,
@@ -472,6 +534,22 @@ export async function nativeCompletion(
       { modelName, tokenCount, fullTextLen: fullText.length },
     );
     throw err;
+  }
+
+  // stopCompletion usually resolves (doesn't throw) — treat abort as partial result.
+  if (signal?.aborted) {
+    const finalized = finalizeVisibleAndThought(
+      fullText,
+      currentThought,
+      supportsThinkTags,
+    );
+    return {
+      text: finalized.visibleContent,
+      thought: finalized.thought || undefined,
+      tokensPerSecond: 0,
+      totalTokens: tokenCount,
+      inferenceTimeMs: Date.now() - startTime,
+    };
   }
 
   const endTime = Date.now();

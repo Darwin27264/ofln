@@ -438,93 +438,54 @@ const AnimatedCheckmark: React.FC<{
 AnimatedCheckmark.displayName = 'AnimatedCheckmark';
 
 /**
- * AnimatedHistoryItemWrapper Component
- * 
- * Wraps history items with fade-in and slide animations for fluid appearance.
- * Uses staggered delays for a cascading effect when panel opens.
+ * Staggered fade/slide for list rows. Exit is owned by the parent panel —
+ * do not snap opacity to 0 while the panel is still closing.
  */
-const AnimatedHistoryItemWrapper: React.FC<{
+const StaggerFadeIn: React.FC<{
   children: React.ReactNode;
   index: number;
-  isVisible: boolean;
-}> = React.memo(({ children, index, isVisible }) => {
+  active: boolean;
+  /** Initial Y offset. History used 10; selector rows use 6. */
+  offset?: number;
+  /** Stagger step in ms (history: 20, selector: 16). */
+  staggerMs?: number;
+  /** Cap on stagger delay. */
+  maxDelay?: number;
+}> = React.memo(({
+  children,
+  index,
+  active,
+  offset = 10,
+  staggerMs = 20,
+  maxDelay = 200,
+}) => {
   const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(10)).current;
+  const translateY = useRef(new Animated.Value(offset)).current;
 
   useEffect(() => {
-    if (isVisible) {
-      const delay = Math.min(index * 20, 200); // Staggered delay, max 200ms
-      Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: ANIMATION_DURATIONS.STANDARD,
-          delay,
-          easing: EASING.EASE_OUT,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateY, {
-          toValue: 0,
-          duration: ANIMATION_DURATIONS.STANDARD,
-          delay,
-          easing: EASING.EASE_OUT,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      opacity.setValue(0);
-      translateY.setValue(10);
-    }
-  }, [isVisible, index, opacity, translateY]);
-
-  return (
-    <Animated.View
-      style={{
-        opacity,
-        transform: [{ translateY }],
-      }}
-    >
-      {children}
-    </Animated.View>
-  );
-});
-
-AnimatedHistoryItemWrapper.displayName = 'AnimatedHistoryItemWrapper';
-
-/**
- * Staggered fade-in wrapper for model/persona selector list items (matches history panel feel).
- */
-const AnimatedModelItemWrapper: React.FC<{
-  children: React.ReactNode;
-  index: number;
-  isVisible: boolean;
-}> = React.memo(({ children, index, isVisible }) => {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(10)).current;
-
-  useEffect(() => {
-    if (isVisible) {
-      const delay = Math.min(index * 20, 200);
-      Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: ANIMATION_DURATIONS.STANDARD,
-          delay,
-          easing: EASING.EASE_OUT,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateY, {
-          toValue: 0,
-          duration: ANIMATION_DURATIONS.STANDARD,
-          delay,
-          easing: EASING.EASE_OUT,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      opacity.setValue(0);
-      translateY.setValue(10);
-    }
-  }, [isVisible, index, opacity, translateY]);
+    if (!active) return;
+    opacity.setValue(0);
+    translateY.setValue(offset);
+    const delay = Math.min(index * staggerMs, maxDelay);
+    const anim = Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: ANIMATION_DURATIONS.STANDARD,
+        delay,
+        easing: EASING.EASE_OUT,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: ANIMATION_DURATIONS.STANDARD,
+        delay,
+        easing: EASING.EASE_OUT,
+        useNativeDriver: true,
+      }),
+    ]);
+    anim.start();
+    return () => anim.stop();
+  }, [active, index, offset, staggerMs, maxDelay, opacity, translateY]);
 
   return (
     <Animated.View style={{ opacity, transform: [{ translateY }] }}>
@@ -532,19 +493,13 @@ const AnimatedModelItemWrapper: React.FC<{
     </Animated.View>
   );
 });
-AnimatedModelItemWrapper.displayName = 'AnimatedModelItemWrapper';
+StaggerFadeIn.displayName = 'StaggerFadeIn';
 
 interface Props {
   conversation: Message[];
   setConversation: React.Dispatch<React.SetStateAction<Message[]>>;
   userInput: string;
   setUserInput: (val: string) => void;
-  isLoading: boolean;
-  setIsLoading: (val: boolean) => void;
-  isGenerating: boolean;
-  setIsGenerating: (val: boolean) => void;
-  tokensPerSecond: number[];
-  setTokensPerSecond: React.Dispatch<React.SetStateAction<number[]>>;
   scrollViewRef: React.RefObject<ScrollView>;
   scrollPositionRef: React.MutableRefObject<number>;
   contentHeightRef: React.MutableRefObject<number>;
@@ -556,24 +511,24 @@ interface Props {
   onLoadChat: (chatId: string, messages: Message[]) => void;
   onNewChat: () => void;
   onBackToModelSelection: () => void;
-  stopGeneration: () => void;
-  handleSendMessageCompletion: (
-    conversation: Message[],
-    userInput: string,
-    sendOptions?: { textForPrompt?: string; attachments?: MessageAttachment[] }
-  ) => Promise<void>;
+  /** Open Models page without unloading the current model or clearing chat. */
+  onGoToModelSelection: () => void;
   assistantDisplayMode: "bubble" | "direct";
   onOpenSettings: () => void;
   selectedGGUF: string | null;
   setSelectedGGUF: (gguf: string | null) => void;
   downloadedModels: string[];
-  loadModel: (path: string, context: any, setContext: (context: any) => void) => Promise<boolean>;
   setContext: (context: any) => void;
   checkDownloadedModels: () => Promise<void>;
   selectedPersona: Persona | null;
   setSelectedPersona: (persona: Persona | null) => void;
-  /** Fired when the history drawer opens/closes so the shell can match system bars. */
+  /** Fired when frosted chrome (history drawer or quick model panel) opens/closes so status/nav bars match. */
   onHistoryPanelChange?: (open: boolean) => void;
+  /**
+   * Live shell color from App (status/nav + SafeArea). Chat canvas must use this
+   * exact value so history + quick panel stay uniform with the system bars.
+   */
+  shellBackground: string;
 }
 
 export default function ConversationScreen({
@@ -581,12 +536,6 @@ export default function ConversationScreen({
   setConversation,
   userInput,
   setUserInput,
-  isLoading: _isLoadingProp,
-  setIsLoading,
-  isGenerating: _isGeneratingProp,
-  setIsGenerating,
-  tokensPerSecond: _tokensPerSecondProp,
-  setTokensPerSecond,
   scrollViewRef,
   scrollPositionRef,
   contentHeightRef,
@@ -598,23 +547,32 @@ export default function ConversationScreen({
   onLoadChat,
   onNewChat,
   onBackToModelSelection,
-  stopGeneration,
-  handleSendMessageCompletion,
+  onGoToModelSelection,
   assistantDisplayMode,
   onOpenSettings,
   selectedGGUF,
   setSelectedGGUF,
   downloadedModels,
-  loadModel,
   setContext,
   checkDownloadedModels,
   selectedPersona,
   setSelectedPersona,
   onHistoryPanelChange,
+  shellBackground,
 }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
   const insets = useSafeAreaInsets();
+  // Soft inset rows that sit calmly on the frosted selector panel.
+  const selectorFrost = useMemo(() => {
+    const dark = theme.mode === 'dark';
+    return {
+      chrome: dark ? 'rgba(0, 0, 0, 0.32)' : 'rgba(15, 23, 42, 0.06)',
+      row: dark ? 'rgba(0, 0, 0, 0.38)' : 'rgba(15, 23, 42, 0.07)',
+      rowBorder: dark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.08)',
+      outline: dark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.1)',
+    };
+  }, [theme.mode]);
   const { keyboardHeight: keyboardPadding, syncKeyboardState } = useKeyboardPadding();
   // Layout measurements live in refs (not state) because they're read inside the
   // keyboard-padding animated listener on every frame of the keyboard animation.
@@ -755,12 +713,12 @@ export default function ConversationScreen({
   // Animation configurations are imported from centralized config
   // This ensures consistency across the application
 
-  // Temporary mode state
+  // Temporary mode (only before the first user message).
   const [isTemporaryMode, setIsTemporaryMode] = useState(false);
-  const [hasStartedChat, setHasStartedChat] = useState(false);
 
-  // Model selector state
+  // Model selector — `chromeOpen` stays true through the exit fade (like isPanelOpen).
   const [isModelSelectorVisible, setIsModelSelectorVisible] = useState(false);
+  const [isModelSelectorChromeOpen, setIsModelSelectorChromeOpen] = useState(false);
   const [isLoadingModel, setIsLoadingModel] = useState(false);
   const [loadingModelFile, setLoadingModelFile] = useState<string | null>(null);
   const [selectorTab, setSelectorTab] = useState<"models" | "personas">("models");
@@ -796,43 +754,22 @@ export default function ConversationScreen({
   const isGenerating = aiChat.isGenerating;
   const isLoading = aiChat.isLoading;
   const tokensPerSecond = aiChat.tokensPerSecond;
+  const hasStartedChat = conversation.some((m) => m.role === 'user');
 
-  // Snapshot to App only when a generation settles (remount / history seed).
+  // Snapshot transcript to App when a turn settles (remount seed only).
   const wasGeneratingRef = useRef(false);
   const liveMessagesRef = useRef(aiChat.messages);
-  const liveTpsRef = useRef(aiChat.tokensPerSecond);
   liveMessagesRef.current = aiChat.messages;
-  liveTpsRef.current = aiChat.tokensPerSecond;
 
   useEffect(() => {
     if (aiChat.isGenerating) {
       wasGeneratingRef.current = true;
-      setIsGenerating(true);
-      setIsLoading(true);
       return;
     }
-
-    setIsGenerating(false);
-    setIsLoading(false);
-
     if (!wasGeneratingRef.current) return;
     wasGeneratingRef.current = false;
-
     setConversation(liveMessagesRef.current as Message[]);
-    setTokensPerSecond((prev) => {
-      const next = liveTpsRef.current;
-      if (next.length === prev.length && next.every((v, i) => v === prev[i])) {
-        return prev;
-      }
-      return next;
-    });
-  }, [
-    aiChat.isGenerating,
-    setConversation,
-    setTokensPerSecond,
-    setIsGenerating,
-    setIsLoading,
-  ]);
+  }, [aiChat.isGenerating, setConversation]);
 
   // One-way: controlled TextInput → hook input.
   useEffect(() => {
@@ -853,10 +790,14 @@ export default function ConversationScreen({
 
     const modelPath = `${RNFS.DocumentDirectoryPath}/${selectedGGUF}`;
     const status = llamaProvider.getStatus();
-    if (
-      (lastAutoLoadedRef.current === modelPath && llamaProvider.isReady()) ||
-      (status.state === "ready" && status.modelPath === modelPath)
-    ) {
+    const nativeCtx = llamaProvider.getNativeContext();
+    // Skip only when provider is actually ready with a live native context.
+    // Stale "ready" after a legacy release would otherwise leave chat broken.
+    const providerReadyForPath =
+      llamaProvider.isReady() &&
+      !!nativeCtx &&
+      (status.modelPath === modelPath || lastAutoLoadedRef.current === modelPath);
+    if (providerReadyForPath) {
       lastAutoLoadedRef.current = modelPath;
       return;
     }
@@ -936,8 +877,8 @@ export default function ConversationScreen({
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const panelAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const panelWantOpenRef = useRef(false);
 
-  // Reset multiselect header animation when panel closes
   useEffect(() => {
     if (!isPanelOpen && isMultiselectMode) {
       multiselectHeaderHeight.setValue(0);
@@ -945,7 +886,12 @@ export default function ConversationScreen({
     }
   }, [isPanelOpen, isMultiselectMode, multiselectHeaderHeight, multiselectHeaderOpacity]);
 
-  // Always restore system bars if this screen unmounts while the panel was open
+  // Frosted shell/system bars follow both panels through their full close.
+  useEffect(() => {
+    onHistoryPanelChange?.(isPanelOpen || isModelSelectorChromeOpen);
+  }, [isPanelOpen, isModelSelectorChromeOpen, onHistoryPanelChange]);
+
+  // Always restore system bars if this screen unmounts while frosted chrome was up
   useEffect(() => {
     return () => {
       onHistoryPanelChange?.(false);
@@ -961,6 +907,11 @@ export default function ConversationScreen({
   const greetingOpacityReadyRef = useRef(false);
   /** Shifts the empty-state hero up with the keyboard so it stays in the visible band. */
   const greetingKeyboardShift = useRef(new Animated.Value(0)).current;
+  /** Quick actions fade out while the keyboard is up so they never sit under the composer. */
+  const quickActionsOpacity = useRef(
+    new Animated.Value(keyboardPadding > 0 ? 0 : 1)
+  ).current;
+  const quickActionsOpacityReadyRef = useRef(false);
   const [greetingLine, setGreetingLine] = useState(persistedGreetingLine);
   const hadMessagesRef = useRef(!noMessages);
 
@@ -1014,13 +965,12 @@ export default function ConversationScreen({
     }
   }, [context, selectedGGUF, downloadedModels, setSelectedGGUF]);
 
-  // Reset temporary mode when starting a new chat
+  // Reset temporary mode when returning to an empty new chat.
   useEffect(() => {
-    if (noMessages && !currentChatId) {
+    if (!hasStartedChat && !currentChatId) {
       setIsTemporaryMode(false);
-      setHasStartedChat(false);
     }
-  }, [noMessages, currentChatId]);
+  }, [hasStartedChat, currentChatId]);
 
   /**
    * Animate persona indicator fade in/out
@@ -1035,7 +985,7 @@ export default function ConversationScreen({
     }).start();
   }, [selectedPersona, personaIndicatorOpacity]);
 
-  // Load chat history when panel opens or when conversation changes (if panel is open)
+  // Load chat history when the drawer opens or the active chat id changes.
   useEffect(() => {
     let isMounted = true;
     
@@ -1066,39 +1016,23 @@ export default function ConversationScreen({
     return () => {
       isMounted = false;
     };
-  }, [isPanelOpen, currentChatId]); // Also reload when chatId changes
+  }, [isPanelOpen, currentChatId]);
 
-  // Track when chat has started (first user message sent)
+  // Refresh open drawer after a turn settles (title/preview), without re-saving.
   useEffect(() => {
-    const userMessages = conversation.filter(m => m.role === 'user');
-    if (userMessages.length > 0 && !hasStartedChat) {
-      setHasStartedChat(true);
-    }
-  }, [conversation, hasStartedChat]);
-
-  // Persistence is owned by useAIChat. Only refresh the history drawer here
-  // when a turn settles — do NOT call saveChat/onChatIdChange (that raced the
-  // hook and helped trigger update-depth loops).
-  useEffect(() => {
-    if (isGenerating || !isPanelOpen || isTemporaryMode) {
+    if (isGenerating || !isPanelOpen || isTemporaryMode || !hasStartedChat) {
       return undefined;
     }
-    const userMessages = conversation.filter(
-      (m) => m.role === 'user' || m.role === 'assistant',
-    );
-    if (userMessages.length === 0) {
-      return undefined;
-    }
-    const saveTimer = setTimeout(async () => {
-      try {
-        const chats = await chatHistoryService.getAllChats();
-        setChatHistory(chats);
-      } catch (error) {
-        console.error('Error refreshing chat history:', error);
-      }
-    }, 500);
-    return () => clearTimeout(saveTimer);
-  }, [conversation.length, isGenerating, isPanelOpen, isTemporaryMode]);
+    const timer = setTimeout(() => {
+      chatHistoryService
+        .getAllChats()
+        .then(setChatHistory)
+        .catch((error) => {
+          console.error('Error refreshing chat history:', error);
+        });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [isGenerating, isPanelOpen, isTemporaryMode, hasStartedChat, conversation.length]);
 
   /**
    * Exit multiselect mode
@@ -1143,64 +1077,15 @@ export default function ConversationScreen({
     }
   }, [isMultiselectMode, multiselectHeaderHeight, multiselectHeaderOpacity]);
 
-  /**
-   * Toggles the chat history side panel
-   * Optimized: Fast animations with immediate state updates for rapid toggling
-   * Enhanced with animation cancellation to prevent conflicts
-   * 
-   * Edge cases handled:
-   * - Cancels ongoing animations and sets final value directly
-   * - Immediate state updates for instant responsiveness
-   * - Ensures panel fully closes by setting value directly if animation interrupted
-   */
   const togglePanel = useCallback(() => {
-    // Cancel any ongoing animation and ensure correct final position
-    if (panelAnimationRef.current) {
-      panelAnimationRef.current.stop();
-      panelAnimationRef.current = null;
-    }
+    panelAnimationRef.current?.stop();
 
-    if (isPanelOpen) {
-      // Fade system bars with the close motion (don't wait until slide ends)
-      onHistoryPanelChange?.(false);
+    const opening = !panelWantOpenRef.current;
+    panelWantOpenRef.current = opening;
 
-      // Close panel with fast slide animation
-      // Keep panel visible during animation by not updating state yet
-      panelAnimationRef.current = Animated.parallel([
-        Animated.timing(panelAnim, {
-          toValue: -panelWidth,
-          duration: 200,
-          easing: EASING.EASE_OUT,
-          useNativeDriver: true,
-        }),
-        Animated.timing(backdropOpacity, {
-          toValue: 0,
-          duration: 200,
-          easing: EASING.EASE_OUT,
-          useNativeDriver: true,
-        }),
-      ]);
-      
-      panelAnimationRef.current.start(({ finished }) => {
-        // Update state after animation completes to keep panel visible during slide
-        setIsPanelOpen(false);
-        // Always ensure panel is fully closed
-        panelAnim.setValue(-panelWidth);
-        backdropOpacity.setValue(0);
-        panelAnimationRef.current = null;
-        // Exit multiselect mode when panel closes
-        if (isMultiselectMode) {
-          exitMultiselectMode();
-        }
-      });
-    } else {
-      // Soften system bars as the frosted panel slides in
-      onHistoryPanelChange?.(true);
-      // Update state immediately for instant responsiveness
+    if (opening) {
       setIsPanelOpen(true);
-      
-      // Open panel with fast animation
-      panelAnimationRef.current = Animated.parallel([
+      const anim = Animated.parallel([
         Animated.spring(panelAnim, {
           toValue: 0,
           useNativeDriver: true,
@@ -1215,17 +1100,40 @@ export default function ConversationScreen({
           useNativeDriver: true,
         }),
       ]);
-      
-      panelAnimationRef.current.start(({ finished }) => {
-        // Always ensure panel is fully open
-        if (finished) {
-          panelAnim.setValue(0);
-          backdropOpacity.setValue(1);
-        }
+      panelAnimationRef.current = anim;
+      anim.start(({ finished }) => {
+        if (!finished || !panelWantOpenRef.current) return;
+        panelAnim.setValue(0);
+        backdropOpacity.setValue(1);
         panelAnimationRef.current = null;
       });
+      return;
     }
-  }, [isPanelOpen, panelAnim, panelWidth, backdropOpacity, isMultiselectMode, exitMultiselectMode, onHistoryPanelChange]);
+
+    const anim = Animated.parallel([
+      Animated.timing(panelAnim, {
+        toValue: -panelWidth,
+        duration: 200,
+        easing: EASING.EASE_OUT,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 200,
+        easing: EASING.EASE_OUT,
+        useNativeDriver: true,
+      }),
+    ]);
+    panelAnimationRef.current = anim;
+    anim.start(({ finished }) => {
+      if (!finished || panelWantOpenRef.current) return;
+      panelAnim.setValue(-panelWidth);
+      backdropOpacity.setValue(0);
+      panelAnimationRef.current = null;
+      setIsPanelOpen(false);
+      if (isMultiselectMode) exitMultiselectMode();
+    });
+  }, [panelAnim, panelWidth, backdropOpacity, isMultiselectMode, exitMultiselectMode]);
 
   // Handle chat selection
   const handleChatSelect = useCallback(async (chat: ChatConversation) => {
@@ -1321,8 +1229,10 @@ export default function ConversationScreen({
   }, [menuOpacity, menuScale]);
 
   const handleNewChatPress = useCallback(() => {
-    aiChat.newChat();
+    // Clear App identity/seed first so the next render never pairs a stale
+    // currentChatId with the emptied hook transcript (that reloads old chat).
     onNewChat();
+    aiChat.newChat();
   }, [aiChat.newChat, onNewChat]);
 
   /**
@@ -1559,6 +1469,26 @@ export default function ConversationScreen({
   }, [userInput, noMessages, greetingOpacity]);
 
   /**
+   * Fade quick actions when the keyboard is active so they don't sit behind the input bar.
+   * Greeting text stays visible until the user starts typing.
+   */
+  useEffect(() => {
+    if (!noMessages) return;
+    const target = keyboardPadding > 0 ? 0 : 1;
+    if (!quickActionsOpacityReadyRef.current) {
+      quickActionsOpacityReadyRef.current = true;
+      quickActionsOpacity.setValue(target);
+      return;
+    }
+    Animated.timing(quickActionsOpacity, {
+      toValue: target,
+      duration: ANIMATION_DURATIONS.SLOW,
+      easing: EASING.STANDARD,
+      useNativeDriver: true,
+    }).start();
+  }, [keyboardPadding, noMessages, quickActionsOpacity]);
+
+  /**
    * Animate temporary mode content transitions
    * Smoothly transitions between preset messages and temporary mode explanation
    */
@@ -1590,10 +1520,10 @@ export default function ConversationScreen({
 
   // Toggle temporary mode (only available before chat starts)
   const toggleTemporaryMode = useCallback(() => {
-    if (!hasStartedChat && noMessages) {
+    if (!hasStartedChat) {
       setIsTemporaryMode(prev => !prev);
     }
-  }, [hasStartedChat, noMessages]);
+  }, [hasStartedChat]);
 
   /**
    * Scale animation for the send icon
@@ -1791,11 +1721,11 @@ export default function ConversationScreen({
   }, [showToast]);
 
   /**
-   * Opens the model selector bottom sheet
+   * Opens the floating model / persona selector
    */
   const openModelSelector = useCallback(async () => {
     setIsModelSelectorVisible(true);
-    // Load personas when opening selector
+    setIsModelSelectorChromeOpen(true);
     try {
       const personas = await getPersonas();
       setAvailablePersonas(personas);
@@ -1960,14 +1890,18 @@ export default function ConversationScreen({
   }, [showToast, attachMenuOpacity, attachMenuScale, attachItem0Opacity, attachItem0Translate, attachItem1Opacity, attachItem1Translate]);
 
   /**
-   * Closes the model selector bottom sheet
+   * Closes the floating model / persona selector
    */
   const closeModelSelector = useCallback(() => {
-    if (isLoadingModel) return; // Don't allow closing while loading
+    if (isLoadingModel) return;
     setIsModelSelectorVisible(false);
     setIsLoadingModel(false);
     setLoadingModelFile(null);
   }, [isLoadingModel]);
+
+  const handleModelSelectorCloseComplete = useCallback(() => {
+    setIsModelSelectorChromeOpen(false);
+  }, []);
 
   // Handle model switching — single path through llamaProvider (no legacy+provider double load).
   const handleModelSwitch = useCallback(async (modelFile: string) => {
@@ -2068,20 +2002,6 @@ export default function ConversationScreen({
     
     return { pinnedChats, unpinnedChats, groupedUnpinned, sortedKeys };
   }, [chatHistory]);
-
-  /**
-   * Close panel when overlay is pressed
-   * Uses same animation config as togglePanel for consistency
-   */
-  const handleOverlayPress = useCallback(() => {
-    if (isPanelOpen) {
-      onHistoryPanelChange?.(false);
-      Animated.timing(panelAnim, {
-        toValue: -panelWidth,
-        ...ANIMATION_CONFIG.panel,
-      }).start(() => setIsPanelOpen(false));
-    }
-  }, [isPanelOpen, panelAnim, panelWidth, onHistoryPanelChange]);
 
   const handleLayout = useCallback((event: LayoutChangeEvent) => {
     const { height } = event.nativeEvent.layout;
@@ -2233,8 +2153,12 @@ export default function ConversationScreen({
     };
   }, [keyboardPadding, greetingKeyboardShift]);
 
+  // Single source of truth with App: shellBackground is what status/nav bars
+  // and SafeArea already use. Paint the chat canvas with that exact hex so
+  // history + quick panel stay uniform (no second local frost animation).
+
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: shellBackground }}>
       <View style={{ flex: 1, overflow: 'hidden' }} onLayout={handleLayout}>
         {/* Soft fade under top pills — never fully opaque */}
         <View style={styles.topFade} pointerEvents="none">
@@ -2245,10 +2169,10 @@ export default function ConversationScreen({
           >
             <Defs>
               <SvgLinearGradient id="chatTopFade" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor={theme.colors.background} stopOpacity="0.75" />
-                <Stop offset="0.3" stopColor={theme.colors.background} stopOpacity="0.45" />
-                <Stop offset="0.65" stopColor={theme.colors.background} stopOpacity="0.25" />
-                <Stop offset="1" stopColor={theme.colors.background} stopOpacity="0" />
+                <Stop offset="0" stopColor={shellBackground} stopOpacity="0.75" />
+                <Stop offset="0.3" stopColor={shellBackground} stopOpacity="0.45" />
+                <Stop offset="0.65" stopColor={shellBackground} stopOpacity="0.25" />
+                <Stop offset="1" stopColor={shellBackground} stopOpacity="0" />
               </SvgLinearGradient>
             </Defs>
             <Rect
@@ -2359,31 +2283,6 @@ export default function ConversationScreen({
             <Ionicons name="settings-outline" size={23} color={theme.colors.text} />
           </TouchableOpacity>
         </View>
-
-        {/* Overlay for closing the panel when clicking outside */}
-        <Animated.View
-          pointerEvents={isPanelOpen ? "auto" : "none"}
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            backgroundColor: panelAnim.interpolate({
-              inputRange: [-panelWidth, 0],
-              outputRange: [theme.colors.transparent, theme.colors.overlay],
-            }),
-            zIndex: 10,
-            opacity: panelAnim.interpolate({
-              inputRange: [-panelWidth, 0],
-              outputRange: [0, 1],
-            }),
-          }}
-        >
-          <TouchableWithoutFeedback onPress={handleOverlayPress}>
-            <View style={{ flex: 1 }} />
-          </TouchableWithoutFeedback>
-        </Animated.View>
 
         {/* Long press menu — absolute overlay, not RN Modal */}
         {menuVisible && (
@@ -2754,10 +2653,10 @@ export default function ConversationScreen({
                       Pinned
                     </Text>
                     {groupedChatHistory.pinnedChats.map((chat, index) => (
-                      <AnimatedHistoryItemWrapper
+                      <StaggerFadeIn
                         key={chat.id}
                         index={index}
-                        isVisible={isPanelOpen && !isLoadingHistory}
+                        active={isPanelOpen && !isLoadingHistory}
                       >
                         <ChatHistoryCard
                           chat={chat}
@@ -2777,7 +2676,7 @@ export default function ConversationScreen({
                           isSelected={selectedChatIds.has(chat.id)}
                           onToggleSelect={() => toggleChatSelection(chat.id)}
                         />
-                      </AnimatedHistoryItemWrapper>
+                      </StaggerFadeIn>
                     ))}
                   </View>
                 )}
@@ -2802,10 +2701,10 @@ export default function ConversationScreen({
                           .reduce((sum, key) => sum + (groupedChatHistory.groupedUnpinned.get(key)?.length || 0), 0) + 
                         chatIndex;
                       return (
-                        <AnimatedHistoryItemWrapper
+                        <StaggerFadeIn
                           key={chat.id}
                           index={globalIndex}
-                          isVisible={isPanelOpen && !isLoadingHistory}
+                          active={isPanelOpen && !isLoadingHistory}
                         >
                           <ChatHistoryCard
                             chat={chat}
@@ -2825,7 +2724,7 @@ export default function ConversationScreen({
                             isSelected={selectedChatIds.has(chat.id)}
                             onToggleSelect={() => toggleChatSelection(chat.id)}
                           />
-                        </AnimatedHistoryItemWrapper>
+                        </StaggerFadeIn>
                       );
                     })}
                   </View>
@@ -2990,7 +2889,11 @@ export default function ConversationScreen({
                   {msg.showThought && msg.thought && (
                     <View style={styles.thoughtContainer}>
                       <Text style={styles.thoughtTitle}>Thinking Process:</Text>
-                      <Text style={styles.thoughtText}>{msg.thought}</Text>
+                      <View style={{ width: "100%", maxWidth: "100%", flexShrink: 1 }}>
+                        <Text style={styles.thoughtText}>
+                          {msg.thought.replace(/^(?:\s*Thinking Process:\s*)+/i, "").trim()}
+                        </Text>
+                      </View>
                     </View>
                   )}
                   {msg.role === "assistant" && msg.content.trim().length > 0 && !isStreamingMessage && (
@@ -3084,13 +2987,17 @@ export default function ConversationScreen({
                 {isTemporaryMode ? "Temporary Mode" : greetingLine}
               </Text>
               
-              {/* Preset message suggestions or temporary mode explanation */}
-              {userInput.trim().length === 0 && (
-                <View style={{
+              {/* Preset message suggestions or temporary mode explanation.
+                  Fade out while keyboard is up so buttons never sit under the composer. */}
+              <Animated.View
+                style={{
                   marginTop: 20,
                   alignItems: 'center',
                   width: '100%',
-                }}>
+                  opacity: quickActionsOpacity,
+                }}
+                pointerEvents={keyboardPadding > 0 ? 'none' : 'box-none'}
+              >
                   {isTemporaryMode ? (
                     <Animated.View
                       style={{
@@ -3166,8 +3073,7 @@ export default function ConversationScreen({
                       ))}
                     </Animated.View>
                   )}
-                </View>
-              )}
+              </Animated.View>
             </Animated.View>
           )}
         </View>
@@ -3192,10 +3098,10 @@ export default function ConversationScreen({
             >
               <Defs>
                 <SvgLinearGradient id="chatInputFade" x1="0" y1="0" x2="0" y2="1">
-                  <Stop offset="0" stopColor={theme.colors.background} stopOpacity="0" />
-                  <Stop offset="0.35" stopColor={theme.colors.background} stopOpacity="0.35" />
-                  <Stop offset="0.7" stopColor={theme.colors.background} stopOpacity="0.6" />
-                  <Stop offset="1" stopColor={theme.colors.background} stopOpacity="0.75" />
+                  <Stop offset="0" stopColor={shellBackground} stopOpacity="0" />
+                  <Stop offset="0.35" stopColor={shellBackground} stopOpacity="0.35" />
+                  <Stop offset="0.7" stopColor={shellBackground} stopOpacity="0.6" />
+                  <Stop offset="1" stopColor={shellBackground} stopOpacity="0.75" />
                 </SvgLinearGradient>
               </Defs>
               <Rect
@@ -3279,7 +3185,12 @@ export default function ConversationScreen({
                 />
                 {isGenerating ? (
                   <Animated.View style={{ marginLeft: "auto" }}>
-                    <TouchableOpacity style={styles.stopButton} onPress={stopGeneration}>
+                    <TouchableOpacity
+                      style={styles.stopButton}
+                      onPress={aiChat.stop}
+                      accessibilityLabel="Stop generation"
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
                       <Ionicons name="stop-circle" size={40} color={theme.colors.error} />
                     </TouchableOpacity>
                   </Animated.View>
@@ -3303,13 +3214,12 @@ export default function ConversationScreen({
           </Animated.View>
         </View>
 
-        {/* Model & Persona Selector Bottom Sheet */}
+        {/* Floating model & persona selector */}
         <BottomSheet
           visible={isModelSelectorVisible}
           onClose={closeModelSelector}
-          title={selectorTab === "models" ? "Select Model" : "Select Persona"}
-          height={0.65}
-          disableDrag={isLoadingModel}
+          onCloseComplete={handleModelSelectorCloseComplete}
+          height={0.55}
           headerRight={
             selectorTab === "personas" && selectedPersona ? (
               <TouchableOpacity
@@ -3335,9 +3245,11 @@ export default function ConversationScreen({
           <View style={{
             flexDirection: "row",
             marginBottom: 16,
-            backgroundColor: theme.colors.surface,
+            backgroundColor: selectorFrost.chrome,
             borderRadius: 12,
             padding: 4,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: selectorFrost.rowBorder,
           }}>
             <TouchableOpacity
               onPress={() => setSelectorTab("models")}
@@ -3402,7 +3314,7 @@ export default function ConversationScreen({
                   <TouchableOpacity
                     onPress={() => {
                       closeModelSelector();
-                      onBackToModelSelection();
+                      onGoToModelSelection();
                     }}
                     style={{
                       backgroundColor: theme.colors.primary,
@@ -3422,23 +3334,33 @@ export default function ConversationScreen({
                   </TouchableOpacity>
                 </View>
               ) : (
-                downloadedModels.map((model, index) => {
+                <>
+                {downloadedModels.map((model, index) => {
                   const isSelected = selectedGGUF === model;
                   const isCurrentlyLoading = isLoadingModel && loadingModelFile === model;
                   return (
-                    <AnimatedModelItemWrapper
-                      key={index}
+                    <StaggerFadeIn
+                      key={`${model}-${index}`}
                       index={index}
-                      isVisible={isModelSelectorVisible && selectorTab === "models"}
+                      active={isModelSelectorVisible && selectorTab === "models"}
+                      offset={6}
+                      staggerMs={16}
+                      maxDelay={140}
                     >
                       <TouchableOpacity
                         onPress={() => handleModelSwitch(model)}
                         disabled={isLoadingModel || isSelected}
                         style={[
                           styles.modelButton,
-                          isSelected && styles.selectedButton,
                           {
-                            marginVertical: 6,
+                            marginVertical: 5,
+                            borderRadius: 12,
+                            backgroundColor: isSelected
+                              ? theme.colors.primary
+                              : selectorFrost.row,
+                            borderColor: isSelected
+                              ? theme.colors.primary
+                              : selectorFrost.rowBorder,
                             opacity: isLoadingModel && !isSelected && !isCurrentlyLoading ? 0.5 : 1,
                           },
                         ]}
@@ -3488,9 +3410,46 @@ export default function ConversationScreen({
                           </View>
                         </View>
                       </TouchableOpacity>
-                    </AnimatedModelItemWrapper>
+                    </StaggerFadeIn>
                   );
-                })
+                })}
+                <TouchableOpacity
+                  onPress={() => {
+                    closeModelSelector();
+                    onGoToModelSelection();
+                  }}
+                  disabled={isLoadingModel}
+                  style={{
+                    marginTop: 16,
+                    marginHorizontal: 4,
+                    paddingVertical: 14,
+                    paddingHorizontal: 16,
+                    borderRadius: 12,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: selectorFrost.outline,
+                    backgroundColor: selectorFrost.chrome,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexDirection: 'row',
+                    opacity: isLoadingModel ? 0.5 : 1,
+                  }}
+                >
+                  <Ionicons
+                    name="cube-outline"
+                    size={20}
+                    color={theme.colors.text}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={{
+                    fontSize: 15,
+                    fontFamily: 'Poppins',
+                    color: theme.colors.text,
+                    fontWeight: '500',
+                  }}>
+                    Browse models
+                  </Text>
+                </TouchableOpacity>
+                </>
               )
             ) : (
               // Personas tab
@@ -3535,10 +3494,13 @@ export default function ConversationScreen({
                 availablePersonas.map((persona, index) => {
                   const isSelected = selectedPersona?.id === persona.id;
                   return (
-                    <AnimatedModelItemWrapper
+                    <StaggerFadeIn
                       key={persona.id}
                       index={index}
-                      isVisible={isModelSelectorVisible && selectorTab === "personas"}
+                      active={isModelSelectorVisible && selectorTab === "personas"}
+                      offset={6}
+                      staggerMs={16}
+                      maxDelay={140}
                     >
                       <TouchableOpacity
                         onPress={() => {
@@ -3548,9 +3510,15 @@ export default function ConversationScreen({
                         disabled={isSelected}
                         style={[
                           styles.modelButton,
-                          isSelected && styles.selectedButton,
                           {
-                            marginVertical: 6,
+                            marginVertical: 5,
+                            borderRadius: 12,
+                            backgroundColor: isSelected
+                              ? theme.colors.primary
+                              : selectorFrost.row,
+                            borderColor: isSelected
+                              ? theme.colors.primary
+                              : selectorFrost.rowBorder,
                           },
                         ]}
                       >
@@ -3598,7 +3566,7 @@ export default function ConversationScreen({
                           </View>
                         </View>
                       </TouchableOpacity>
-                    </AnimatedModelItemWrapper>
+                    </StaggerFadeIn>
                   );
                 })
               )

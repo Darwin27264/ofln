@@ -14,7 +14,7 @@ import { getModelInfo, detectQuantFromFilename, isQuantAllowedForAndroidAccel } 
 import { getAccelerationConfig } from "./accelerationCapabilityService";
 import { getInferencePerfParams, formatLoadError } from "./inferencePerfParams";
 import { ensureGgufSafeForAndroidLoad } from "./ggufSanitizeService";
-import { buildCompletionParams, trimConversation } from "./inference";
+import { buildCompletionParams, trimConversation, adaptSystemPromptForThinking, isThinkingMetaLoop } from "./inference";
 
 // Types
 type MessageAttachment = {
@@ -639,7 +639,10 @@ export const handleSendMessageCompletion = async (
     const {
       n_predict: nPredict,
       temperature,
-      repeat_penalty: repeatPenalty,
+      top_p: topP,
+      top_k: topK,
+      penalty_repeat: penaltyRepeat,
+      penalty_present: penaltyPresent,
       stop,
       enable_thinking: enableThinking,
       reasoning_format: reasoningFormat,
@@ -679,9 +682,12 @@ export const handleSendMessageCompletion = async (
       text?: string;
     }
 
-    // Build system prompt from persona settings (no model-family hacks needed
-    // since thinking is now controlled at the API level, not via prompting).
-    const systemPrompt = buildPersonaSystemPrompt(selectedPersona, settings.systemPrompt);
+    // Build system prompt from persona settings. When thinking is enabled for
+    // this turn, strip anti-CoT rules so the model doesn't stall debating them.
+    const systemPrompt = adaptSystemPromptForThinking(
+      buildPersonaSystemPrompt(selectedPersona, settings.systemPrompt),
+      !!enableThinking,
+    );
 
     // Update conversation with system prompt
     let conversationWithSystemPrompt: Message[];
@@ -726,9 +732,11 @@ export const handleSendMessageCompletion = async (
         messages: conversationWithSystemPrompt,
         n_predict: nPredict,
         temperature,
-        top_p: settings.top_p,
-        top_k: settings.top_k,
-        repeat_penalty: repeatPenalty,
+        top_p: topP,
+        top_k: topK,
+        // llama.rn 0.12+ native keys (OpenAI-style `repeat_penalty` is ignored).
+        penalty_repeat: penaltyRepeat,
+        penalty_present: penaltyPresent,
         stop,
         // Thinking control (llama.rn 0.11.2+, Qwen3 / DeepSeek R1 aware):
         // `enable_thinking` is passed to the Jinja chat template — false tells
@@ -770,6 +778,9 @@ export const handleSendMessageCompletion = async (
             requestAnimationFrame(() => {
               scrollViewRef.current.scrollToEnd({ animated: false });
             });
+          }
+          if (isThinkingMetaLoop(currentThought)) {
+            Promise.resolve(context.stopCompletion?.()).catch(() => {});
           }
           return;
         }
@@ -836,6 +847,9 @@ export const handleSendMessageCompletion = async (
                 requestAnimationFrame(() => {
                   scrollViewRef.current.scrollToEnd({ animated: false });
                 });
+              }
+              if (isThinkingMetaLoop(currentThought)) {
+                Promise.resolve(context.stopCompletion?.()).catch(() => {});
               }
               return;
             }

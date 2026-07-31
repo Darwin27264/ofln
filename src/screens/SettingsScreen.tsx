@@ -40,7 +40,8 @@ export default function SettingsScreen({
     showAlert(
       "Chat Mode",
       "On: assistant replies appear in bubbles (chat-style).\nOff: assistant text prints more like a continuous transcript.\n\nThis only changes how messages look — not the model or speed.",
-      [{ text: "OK" }]
+      [{ text: "OK" }],
+      { textAlign: "left" },
     );
   };
 
@@ -119,7 +120,7 @@ export default function SettingsScreen({
           </TouchableOpacity>
           <TouchableOpacity style={{ flex: 1, marginLeft: 5 }} onPress={onGoToModelSelection}>
             <Animated.View style={styles.settingsBlock}>
-              <Ionicons name="grid-outline" size={21} color={theme.colors.text} style={styles.blockIcon}/>
+              <Ionicons name="cube-outline" size={21} color={theme.colors.text} style={styles.blockIcon}/>
               <View style={styles.blockTextContainer}>
                 <Text style={styles.blockText}>Models</Text>
               </View>

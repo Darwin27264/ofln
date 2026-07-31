@@ -50,14 +50,15 @@ export const EASING = {
  * All use native driver for optimal performance
  */
 /**
- * Centered overlay enter/exit — same language as PageFadeIn (no spring bounce).
+ * Centered overlay enter/exit — alerts, floating panels, page fades.
+ * FADE_OUT_MS is also used for shell frost lerp when chrome closes.
  */
 export const OVERLAY_MOTION = {
   FROM_SCALE: 0.98,
   FADE_IN_MS: 240,
   SCALE_IN_MS: 260,
-  FADE_OUT_MS: 180,
-  SCALE_OUT_MS: 180,
+  FADE_OUT_MS: 200,
+  SCALE_OUT_MS: 200,
 } as const;
 
 export const ANIMATION_CONFIG = {

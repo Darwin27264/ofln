@@ -38,6 +38,7 @@ import { showAlert } from "../components/CustomAlert";
 import { BottomSheet } from "../components/BottomSheet";
 import { pick, isErrorWithCode, errorCodes } from "@react-native-documents/picker";
 import { saveLocalModel, removeLocalModel, LocalModelInfo } from "../services/localModelService";
+import { llamaProvider } from "../providers/llamaProvider";
 import { ModelCard, ModelInfo } from "../components/ModelCard";
 import { useModelFilter } from "../hooks/useModelFilter";
 import { prettifyModelName, getQuantRecommendLabel } from "../utils/modelUtils";
@@ -56,8 +57,6 @@ interface ModelSelectionScreenProps {
   localModels: LocalModelInfo[];
   setLocalModels: (models: LocalModelInfo[]) => void;
   handleDownloadModel: (file: string, repoId: string, onProgress: (progress: number) => void, cancellationToken?: import("../api/model").DownloadCancellationToken) => Promise<void>;
-  loadModel: (path: string, context: any, setContext: (context: any) => void) => Promise<boolean>;
-  context: any;
   setContext: (context: any) => void;
   setCurrentPage: (page: "modelSelection" | "conversation" | "settings" | "stages" | "modelSettings") => void;
   checkDownloadedModels: () => Promise<void>;
@@ -204,8 +203,6 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     localModels,
     setLocalModels,
     handleDownloadModel,
-    loadModel,
-    context,
     setContext,
     setCurrentPage,
     checkDownloadedModels,
@@ -1132,8 +1129,10 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         return;
       }
 
-      const success = await loadModel(localModel.filePath, context, setContext);
+      // Same path as chat model switch — keep llamaProvider + native context aligned.
+      const success = await llamaProvider.loadModel({ modelPath: localModel.filePath });
       if (success) {
+        setContext(llamaProvider.getNativeContext());
         setSelectedGGUF(localModel.fileName);
         setCurrentPage("conversation");
       } else {
@@ -1146,7 +1145,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       setIsLoadingModel(false);
       setLoadingModelFile(null);
     }
-  }, [loadModel, context, setContext, setSelectedGGUF, setCurrentPage, checkDownloadedModels]);
+  }, [setContext, setSelectedGGUF, setCurrentPage, checkDownloadedModels]);
 
   // Handle deleting a local model
   const handleDeleteLocalModel = useCallback(async (localModel: LocalModelInfo) => {
@@ -1199,8 +1198,10 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       setLoadingModelFile(model.fileName);
       try {
         const modelPath = `${RNFS.DocumentDirectoryPath}/${model.fileName}`;
-        const success = await loadModel(modelPath, context, setContext);
+        // Same path as chat model switch — keep llamaProvider + native context aligned.
+        const success = await llamaProvider.loadModel({ modelPath });
         if (success) {
+          setContext(llamaProvider.getNativeContext());
           setSelectedGGUF(model.fileName);
           setCurrentPage("conversation");
         } else {
@@ -1285,7 +1286,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         );
       }
     }
-  }, [downloadedModels, loadModel, context, setContext, setSelectedGGUF, setCurrentPage, handleDownloadModel, checkDownloadedModels]);
+  }, [downloadedModels, setContext, setSelectedGGUF, setCurrentPage, handleDownloadModel, checkDownloadedModels]);
 
   const handleCustomUrlSubmit = useCallback(async () => {
     const parsed = parseHuggingFaceUrl(customUrlInput);
@@ -1629,7 +1630,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                 marginBottom: 12,
               }}
             >
-              Downloaded
+              Available
             </Text>
             {downloadedModelsInfo.map((model, index) => (
               <View key={`${model.id}:${model.fileName}:${index}`}>
