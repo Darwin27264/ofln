@@ -67,8 +67,8 @@ class LlamaProviderService {
   // ── Platform-specific Config Resolution ────────────────────────────────
 
   /**
-   * Resolves the optimal context parameters for the current device,
-   * mirroring the existing `loadModel()` logic in llamaService.ts.
+   * Resolves the optimal context parameters for the current device
+   * (Android accel gating, mlock, soft n_ctx caps).
    */
   private async resolveContextParams(
     filePath: string,
@@ -145,11 +145,8 @@ class LlamaProviderService {
   // ── Model Lifecycle ────────────────────────────────────────────────────
 
   /**
-   * Load a GGUF model into memory and create an AI SDK LanguageModel.
-   *
-   * Applies the same platform-specific acceleration gating as the
-   * existing `loadModel()` in llamaService.ts, then delegates to
-   * `@react-native-ai/llama`'s provider for AI SDK compatibility.
+   * Sole product load path: resolve accel params, prepare
+   * `@react-native-ai/llama`, expose native context via getNativeContext().
    */
   async loadModel(config: LlamaProviderConfig): Promise<boolean> {
     const { modelPath, projectorPath, projectorUseGpu = true, contextParams } = config;

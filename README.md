@@ -61,16 +61,15 @@ Layering:
 - **Hooks**: `useAIChat` (chat + streaming), HuggingFace browse, filters
 - **Native**: Custom app code is UI/shell only; inference natives ship inside `llama.rn`
 
-### Dual Inference Stack
-
-The app currently has **two model-load paths** that share the same settings/acceleration logic:
+### Model load & inference
 
 | Path | Module | When used |
 |------|--------|-----------|
-| **Active (chat)** | `src/providers/llamaProvider.ts` + `useAIChat` | Conversation screen loads the model, runs completion, streams tokens |
-| **Legacy** | `src/services/llamaService.ts` (`initLlama`) | Still used on download complete / some model switches in ModelSelection |
+| **Product load** | `src/providers/llamaProvider.ts` | App download/select, ModelSelection, Conversation auto-load |
+| **Chat** | `useAIChat` → `nativeCompletion` | Streaming with thinking/reasoning params |
+| **Helpers** | `src/services/llamaService.ts` | `checkFileExists` only for product UI; Diagnostics uses its own `initLlama` |
 
-Conversation avoids holding both contexts: it **releases the legacy context** before calling `llamaProvider.loadModel()`. Chat generation prefers **native `context.completion()`** (`useNativeCompletion: true`) for thinking/reasoning param parity. An alternate Vercel AI SDK `streamText()` path exists in `aiChatService` but is not the default UI path.
+Unload on back-to-models: `releaseAllLlama()` + `llamaProvider.unloadModel()`. An alternate Vercel AI SDK `streamText()` path exists in `aiChatService` but is not the default UI path.
 
 ### Core Technologies
 
@@ -154,7 +153,7 @@ src/
 │   ├── deviceEnv.ts                # Emulator heuristic
 │   ├── documentParsingService.ts   # Attachments / PDF text extraction
 │   ├── inferencePerfParams.ts          # Shared flash_attn / n_batch / KV cache knobs
-│   ├── llamaService.ts             # Legacy initLlama load + completion helpers
+│   ├── llamaService.ts             # checkFileExists (+ unused legacy stop/completion helpers)
 │   ├── localModelService.ts
 │   ├── mediaNormalizeService.ts        # Image pick resize, content:// copy, OCR caps
 │   ├── modelInfoService.ts         # Quant detect + Android accel allowlist
@@ -216,12 +215,13 @@ src/
 ### Model Download Flow
 
 1. User selects a curated or HuggingFace search result in ModelSelectionScreen
-2. App builds `https://huggingface.co/{repoId}/resolve/main/{file}` and downloads via `src/api/model.ts` (`RNFS.downloadFile`)
-3. Destination: `{RNFS.DocumentDirectoryPath}/{fileName}.gguf`
-4. Progress callbacks update the UI; cancellation uses an RNFS job + custom cancellation token (partial files are deleted — not resumed)
-5. On success, downloaded models are discovered by listing `*.gguf` in DocumentDirectory
+2. App builds `https://huggingface.co/{repoId}/resolve/main/{file}` and downloads via `src/api/model.ts` (`react-native-blob-util` when `USE_RESUMABLE_DOWNLOADS` is true; legacy `RNFS.downloadFile` otherwise)
+3. Destination: `{RNFS.DocumentDirectoryPath}/{fileName}.gguf` (in-progress files are `*.gguf.partial` — never loaded as models)
+4. Progress updates the UI; pause keeps the partial for resume; discard deletes partial + meta. Optional size verify before rename/activate
+5. On success, downloaded models are discovered by listing final `*.gguf` only in DocumentDirectory
 6. Local imports copy a picked GGUF into DocumentDirectory; metadata lives in AsyncStorage (`@local_models`)
-7. Download complete may still call legacy `llamaService.loadModel`; opening Conversation then **reloads** via `llamaProvider`
+7. Download/select complete loads via `llamaProvider.loadModel` (same path as Conversation)
+8. Gated HF models: Bearer token from Keychain (Models → **HF token**), attached only for `huggingface.co` hosts
 
 **Quantization**: Not converted in-app. Users download GGUF variants (UI prefers mobile-friendly quants). Android GPU/NPU acceleration is allowlisted for **`Q4_0` and `Q6_K` only**.
 
@@ -233,11 +233,11 @@ src/
 
 1. User selects a downloaded / imported `.gguf`
 2. Per-model settings load from AsyncStorage (`@model_settings_{fileName}`), with defaults if missing
-3. Path is validated; previous contexts are released
-4. **Conversation path (active)**: `llamaProvider.loadModel` → `@react-native-ai/llama` `languageModel` + `prepare()` → status `ready`; native handle via `getNativeContext()`
-5. **Legacy path**: `llamaService.loadModel` → `initLlama({ model, n_ctx, n_gpu_layers, use_mlock, devices? })`
-6. Both paths share Android gating: emulator → CPU; non-allowlisted quant → CPU; else OpenCL/HTP with preferred `devices` and layer caps
-7. Leaving conversation releases both (`releaseAllLlama` + `llamaProvider.unloadModel`)
+3. Path is validated; previous provider model is unloaded
+4. **Sole product path**: `llamaProvider.loadModel` → `@react-native-ai/llama` `languageModel` + `prepare()` → status `ready`; native handle via `getNativeContext()`
+5. Android gating (in provider): emulator → CPU; non-allowlisted quant → CPU; else OpenCL/HTP with preferred `devices` and layer caps
+6. Leaving conversation: `releaseAllLlama` + `llamaProvider.unloadModel`
+7. Diagnostics probes may call `initLlama` separately (not the chat load path)
 
 Defaults (see `modelSettingsService`): `n_ctx` 2048, `n_gpu_layers` 1, `temperature` 0.65, `top_p` 0.90, `top_k` 40, `repeat_penalty` 1.20, `n_predict` 256. On Android, `use_mlock` is forced off and `n_ctx` is capped at 2048 in the provider.
 
@@ -451,9 +451,9 @@ The application uses a centralized animation configuration system for consistenc
 
 ### Network Optimizations
 
-- **Request Cancellation**: Model downloads cancel via RNFS job id + cancellation token (partial file removed)
+- **Request Cancellation**: Pause keeps `.gguf.partial` for resume; discard deletes partial + meta
 - **Progress Tracking**: Efficient progress updates without blocking UI thread
-- **Error Recovery**: Network errors are handled gracefully with retry options
+- **Error Recovery**: Network errors keep partials for resume; load failures offer Retry / Models / Lower context
 - **Timeout Handling**: HuggingFace API/metadata requests have appropriate timeouts (8-15 seconds)
 
 ### Mobile-Specific Optimizations
@@ -542,7 +542,7 @@ Comprehensive error handling is implemented throughout:
 - Large models may take significant time to download (30 minutes to hours)
 - Consider Wi-Fi for large downloads to avoid data charges
 - Download progress is tracked but may not be 100% accurate
-- Network interruptions are handled with error messages; cancel deletes the partial file (true resume is not implemented)
+- Network interruptions keep the partial for resume; pause ≠ discard
 
 ### Platform Differences
 
@@ -599,7 +599,7 @@ The application handles numerous edge cases to ensure robust operation:
 - **Invalid Model Files**: Corrupted files are detected and can be removed
 - **App Backgrounding**: Downloads pause when app goes to background (platform limitation)
 - **Memory Pressure**: Low memory situations handled with context release
-- **Network Interruption**: Cancel removes partial downloads; true resume is not implemented yet
+- **Network Interruption**: Mid-fail / pause keeps `.partial` for resume; discard removes it
 - **Empty Conversations**: Empty message arrays are validated before processing
 - **Missing Context**: Model context validation before all operations
 - **Animation Conflicts**: Animation cancellation prevents overlapping animations

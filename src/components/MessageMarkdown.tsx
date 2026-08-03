@@ -199,11 +199,14 @@ export const MessageMarkdown = React.memo(function MessageMarkdown({
         lineHeight,
         margin: 0,
         padding: 0,
+        ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
       },
       // Keep row+wrap so width:100% hardbreaks wrap to the next line.
+      // No bottom margin here — last paragraph must not add slack under the
+      // text or single-line bubbles look top-heavy (padding + margin stack).
       paragraph: {
         marginTop: 0,
-        marginBottom: 8,
+        marginBottom: 0,
         padding: 0,
         flexWrap: 'wrap',
         flexDirection: 'row',
@@ -211,8 +214,16 @@ export const MessageMarkdown = React.memo(function MessageMarkdown({
         justifyContent: 'flex-start',
         width: '100%',
       },
-      text: { lineHeight, margin: 0, padding: 0 },
-      textgroup: { lineHeight },
+      text: {
+        lineHeight,
+        margin: 0,
+        padding: 0,
+        ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
+      },
+      textgroup: {
+        lineHeight,
+        ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
+      },
       // Full-width, zero-height wrap marker (overrides library height: 1).
       hardbreak: {
         width: '100%',
@@ -279,6 +290,24 @@ export const MessageMarkdown = React.memo(function MessageMarkdown({
             language=""
             palette={palette}
           />
+        );
+      },
+      // Gap between paragraphs only — never after the last one (bubble centering).
+      paragraph: (node: any, children: any, parent: any, styles: any) => {
+        const siblings = parent?.[0]?.children;
+        const isLast =
+          !Array.isArray(siblings) ||
+          siblings[siblings.length - 1]?.key === node.key;
+        return (
+          <View
+            key={node.key}
+            style={[
+              styles._VIEW_SAFE_paragraph,
+              !isLast ? { marginBottom: 8 } : null,
+            ]}
+          >
+            {children}
+          </View>
         );
       },
       // Full-width spacer → next line without an extra blank gap.

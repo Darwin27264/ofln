@@ -1,5 +1,5 @@
 /* styles.ts */
-import { StyleSheet, Dimensions } from "react-native";
+import { StyleSheet, Dimensions, Platform } from "react-native";
 import type { ThemeColors } from "../context/ThemeContext";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
@@ -147,11 +147,13 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.textSecondary,
     fontFamily: "Poppins",
     lineHeight: 28,
+    ...(Platform.OS === "android" ? { includeFontPadding: false } : null),
   },
   userMessageText: {
     color: colors.primaryText,
     fontFamily: "Poppins",
     lineHeight: 28,
+    ...(Platform.OS === "android" ? { includeFontPadding: false } : null),
   },
   tokenInfo: {
     fontSize: 12,

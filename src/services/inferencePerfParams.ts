@@ -51,47 +51,54 @@ export function getInferencePerfParams(
   return params;
 }
 
-/** Best-effort message extraction from native / non-Error throws. */
+/** Best-effort message extraction from native / non-Error throws (for logs). */
 export function formatLoadError(err: unknown): string {
   if (err instanceof Error) {
     const msg = (err.message || '').trim();
     if (msg && msg.toLowerCase() !== 'unknown error') {
-      return msg;
+      return truncateForLog(msg);
     }
     // Native bridges often throw Error("Unknown error") — dig for anything richer.
     const anyErr = err as Error & Record<string, unknown>;
     for (const key of ['code', 'userInfo', 'nativeStackAndroid', 'cause']) {
       const val = anyErr[key];
       if (typeof val === 'string' && val.trim()) {
-        return `${msg || 'Unknown error'} (${val})`;
+        return truncateForLog(`${msg || 'Unknown error'} (${val})`);
       }
       if (val && typeof val === 'object') {
         try {
           const s = JSON.stringify(val);
-          if (s && s !== '{}') return `${msg || 'Unknown error'}: ${s}`;
+          if (s && s !== '{}') return truncateForLog(`${msg || 'Unknown error'}: ${s}`);
         } catch {
           /* ignore */
         }
       }
     }
     if (err.name && err.name !== 'Error') {
-      return `${err.name}: ${msg || 'Unknown error'}`;
+      return truncateForLog(`${err.name}: ${msg || 'Unknown error'}`);
     }
     return msg || 'Unknown error';
   }
-  if (typeof err === 'string') return err;
+  if (typeof err === 'string') return truncateForLog(err);
   if (err && typeof err === 'object') {
     const anyErr = err as Record<string, unknown>;
     for (const key of ['message', 'msg', 'error', 'reason', 'code']) {
       if (typeof anyErr[key] === 'string' && (anyErr[key] as string).trim()) {
-        return anyErr[key] as string;
+        return truncateForLog(anyErr[key] as string);
       }
     }
     try {
-      return JSON.stringify(err);
+      return truncateForLog(JSON.stringify(err));
     } catch {
       /* fall through */
     }
   }
-  return String(err);
+  return truncateForLog(String(err));
+}
+
+/** Keep log lines readable — full stacks belong in errorLogger, not status strings. */
+function truncateForLog(text: string, maxLen = 500): string {
+  const s = text.replace(/\s+/g, ' ').trim();
+  if (s.length <= maxLen) return s;
+  return `${s.slice(0, maxLen - 1)}…`;
 }

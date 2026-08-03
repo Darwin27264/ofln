@@ -19,6 +19,7 @@
     "android:test-release": "npm run android:build-release && npm run android:install-release"
   },
   "dependencies": {
+    "@op-engineering/op-sqlite": "^15.2.14",
     "@react-native-ai/llama": "^0.12.0",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-clipboard/clipboard": "^1.16.3",
@@ -34,10 +35,12 @@
     "react-native": "0.78.1",
     "react-native-blob-util": "^0.24.10",
     "react-native-chart-kit": "^6.12.0",
+    "react-native-device-info": "^15.0.2",
     "react-native-fs": "^2.20.0",
     "react-native-gesture-handler": "^2.25.0",
     "react-native-image-picker": "^8.2.1",
     "react-native-keyboard-aware-scroll-view": "^0.9.5",
+    "react-native-keychain": "^10.0.0",
     "react-native-markdown-display": "^7.0.2",
     "react-native-safe-area-context": "^5.8.0",
     "react-native-svg": "^15.15.5",

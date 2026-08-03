@@ -169,7 +169,7 @@ export default function SettingsScreen({
           </Animated.View>
         </TouchableOpacity>
       </View>
-      {/* Auto Load feature removed */}
+
       <View style={{ position: "absolute", bottom: 20, left: 15, right: 15, backgroundColor: "transparent", flexDirection: "row", justifyContent: "space-between" }}>
         <TouchableOpacity onPress={onBackToConversation} style={{
           flexDirection: "row",
@@ -206,5 +206,3 @@ export default function SettingsScreen({
     </Animated.View>
   );
 }
-
-// Performance styles moved to StagesScreen where the detailed stats are shown

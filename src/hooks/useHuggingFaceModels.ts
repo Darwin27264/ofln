@@ -11,8 +11,8 @@
  */
 
 import { useState, useRef, useCallback } from "react";
-import axios from "axios";
 import { ModelInfo, prettifyModelName } from "../utils/modelUtils";
+import { hfAxiosGet } from "../services/hfTokenService";
 
 // Reputable Hugging Face authors for GGUF models
 // Keep in sync with `REPUTABLE_AUTHORS` in screens/ModelSelectionScreen.tsx.
@@ -186,7 +186,7 @@ export function useHuggingFaceModels(
       for (const author of authorsToSearch) {
         try {
           // Fetch repositories for this author
-          const reposResponse = await axios.get(
+          const reposResponse = await hfAxiosGet(
             `https://huggingface.co/api/models?author=${author}&sort=downloads&direction=-1&limit=50`,
             { timeout: 10000 }
           );
@@ -206,7 +206,7 @@ export function useHuggingFaceModels(
 
             try {
               // Fetch files for this repository
-              const filesResponse = await axios.get(
+              const filesResponse = await hfAxiosGet(
                 `https://huggingface.co/api/models/${repoId}`,
                 { timeout: 10000 }
               );

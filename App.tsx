@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { ScrollView, StatusBar, Platform, Animated } from "react-native";
+import { ScrollView, StatusBar, Platform, Animated, AppState, type AppStateStatus } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -27,6 +27,7 @@ import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
 import { applySystemBarTheme, lerpHexColor } from "./src/utils/systemBars";
 import { frostedPanelSystemBarColor } from "./src/components/FrostedGlass";
 import { EASING, OVERLAY_MOTION } from "./src/utils/animationConfig";
+import { shouldRehydrateSelectionFromProvider } from "./src/utils/modelSelectionRehydrate";
 
 // Components
 import { CustomAlertProvider } from "./src/components/CustomAlert";
@@ -36,18 +37,22 @@ import { PageFadeIn } from "./src/components/PageFadeIn";
 import ModelSelectionScreen from "./src/screens/ModelSelectionScreen";
 import ConversationScreen from "./src/screens/ConversationScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
+import HfTokenScreen from "./src/screens/HfTokenScreen";
 import StagesScreen from "./src/screens/StagesScreen";
 import PersonasLibraryScreen from "./src/screens/PersonasLibraryScreen";
 import PersonaEditorScreen from "./src/screens/PersonaEditorScreen";
 import ModelSettingsScreen from "./src/screens/ModelSettingsScreen";
 import InfoScreen from "./src/screens/InfoScreen";
 import DiagnosticsScreen from "./src/screens/DiagnosticsScreen";
+import OnboardingScreen from "./src/screens/OnboardingScreen";
 import { Persona, getPersonas } from "./src/services/personaService";
 import { ModelInfo } from "./src/components/ModelCard";
 
 // Services (legacy helpers still used for download / existence checks)
 import { checkFileExists } from "./src/services/llamaService";
 import { validateLocalModels, LocalModelInfo } from "./src/services/localModelService";
+import { shouldShowOnboardingOnLaunch } from "./src/services/onboardingService";
+import { toUserFacingLoadError } from "./src/utils/userFacingErrors";
 
 // Vercel AI SDK integration layer
 import { llamaProvider } from "./src/providers/llamaProvider";
@@ -144,8 +149,44 @@ function AppContent(): React.JSX.Element {
   const [conversation, setConversation] = useState<Message[]>(INITIAL_CONVERSATION);
   const [userInput, setUserInput] = useState<string>("");
   const [selectedGGUF, setSelectedGGUF] = useState<string | null>(null);
-  type PageType = "modelSelection" | "conversation" | "settings" | "stages" | "personas" | "personaEditor" | "modelSettings" | "info" | "diagnostics";
+  type PageType =
+    | "onboarding"
+    | "modelSelection"
+    | "conversation"
+    | "settings"
+    | "stages"
+    | "personas"
+    | "personaEditor"
+    | "modelSettings"
+    | "info"
+    | "diagnostics"
+    | "hfToken";
   const [currentPage, setCurrentPage] = useState<PageType>("conversation");
+  /** False until `@has_completed_onboarding` is read — avoids flashing chat for new users. */
+  const [bootstrapped, setBootstrapped] = useState(false);
+  /** Skip from onboarding returns here (About review → info; first-run → conversation). */
+  const [onboardingSkipTo, setOnboardingSkipTo] = useState<"conversation" | "info">("conversation");
+
+  // S11 — first-run gate (mount once). About “Review” never clears the flag.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const show = await shouldShowOnboardingOnLaunch();
+        if (!cancelled && show) {
+          setOnboardingSkipTo("conversation");
+          setCurrentPage("onboarding");
+        }
+      } catch (e) {
+        console.warn("Onboarding gate check failed", e);
+      } finally {
+        if (!cancelled) setBootstrapped(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Leaving conversation always clears frosted chrome bar styling
   useEffect(() => {
@@ -166,6 +207,44 @@ function AppContent(): React.JSX.Element {
   );
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
   const [availablePersonas, setAvailablePersonas] = useState<Persona[]>([]);
+
+  const selectedGGUFRef = useRef<string | null>(selectedGGUF);
+  selectedGGUFRef.current = selectedGGUF;
+
+  /**
+   * After a brief background, React state can reset while llamaProvider (JS singleton)
+   * still holds the loaded model in RAM. Reattach UI selection + context only —
+   * never load/unload here.
+   */
+  const rehydrateModelSelectionFromProvider = useCallback(() => {
+    const nativeCtx = llamaProvider.getNativeContext();
+    const status = llamaProvider.getStatus();
+    const decision = shouldRehydrateSelectionFromProvider(
+      {
+        ready: llamaProvider.isReady(),
+        modelPath: status.modelPath,
+        hasNativeContext: !!nativeCtx,
+      },
+      selectedGGUFRef.current,
+    );
+    if (!decision.rehydrate) return;
+    setSelectedGGUF(decision.fileName);
+    setContext(nativeCtx);
+  }, []);
+
+  useEffect(() => {
+    rehydrateModelSelectionFromProvider();
+  }, [rehydrateModelSelectionFromProvider]);
+
+  useEffect(() => {
+    const onChange = (next: AppStateStatus) => {
+      if (next === "active") {
+        rehydrateModelSelectionFromProvider();
+      }
+    };
+    const sub = AppState.addEventListener("change", onChange);
+    return () => sub.remove();
+  }, [rehydrateModelSelectionFromProvider]);
 
   // Load saved chat mode preference on app startup
   useEffect(() => {
@@ -242,9 +321,12 @@ function AppContent(): React.JSX.Element {
     try {
       // Check downloaded models from DocumentDirectoryPath
       const files = await RNFS.readDir(RNFS.DocumentDirectoryPath);
-      // Filter for .gguf files only (case-insensitive check)
+      // Final models only — never activate `*.gguf.partial` (or `.chunk`) as downloads.
       const ggufFiles = files
-        .filter((file) => file.name.toLowerCase().endsWith(".gguf"))
+        .filter((file) => {
+          const n = file.name.toLowerCase();
+          return n.endsWith(".gguf") && !n.endsWith(".partial") && !n.endsWith(".chunk");
+        })
         .map((f) => f.name);
       setDownloadedModels(ggufFiles);
 
@@ -337,18 +419,19 @@ function AppContent(): React.JSX.Element {
     file: string, 
     repoId: string, 
     onProgress: (progress: number) => void,
-    cancellationToken?: DownloadCancellationToken
+    cancellationToken?: DownloadCancellationToken,
+    expectedBytes?: number | null,
   ) => {
     const downloadUrl = `https://huggingface.co/${repoId}/resolve/main/${file}`;
     const destPath = `${RNFS.DocumentDirectoryPath}/${file}`;
     
-    // Check if already cancelled
+    // Check if already cancelled / paused
     if (cancellationToken?.isCancelled()) {
       console.log("Download cancelled before starting");
       return;
     }
     
-    // Check if model already exists locally
+    // Check if model already exists locally (final .gguf only — never .partial)
     if (await checkFileExists(destPath)) {
       // Model exists - load via provider (same path as chat model switch)
       const success = await llamaProvider.loadModel({ modelPath: destPath });
@@ -358,20 +441,24 @@ function AppContent(): React.JSX.Element {
         await checkDownloadedModels(); // Refresh downloaded models list
         setCurrentPage("conversation");
         return;
-      } else {
-        // File exists but failed to load - may be corrupted
-        console.error("Model file exists but failed to load - may be corrupted");
-        return;
       }
+      // Surface a typed failure so ModelSelection can show calm copy (not a silent miss).
+      setSelectedGGUF(null);
+      const uf = toUserFacingLoadError(null, llamaProvider.getStatus().error);
+      throw new Error(`${uf.title}: ${uf.message}`);
     }
     
-    // Model doesn't exist - download it
+    // Model doesn't exist - download it (resumable .partial → rename on verify)
     try {
-      await downloadModel(file, downloadUrl, onProgress, cancellationToken);
+      await downloadModel(file, downloadUrl, {
+        onProgress,
+        cancellationToken,
+        expectedBytes,
+      });
       
-      // Check if cancelled after download
+      // Check if cancelled/paused after download
       if (cancellationToken?.isCancelled()) {
-        console.log("Download was cancelled");
+        console.log("Download was cancelled or paused");
         return;
       }
       
@@ -384,20 +471,25 @@ function AppContent(): React.JSX.Element {
         setSelectedGGUF(file);
         setCurrentPage("conversation");
       } else {
-        console.error("Failed to load the downloaded model - file may be corrupted");
-        setSelectedGGUF(null); // Reset selection on load failure
+        setSelectedGGUF(null);
+        const uf = toUserFacingLoadError(null, llamaProvider.getStatus().error);
+        throw new Error(`${uf.title}: ${uf.message}`);
       }
     } catch (error) {
-      // Check if it's a cancellation error - don't show error for cancellations
-      if (error instanceof Error && error.message === "Download was cancelled") {
-        console.log("Download was cancelled by user");
+      // Pause / cancel — not a hard failure (ModelSelection owns paused UI)
+      if (
+        error instanceof Error &&
+        (/download was cancelled/i.test(error.message) ||
+          /download was paused/i.test(error.message))
+      ) {
+        console.log("Download paused or cancelled by user");
         return;
       }
       
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       console.error("Download failed:", errorMessage);
       setSelectedGGUF(null); // Reset selection on error
-      // Error is already handled by downloadModel, but we ensure state is clean
+      throw error; // Let ModelSelection show user-facing alert
     }
   }, [setContext, checkDownloadedModels]);
 
@@ -413,7 +505,16 @@ function AppContent(): React.JSX.Element {
         style={[styles.container, { backgroundColor: shellBackground }]}
         edges={['top', 'bottom', 'left', 'right']}
       >
-        {currentPage === "modelSelection" && (
+        {!bootstrapped ? null : currentPage === "onboarding" ? (
+          <OnboardingScreen
+            downloadedModels={downloadedModels}
+            handleDownloadModel={handleDownloadModel}
+            skipDestination={onboardingSkipTo}
+            onFinished={(destination) => setCurrentPage(destination)}
+          />
+        ) : null}
+
+        {bootstrapped && currentPage === "modelSelection" && (
         <PageFadeIn key="modelSelection">
           <ModelSelectionScreen
           downloadedModels={downloadedModels}
@@ -433,7 +534,7 @@ function AppContent(): React.JSX.Element {
         </PageFadeIn>
       )}
 
-      {currentPage === "conversation" && (
+      {bootstrapped && currentPage === "conversation" && (
         <PageFadeIn key="conversation">
           <ConversationScreen
           conversation={conversation}
@@ -479,6 +580,12 @@ function AppContent(): React.JSX.Element {
           onGoToInfo={() => setCurrentPage("info")}
           onGoToDiagnostics={() => setCurrentPage("diagnostics")}
           />
+        </PageFadeIn>
+      )}
+
+      {currentPage === "hfToken" && (
+        <PageFadeIn key="hfToken">
+          <HfTokenScreen onBack={() => setCurrentPage("modelSelection")} />
         </PageFadeIn>
       )}
 
@@ -554,6 +661,10 @@ function AppContent(): React.JSX.Element {
         <PageFadeIn key="info">
           <InfoScreen
             onBack={() => setCurrentPage("settings")}
+            onReviewOnboarding={() => {
+              setOnboardingSkipTo("info");
+              setCurrentPage("onboarding");
+            }}
           />
         </PageFadeIn>
       )}

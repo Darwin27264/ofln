@@ -69,6 +69,8 @@ function libraryVersionsFromDeps(): Array<{ name: string; version: string }> {
 
 interface Props {
   onBack: () => void;
+  /** Re-open the first-run onboarding steps (review mode). */
+  onReviewOnboarding: () => void;
 }
 
 type GuideSection = {
@@ -85,7 +87,8 @@ const GUIDE_SECTIONS: GuideSection[] = [
       "1. Open Models and pick a Popular model (Q4_0 preferred).\n" +
       "2. Wait for the download, then tap the card to load it.\n" +
       "3. Chat runs fully on-device — no account and no cloud AI.\n" +
-      "4. Wi‑Fi is only needed to download models from HuggingFace.",
+      "4. Wi‑Fi is only needed to download models from HuggingFace.\n" +
+      "5. You can run the short onboarding again anytime from this About page.",
   },
   {
     title: "Choosing a model",
@@ -173,7 +176,7 @@ function GuideCard({
   );
 }
 
-export default function InfoScreen({ onBack }: Props) {
+export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
   const { theme, isTransitioning } = useTheme();
   const styles = createStyles(theme.colors);
 
@@ -236,12 +239,60 @@ export default function InfoScreen({ onBack }: Props) {
             fontSize: 16,
             color: theme.colors.text,
             lineHeight: 24,
-            marginBottom: 24,
+            marginBottom: 20,
             fontFamily: "Poppins",
           }}
         >
           Run GGUF language models offline on your phone. Download once, then chat without the cloud.
         </Text>
+
+        <TouchableOpacity
+          onPress={onReviewOnboarding}
+          accessibilityLabel="Review onboarding"
+          accessibilityHint="Opens the first-run guide again"
+          style={{
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            backgroundColor: theme.colors.surface,
+            borderRadius: 14,
+            paddingVertical: 14,
+            paddingHorizontal: 16,
+            marginBottom: 28,
+            flexDirection: "row",
+            alignItems: "center",
+          }}
+        >
+          <Ionicons
+            name="map-outline"
+            size={22}
+            color={theme.colors.text}
+            style={{ marginRight: 12 }}
+          />
+          <View style={{ flex: 1 }}>
+            <Text
+              style={{
+                fontSize: 16,
+                fontWeight: "600",
+                fontFamily: "Poppins",
+                color: theme.colors.text,
+                marginBottom: 2,
+              }}
+            >
+              Review onboarding
+            </Text>
+            <Text
+              style={{
+                fontSize: 13,
+                fontFamily: "Poppins",
+                color: theme.colors.textSecondary,
+                lineHeight: 18,
+              }}
+            >
+              Replay the short first-run guide anytime — pick a model, privacy tips, and how chat works.
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={theme.colors.textTertiary} />
+        </TouchableOpacity>
 
         <Text
           style={{

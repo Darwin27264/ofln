@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { Animated, Text, View } from 'react-native';
+import { Animated, Platform, Text, View } from 'react-native';
 
 import { useSmoothRevealText } from '../hooks/useSmoothRevealText';
 import { MessageMarkdown } from './MessageMarkdown';
@@ -20,7 +20,8 @@ type Props = {
 const BODY_SIZE = 16;
 const LINE_HEIGHT = 24;
 const FONT = 'Poppins';
-
+const ANDROID_TEXT =
+  Platform.OS === 'android' ? ({ includeFontPadding: false } as const) : null;
 const StreamingCaret = React.memo(({ color }: { color: string }) => {
   const opacity = useRef(new Animated.Value(1)).current;
 
@@ -52,6 +53,7 @@ const StreamingCaret = React.memo(({ color }: { color: string }) => {
         fontFamily: FONT,
         lineHeight: LINE_HEIGHT,
         fontWeight: '500',
+        ...ANDROID_TEXT,
       }}
     >
       ▍
@@ -76,6 +78,7 @@ export const StreamingMessageText = React.memo(function StreamingMessageText({
             fontFamily: FONT,
             color,
             lineHeight: LINE_HEIGHT,
+            ...ANDROID_TEXT,
           }}
         >
           {displayed}

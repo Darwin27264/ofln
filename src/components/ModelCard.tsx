@@ -37,6 +37,9 @@ import { useTheme } from "../context/ThemeContext";
 import CircularProgress from "./CircularProgress";
 import { ANIMATION_CONFIG, EASING, getStaggeredDelay } from "../utils/animationConfig";
 import { isThinkingModel } from "../utils/modelUtils";
+import type { RamFitResult } from "../services/ramFitService";
+import { explainRamFit, RAM_FIT_LABELS } from "../services/ramFitService";
+import { showAlert } from "./CustomAlert";
 
 // Types
 export interface ModelInfo {
@@ -62,17 +65,23 @@ interface ModelCardProps {
   isDownloaded: boolean;
   index: number;
   isDownloading: boolean;
+  /** Partial download paused — tap card/download to resume. */
+  isPaused?: boolean;
   progress: number;
   isLoading: boolean;
   onDownload: () => void;
   onDelete: () => void;
   onCancel: () => void;
+  /** Discard paused partial (optional). */
+  onDiscardPaused?: () => void;
   onSettings: () => void;
   isExpanded: boolean;
   onToggleExpand: () => void;
   // Animation control from parent
   isInitialAnimationPhase: boolean;
   animatedModelIds: React.MutableRefObject<Set<string>>;
+  /** S09 — RAM fit vs device total memory (omit when unknown). */
+  ramFit?: RamFitResult | null;
 }
 
 // Cache for quantization extraction to avoid repeated regex operations
@@ -143,16 +152,19 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
   isDownloaded, 
   index,
   isDownloading,
+  isPaused = false,
   progress,
   isLoading,
   onDownload,
   onDelete,
   onCancel,
+  onDiscardPaused,
   onSettings,
   isExpanded,
   onToggleExpand,
   isInitialAnimationPhase,
   animatedModelIds,
+  ramFit = null,
 }) => {
   const { theme } = useTheme();
   
@@ -162,6 +174,21 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
+  const ramFitColor =
+    ramFit?.tier === "fits"
+      ? theme.colors.success
+      : ramFit?.tier === "tight"
+        ? theme.colors.warning
+        : ramFit?.tier === "wont_fit"
+          ? theme.colors.error
+          : null;
+
+  const showRamFitDetails = () => {
+    if (!ramFit) return;
+    const { title, message } = explainRamFit(ramFit);
+    showAlert(title, message, [{ text: "OK" }], { textAlign: "left" });
   };
   
   // Animation values - use refs to avoid re-creation on re-renders
@@ -446,6 +473,25 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                   </Text>
                 </View>
               )}
+              {ramFit && ramFitColor && (
+                <TouchableOpacity
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    showRamFitDetails();
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`RAM fit: ${RAM_FIT_LABELS[ramFit.tier]}. Tap for details.`}
+                  style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: 7,
+                    backgroundColor: ramFitColor,
+                    borderWidth: 1,
+                    borderColor: theme.colors.border,
+                  }}
+                />
+              )}
               {isDownloaded && (
                 <View
                   style={{
@@ -494,7 +540,41 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                     }}
                     activeOpacity={0.7}
                   >
-                    <Icon name="cancel" size={22} color={theme.colors.error} />
+                    <Icon name="pause-circle-filled" size={22} color={theme.colors.text} />
+                  </TouchableOpacity>
+                </View>
+                <Text
+                  style={{
+                    fontSize: 10,
+                    color: theme.colors.text,
+                    fontFamily: "Poppins",
+                    fontWeight: "600",
+                    marginTop: 4,
+                  }}
+                >
+                  {progress}%
+                </Text>
+              </View>
+            ) : isPaused ? (
+              <View style={{ alignItems: "center", justifyContent: "center" }}>
+                <View style={{ position: "relative", width: 42, height: 42 }}>
+                  <CircularProgress progress={progress} size={42} strokeWidth={4} />
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onDownload();
+                    }}
+                    style={{
+                      position: "absolute",
+                      width: 42,
+                      height: 42,
+                      justifyContent: "center",
+                      alignItems: "center",
+                      borderRadius: 21,
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Icon name="play-circle-filled" size={22} color={theme.colors.text} />
                   </TouchableOpacity>
                 </View>
                 <Text
@@ -506,8 +586,28 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                     marginTop: 4,
                   }}
                 >
-                  {progress}%
+                  Paused
                 </Text>
+                {onDiscardPaused && (
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onDiscardPaused();
+                    }}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 9,
+                        color: theme.colors.textTertiary,
+                        fontFamily: "Poppins",
+                        marginTop: 2,
+                      }}
+                    >
+                      Discard
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
             ) : isLoading ? (
               <ActivityIndicator size="small" color={theme.colors.text} />
@@ -522,7 +622,7 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
         </TouchableOpacity>
 
         {/* Dropdown menu */}
-        {isExpanded && !isDownloading && !isLoading && (
+        {isExpanded && !isDownloading && !isPaused && !isLoading && (
           <Animated.View
             style={{
               borderTopWidth: isDownloaded ? 0 : 1,
@@ -600,6 +700,46 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                       {modelQuantization}
                     </Text>
                   </View>
+                )}
+                {ramFit && ramFitColor && (
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      showRamFitDetails();
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`RAM fit: ${RAM_FIT_LABELS[ramFit.tier]}. Tap for details.`}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      backgroundColor: hexToRgba(ramFitColor, 0.14),
+                      borderWidth: 1,
+                      borderColor: hexToRgba(ramFitColor, 0.35),
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      borderRadius: 6,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: ramFitColor,
+                        marginRight: 6,
+                      }}
+                    />
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontFamily: "Poppins",
+                        fontWeight: "600",
+                        color: ramFitColor,
+                      }}
+                    >
+                      {RAM_FIT_LABELS[ramFit.tier]}
+                    </Text>
+                  </TouchableOpacity>
                 )}
                 {model.downloads && (
                   <View

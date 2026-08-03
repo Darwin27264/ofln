@@ -1,4 +1,26 @@
+/**
+ * Chat history service (S12) — SQLite via op-sqlite, same public API.
+ * One-time migrate from AsyncStorage `@chat_history` with backup key.
+ */
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { open, type DB } from '@op-engineering/op-sqlite';
+import {
+  CHAT_HISTORY_ASYNC_BACKUP_KEY,
+  CHAT_HISTORY_KEY,
+  CHAT_HISTORY_MIGRATED_KEY,
+  MAX_CHAT_HISTORY,
+  buildTitleAndPreview,
+  chatToRow,
+  parseChatHistoryJson,
+  rowToChat,
+  sortChatsForDisplay,
+  trimChatsToMax,
+  filterChatsBySearchQuery,
+  normalizeChatSearchQuery,
+  escapeSqlLikePattern,
+  type ChatRow,
+} from './chatHistoryHelpers';
 
 export interface MessageAttachment {
   type: 'image';
@@ -25,133 +47,188 @@ export interface ChatConversation {
   createdAt: number;
   updatedAt: number;
   pinned?: boolean;
-  customTitle?: string; // User-defined custom title
+  customTitle?: string;
 }
 
-const CHAT_HISTORY_KEY = '@chat_history';
-const MAX_CHAT_HISTORY = 100; // Maximum number of chats to store
+const DB_NAME = 'ofln_chats.sqlite';
 
 class ChatHistoryService {
   private initialized = false;
+  private db: DB | null = null;
+  /** sqlite when native linked; async = AsyncStorage fallback until rebuild. */
+  private backend: 'sqlite' | 'async' = 'async';
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    
+
     try {
-      const history = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
-      if (!history) {
-        await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify([]));
-      }
-      this.initialized = true;
+      const db = open({ name: DB_NAME });
+      await db.execute('PRAGMA journal_mode = WAL;');
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS chats (
+          id TEXT PRIMARY KEY NOT NULL,
+          title TEXT NOT NULL,
+          preview TEXT NOT NULL DEFAULT '',
+          messages_json TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          pinned INTEGER NOT NULL DEFAULT 0,
+          custom_title TEXT
+        );
+      `);
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_chats_created_at ON chats(created_at DESC);',
+      );
+      this.db = db;
+      this.backend = 'sqlite';
+      await this.migrateFromAsyncStorageIfNeeded();
     } catch (error) {
-      console.error('Error initializing chat history:', error);
-      this.initialized = true; // Set to true even on error to prevent infinite loops
+      console.warn(
+        'Chat history SQLite unavailable — using AsyncStorage until native rebuild',
+        error,
+      );
+      this.db = null;
+      this.backend = 'async';
+      try {
+        const history = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
+        if (!history) {
+          await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify([]));
+        }
+      } catch (e) {
+        console.error('Error initializing AsyncStorage chat history:', e);
+      }
     }
+
+    this.initialized = true;
   }
 
   /**
-   * Save or update a chat conversation
-   * 
-   * Handles both creating new chats and updating existing ones.
-   * Automatically generates title from first user message.
-   * Preserves custom titles and pinned status on updates.
-   * 
-   * @param messages - Array of conversation messages
-   * @param chatId - Optional existing chat ID for updates
-   * @returns Promise<string> - The chat ID (new or existing)
-   * 
-   * Edge cases handled:
-   * - Empty message arrays
-   * - Missing user messages (uses default title)
-   * - Large message arrays (limited to MAX_CHAT_HISTORY)
-   * - Storage failures (throws error for caller to handle)
+   * Migrate once: backup `@chat_history` → `@chat_history_async_backup`, insert rows, set flag.
+   * Idempotent — skips when `CHAT_HISTORY_MIGRATED_KEY` is set or DB already has rows + flag.
    */
-  async saveChat(messages: Message[], chatId?: string | null): Promise<string> {
-    await this.initialize();
-    
+  private async migrateFromAsyncStorageIfNeeded(): Promise<void> {
+    if (!this.db) return;
+
     try {
-      // Validate messages array
-      if (!Array.isArray(messages) || messages.length === 0) {
-        throw new Error('Invalid messages array provided to saveChat');
+      const migrated = await AsyncStorage.getItem(CHAT_HISTORY_MIGRATED_KEY);
+      if (migrated === 'true' || migrated === '1') return;
+
+      const raw = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
+      const chats = trimChatsToMax(parseChatHistoryJson(raw));
+
+      // Always snapshot current AsyncStorage payload (even empty) before switching.
+      await AsyncStorage.setItem(
+        CHAT_HISTORY_ASYNC_BACKUP_KEY,
+        raw ?? JSON.stringify([]),
+      );
+
+      if (chats.length > 0) {
+        const db = this.db;
+        await db.transaction(async (tx) => {
+          for (const chat of chats) {
+            const row = chatToRow(chat);
+            await tx.execute(
+              `INSERT OR REPLACE INTO chats
+                (id, title, preview, messages_json, created_at, updated_at, pinned, custom_title)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+              [
+                row.id,
+                row.title,
+                row.preview,
+                row.messages_json,
+                row.created_at,
+                row.updated_at,
+                row.pinned,
+                row.custom_title,
+              ],
+            );
+          }
+        });
       }
 
-      const historyJson = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
-      const history: ChatConversation[] = historyJson ? JSON.parse(historyJson) : [];
-      
-      // Filter out system messages for title and preview
-      const userMessages = messages.filter(m => m.role === 'user');
-      const assistantMessages = messages.filter(m => m.role === 'assistant');
-      
-      // Generate title from first user message (max 50 chars)
-      const defaultTitle = userMessages[0]?.content.slice(0, 50) || 'New Chat';
-      // Generate preview from first assistant message (max 100 chars)
-      const preview = assistantMessages[0]?.content.slice(0, 100) || '';
-      
-      const now = Date.now();
-      
+      await AsyncStorage.setItem(CHAT_HISTORY_MIGRATED_KEY, 'true');
+    } catch (error) {
+      console.error('Chat history migration failed — will retry next launch', error);
+      // Leave migrated flag unset so we retry; SQLite may be partially filled (OR REPLACE is ok).
+    }
+  }
+
+  private async enforceMaxChats(): Promise<void> {
+    if (!this.db) return;
+    const { rows } = await this.db.execute('SELECT COUNT(*) AS c FROM chats;');
+    const count = Number(rows?.[0]?.c ?? 0);
+    if (!(count > MAX_CHAT_HISTORY)) return;
+    const excess = count - MAX_CHAT_HISTORY;
+    await this.db.execute(
+      `DELETE FROM chats WHERE id IN (
+         SELECT id FROM chats ORDER BY created_at ASC LIMIT ?
+       );`,
+      [excess],
+    );
+  }
+
+  async saveChat(messages: Message[], chatId?: string | null): Promise<string> {
+    await this.initialize();
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      throw new Error('Invalid messages array provided to saveChat');
+    }
+
+    if (this.backend === 'async') {
+      return this.saveChatAsync(messages, chatId);
+    }
+
+    const db = this.db!;
+    const { defaultTitle, preview } = buildTitleAndPreview(messages);
+    const now = Date.now();
+
+    try {
       if (chatId) {
-        // Update existing chat
-        const index = history.findIndex(chat => chat.id === chatId);
-        if (index !== -1) {
-          // Preserve custom title and pinned status if they exist
-          const existingChat = history[index];
-          
-          // Check if messages have actually changed (compare message count and content)
-          const messagesChanged = 
-            existingChat.messages.length !== messages.length ||
-            JSON.stringify(existingChat.messages) !== JSON.stringify(messages);
-          
-          // Only update updatedAt if messages have actually changed
-          const newUpdatedAt = messagesChanged ? now : existingChat.updatedAt;
-          
-          history[index] = {
-            ...existingChat,
-            title: existingChat.customTitle || defaultTitle,
-            preview,
-            messages,
-            updatedAt: newUpdatedAt,
-            // Preserve pinned status and customTitle
-            pinned: existingChat.pinned,
-            customTitle: existingChat.customTitle,
-          };
+        const { rows } = await db.execute(
+          'SELECT * FROM chats WHERE id = ? LIMIT 1;',
+          [chatId],
+        );
+        const existing = rows?.[0] ? rowToChat(rows[0] as ChatRow) : null;
+
+        if (existing) {
+          const messagesChanged =
+            existing.messages.length !== messages.length ||
+            JSON.stringify(existing.messages) !== JSON.stringify(messages);
+          const newUpdatedAt = messagesChanged ? now : existing.updatedAt;
+          await db.execute(
+            `UPDATE chats SET
+              title = ?, preview = ?, messages_json = ?, updated_at = ?,
+              pinned = ?, custom_title = ?
+             WHERE id = ?;`,
+            [
+              existing.customTitle || defaultTitle,
+              preview,
+              JSON.stringify(messages),
+              newUpdatedAt,
+              existing.pinned ? 1 : 0,
+              existing.customTitle ?? null,
+              chatId,
+            ],
+          );
         } else {
-          // If chat ID doesn't exist, create new
-          const newChat: ChatConversation = {
-            id: chatId,
-            title: defaultTitle,
-            preview,
-            messages,
-            createdAt: now,
-            updatedAt: now,
-            pinned: false,
-          };
-          history.unshift(newChat);
+          await db.execute(
+            `INSERT INTO chats
+              (id, title, preview, messages_json, created_at, updated_at, pinned, custom_title)
+             VALUES (?, ?, ?, ?, ?, ?, 0, NULL);`,
+            [chatId, defaultTitle, preview, JSON.stringify(messages), now, now],
+          );
         }
       } else {
-        // Create new chat
-        const newChat: ChatConversation = {
-          id: `chat_${now}_${Math.random().toString(36).substr(2, 9)}`,
-          title: defaultTitle,
-          preview,
-          messages,
-          createdAt: now,
-          updatedAt: now,
-          pinned: false,
-        };
-        history.unshift(newChat);
-        chatId = newChat.id;
+        chatId = `chat_${now}_${Math.random().toString(36).substr(2, 9)}`;
+        await db.execute(
+          `INSERT INTO chats
+            (id, title, preview, messages_json, created_at, updated_at, pinned, custom_title)
+           VALUES (?, ?, ?, ?, ?, ?, 0, NULL);`,
+          [chatId, defaultTitle, preview, JSON.stringify(messages), now, now],
+        );
       }
-      
-      // Limit history size
-      if (history.length > MAX_CHAT_HISTORY) {
-        history.splice(MAX_CHAT_HISTORY);
-      }
-      
-      // Sort by createdAt descending (preserve original order, newest first)
-      // This ensures chats maintain their position even when selected
-      history.sort((a, b) => b.createdAt - a.createdAt);
-      
-      await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(history));
+
+      await this.enforceMaxChats();
       return chatId;
     } catch (error) {
       console.error('Error saving chat:', error);
@@ -161,13 +238,15 @@ class ChatHistoryService {
 
   async getChat(chatId: string): Promise<ChatConversation | null> {
     await this.initialize();
-    
+    if (this.backend === 'async') return this.getChatAsync(chatId);
+
     try {
-      const historyJson = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
-      if (!historyJson) return null;
-      
-      const history: ChatConversation[] = JSON.parse(historyJson);
-      return history.find(chat => chat.id === chatId) || null;
+      const { rows } = await this.db!.execute(
+        'SELECT * FROM chats WHERE id = ? LIMIT 1;',
+        [chatId],
+      );
+      if (!rows?.[0]) return null;
+      return rowToChat(rows[0] as ChatRow);
     } catch (error) {
       console.error('Error getting chat:', error);
       return null;
@@ -176,15 +255,10 @@ class ChatHistoryService {
 
   async deleteChat(chatId: string): Promise<boolean> {
     await this.initialize();
-    
+    if (this.backend === 'async') return this.deleteChatAsync(chatId);
+
     try {
-      const historyJson = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
-      if (!historyJson) return false;
-      
-      const history: ChatConversation[] = JSON.parse(historyJson);
-      const filtered = history.filter(chat => chat.id !== chatId);
-      
-      await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(filtered));
+      await this.db!.execute('DELETE FROM chats WHERE id = ?;', [chatId]);
       return true;
     } catch (error) {
       console.error('Error deleting chat:', error);
@@ -194,16 +268,15 @@ class ChatHistoryService {
 
   async deleteMultipleChats(chatIds: string[]): Promise<boolean> {
     await this.initialize();
-    
+    if (this.backend === 'async') return this.deleteMultipleChatsAsync(chatIds);
+    if (!chatIds.length) return true;
+
     try {
-      const historyJson = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
-      if (!historyJson) return false;
-      
-      const history: ChatConversation[] = JSON.parse(historyJson);
-      const chatIdsSet = new Set(chatIds);
-      const filtered = history.filter(chat => !chatIdsSet.has(chat.id));
-      
-      await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(filtered));
+      await this.db!.transaction(async (tx) => {
+        for (const id of chatIds) {
+          await tx.execute('DELETE FROM chats WHERE id = ?;', [id]);
+        }
+      });
       return true;
     } catch (error) {
       console.error('Error deleting multiple chats:', error);
@@ -213,9 +286,10 @@ class ChatHistoryService {
 
   async clearAllChats(): Promise<boolean> {
     await this.initialize();
-    
+    if (this.backend === 'async') return this.clearAllChatsAsync();
+
     try {
-      await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify([]));
+      await this.db!.execute('DELETE FROM chats;');
       return true;
     } catch (error) {
       console.error('Error clearing chat history:', error);
@@ -225,23 +299,20 @@ class ChatHistoryService {
 
   async renameChat(chatId: string, newTitle: string): Promise<boolean> {
     await this.initialize();
-    
+    if (this.backend === 'async') return this.renameChatAsync(chatId, newTitle);
+
     try {
-      const historyJson = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
-      if (!historyJson) return false;
-      
-      const history: ChatConversation[] = JSON.parse(historyJson);
-      const chatIndex = history.findIndex(chat => chat.id === chatId);
-      
-      if (chatIndex === -1) return false;
-      
-      history[chatIndex] = {
-        ...history[chatIndex],
-        customTitle: newTitle.trim() || undefined,
-        title: newTitle.trim() || history[chatIndex].title,
-      };
-      
-      await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(history));
+      const trimmed = newTitle.trim();
+      const { rows } = await this.db!.execute(
+        'SELECT title FROM chats WHERE id = ? LIMIT 1;',
+        [chatId],
+      );
+      if (!rows?.[0]) return false;
+      const fallbackTitle = String(rows[0].title ?? 'New Chat');
+      await this.db!.execute(
+        'UPDATE chats SET custom_title = ?, title = ? WHERE id = ?;',
+        [trimmed || null, trimmed || fallbackTitle, chatId],
+      );
       return true;
     } catch (error) {
       console.error('Error renaming chat:', error);
@@ -251,22 +322,19 @@ class ChatHistoryService {
 
   async togglePinChat(chatId: string): Promise<boolean> {
     await this.initialize();
-    
+    if (this.backend === 'async') return this.togglePinChatAsync(chatId);
+
     try {
-      const historyJson = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
-      if (!historyJson) return false;
-      
-      const history: ChatConversation[] = JSON.parse(historyJson);
-      const chatIndex = history.findIndex(chat => chat.id === chatId);
-      
-      if (chatIndex === -1) return false;
-      
-      history[chatIndex] = {
-        ...history[chatIndex],
-        pinned: !history[chatIndex].pinned,
-      };
-      
-      await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(history));
+      const { rows } = await this.db!.execute(
+        'SELECT pinned FROM chats WHERE id = ? LIMIT 1;',
+        [chatId],
+      );
+      if (!rows?.[0]) return false;
+      const next = rows[0].pinned === 1 ? 0 : 1;
+      await this.db!.execute('UPDATE chats SET pinned = ? WHERE id = ?;', [
+        next,
+        chatId,
+      ]);
       return true;
     } catch (error) {
       console.error('Error toggling pin chat:', error);
@@ -276,26 +344,181 @@ class ChatHistoryService {
 
   async getAllChats(): Promise<ChatConversation[]> {
     await this.initialize();
-    
+    if (this.backend === 'async') return this.getAllChatsAsync();
+
     try {
-      const historyJson = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
-      if (!historyJson) return [];
-      
-      const history: ChatConversation[] = JSON.parse(historyJson);
-      // Return sorted by createdAt descending, but preserve pinned status
-      return history.sort((a, b) => {
-        // First sort by pinned status (pinned first)
-        if (a.pinned && !b.pinned) return -1;
-        if (!a.pinned && b.pinned) return 1;
-        // Then by createdAt descending (newest first, preserves original order)
-        return b.createdAt - a.createdAt;
-      });
+      const { rows } = await this.db!.execute(
+        'SELECT * FROM chats ORDER BY created_at DESC;',
+      );
+      const chats: ChatConversation[] = [];
+      for (const row of rows ?? []) {
+        const chat = rowToChat(row as ChatRow);
+        if (chat) chats.push(chat);
+      }
+      return sortChatsForDisplay(chats);
     } catch (error) {
       console.error('Error loading chat history:', error);
       return [];
     }
   }
+
+  /**
+   * Search title / custom title / preview / message JSON (S13).
+   * Empty query → same as getAllChats. SQLite uses LIKE; AsyncStorage filters in JS.
+   */
+  async searchChats(query: string): Promise<ChatConversation[]> {
+    await this.initialize();
+    const normalized = normalizeChatSearchQuery(query);
+    if (!normalized) return this.getAllChats();
+
+    if (this.backend === 'async') {
+      return sortChatsForDisplay(
+        filterChatsBySearchQuery(await this.readAsyncHistory(), normalized),
+      );
+    }
+
+    try {
+      const pattern = `%${escapeSqlLikePattern(normalized)}%`;
+      const { rows } = await this.db!.execute(
+        `SELECT * FROM chats
+         WHERE lower(title) LIKE lower(?) ESCAPE '\\'
+            OR lower(COALESCE(custom_title, '')) LIKE lower(?) ESCAPE '\\'
+            OR lower(preview) LIKE lower(?) ESCAPE '\\'
+            OR lower(messages_json) LIKE lower(?) ESCAPE '\\'
+         ORDER BY created_at DESC;`,
+        [pattern, pattern, pattern, pattern],
+      );
+      const chats: ChatConversation[] = [];
+      for (const row of rows ?? []) {
+        const chat = rowToChat(row as ChatRow);
+        if (chat) chats.push(chat);
+      }
+      return sortChatsForDisplay(chats);
+    } catch (error) {
+      console.error('Error searching chats — falling back to in-memory filter', error);
+      return sortChatsForDisplay(
+        filterChatsBySearchQuery(await this.getAllChats(), normalized),
+      );
+    }
+  }
+
+  // —— AsyncStorage fallback (pre-rebuild / Jest without native) ——
+
+  private async readAsyncHistory(): Promise<ChatConversation[]> {
+    const historyJson = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
+    return parseChatHistoryJson(historyJson);
+  }
+
+  private async writeAsyncHistory(history: ChatConversation[]): Promise<void> {
+    const trimmed = trimChatsToMax(history);
+    await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(trimmed));
+  }
+
+  private async saveChatAsync(
+    messages: Message[],
+    chatId?: string | null,
+  ): Promise<string> {
+    const history = await this.readAsyncHistory();
+    const { defaultTitle, preview } = buildTitleAndPreview(messages);
+    const now = Date.now();
+
+    if (chatId) {
+      const index = history.findIndex((chat) => chat.id === chatId);
+      if (index !== -1) {
+        const existingChat = history[index];
+        const messagesChanged =
+          existingChat.messages.length !== messages.length ||
+          JSON.stringify(existingChat.messages) !== JSON.stringify(messages);
+        history[index] = {
+          ...existingChat,
+          title: existingChat.customTitle || defaultTitle,
+          preview,
+          messages,
+          updatedAt: messagesChanged ? now : existingChat.updatedAt,
+          pinned: existingChat.pinned,
+          customTitle: existingChat.customTitle,
+        };
+      } else {
+        history.unshift({
+          id: chatId,
+          title: defaultTitle,
+          preview,
+          messages,
+          createdAt: now,
+          updatedAt: now,
+          pinned: false,
+        });
+      }
+    } else {
+      chatId = `chat_${now}_${Math.random().toString(36).substr(2, 9)}`;
+      history.unshift({
+        id: chatId,
+        title: defaultTitle,
+        preview,
+        messages,
+        createdAt: now,
+        updatedAt: now,
+        pinned: false,
+      });
+    }
+
+    history.sort((a, b) => b.createdAt - a.createdAt);
+    await this.writeAsyncHistory(history);
+    return chatId;
+  }
+
+  private async getChatAsync(chatId: string): Promise<ChatConversation | null> {
+    const history = await this.readAsyncHistory();
+    return history.find((chat) => chat.id === chatId) || null;
+  }
+
+  private async deleteChatAsync(chatId: string): Promise<boolean> {
+    const history = await this.readAsyncHistory();
+    await this.writeAsyncHistory(history.filter((c) => c.id !== chatId));
+    return true;
+  }
+
+  private async deleteMultipleChatsAsync(chatIds: string[]): Promise<boolean> {
+    const set = new Set(chatIds);
+    const history = await this.readAsyncHistory();
+    await this.writeAsyncHistory(history.filter((c) => !set.has(c.id)));
+    return true;
+  }
+
+  private async clearAllChatsAsync(): Promise<boolean> {
+    await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify([]));
+    return true;
+  }
+
+  private async renameChatAsync(chatId: string, newTitle: string): Promise<boolean> {
+    const history = await this.readAsyncHistory();
+    const chatIndex = history.findIndex((chat) => chat.id === chatId);
+    if (chatIndex === -1) return false;
+    const trimmed = newTitle.trim();
+    history[chatIndex] = {
+      ...history[chatIndex],
+      customTitle: trimmed || undefined,
+      title: trimmed || history[chatIndex].title,
+    };
+    await this.writeAsyncHistory(history);
+    return true;
+  }
+
+  private async togglePinChatAsync(chatId: string): Promise<boolean> {
+    const history = await this.readAsyncHistory();
+    const chatIndex = history.findIndex((chat) => chat.id === chatId);
+    if (chatIndex === -1) return false;
+    history[chatIndex] = {
+      ...history[chatIndex],
+      pinned: !history[chatIndex].pinned,
+    };
+    await this.writeAsyncHistory(history);
+    return true;
+  }
+
+  private async getAllChatsAsync(): Promise<ChatConversation[]> {
+    return sortChatsForDisplay(await this.readAsyncHistory());
+  }
 }
 
 export const chatHistoryService = new ChatHistoryService();
-

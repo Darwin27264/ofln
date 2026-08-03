@@ -12,7 +12,7 @@
  * - Optimized animations for smooth mobile performance
  * 
  * Performance optimizations:
- * - Memoized components (ThinkingIndicator, ChatHistoryCard)
+ * - History / composer / messages extracted (HistoryDrawer, ChatComposer, MessageList)
  * - Optimized animations with native driver
  * - Efficient scroll handling with throttling
  * - Debounced chat history saves
@@ -22,19 +22,15 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from "react"
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   ScrollView,
   Platform,
   Animated,
-  TouchableWithoutFeedback,
   Dimensions,
-  Pressable,
   BackHandler,
   ActivityIndicator,
   LayoutChangeEvent,
   NativeModules,
-  Image,
   PermissionsAndroid,
   StyleSheet,
 } from "react-native";
@@ -72,16 +68,27 @@ function isImagePickerAvailable(): boolean {
 }
 import Ionicons from "react-native-vector-icons/Ionicons";
 import Clipboard from "@react-native-clipboard/clipboard";
-import { MessageMarkdown } from "../components/MessageMarkdown";
+import { HistoryDrawer } from "../components/HistoryDrawer";
+import { ChatComposer } from "../components/ChatComposer";
+import { MessageList } from "../components/MessageList";
+import { ContextFullnessBanner } from "../components/ContextFullnessBanner";
+import { ContextFullnessRing } from "../components/ContextFullnessRing";
+import { StaggerFadeIn } from "../components/StaggerFadeIn";
 import RNFS from "react-native-fs";
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect } from "react-native-svg";
 import { createStyles, INPUT_FADE_HEIGHT, TOP_FADE_HEIGHT } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { chatHistoryService, ChatConversation } from "../services/chatHistoryService";
+import { filterChatsBySearchQuery } from "../services/chatHistoryHelpers";
+import { modelFileNameFromPath } from "../utils/modelSelectionRehydrate";
+import {
+  estimateContextFullness,
+  shouldShowContextFullnessBanner,
+} from "../utils/contextFullness";
+import { getModelSettings, DEFAULT_SETTINGS } from "../services/modelSettingsService";
 import { showAlert } from "../components/CustomAlert";
 import { BottomSheet } from "../components/BottomSheet";
 import { FrostedGlass } from "../components/FrostedGlass";
-import { StreamingMessageText } from "../components/StreamingMessageText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useKeyboardPadding } from "../hooks/useKeyboardPadding";
 import { Persona, getPersonas } from "../services/personaService";
@@ -90,6 +97,8 @@ import { extractTextFromImage } from "../services/ocrService";
 import { IMAGE_PICKER_OPTIONS, cleanupStaleMediaTemps } from "../services/mediaNormalizeService";
 import { useAIChat } from "../hooks/useAIChat";
 import { llamaProvider } from "../providers/llamaProvider";
+import { toUserFacingLoadError } from "../utils/userFacingErrors";
+import { showLoadFailureAlert } from "../utils/loadFailureAlert";
 
 type MessageAttachment = {
   type: "image";
@@ -108,290 +117,6 @@ type Message = {
   attachments?: MessageAttachment[];
 };
 
-/**
- * ThinkingIndicator Component
- * 
- * Displays animated dots to indicate the model is thinking/processing.
- * Uses optimized animations with native driver for smooth 60fps performance.
- * 
- * Performance optimizations:
- * - Native driver for UI thread execution
- * - Staggered animations for visual appeal
- * - Memoized to prevent unnecessary re-renders
- */
-const ThinkingIndicator: React.FC<{ theme: any }> = React.memo(({ theme }) => {
-  const dot1 = useRef(new Animated.Value(0)).current;
-  const dot2 = useRef(new Animated.Value(0)).current;
-  const dot3 = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    /**
-     * Animate a single dot with optimized timing
-     * Uses centralized animation configuration for consistency
-     */
-    const animateDot = (dot: Animated.Value, delay: number) => {
-      return Animated.loop(
-        Animated.sequence([
-          Animated.delay(delay),
-          Animated.timing(dot, {
-            toValue: 1,
-            duration: ANIMATION_DURATIONS.SLOW,
-            easing: EASING.STANDARD,
-            useNativeDriver: true,
-          }),
-          Animated.timing(dot, {
-            toValue: 0,
-            duration: ANIMATION_DURATIONS.SLOW,
-            easing: EASING.STANDARD,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-    };
-
-    // Staggered animation with optimized delays for visual feedback
-    const animations = [
-      animateDot(dot1, 0),
-      animateDot(dot2, 100),
-      animateDot(dot3, 200),
-    ];
-
-    animations.forEach(anim => anim.start());
-
-    return () => {
-      animations.forEach(anim => anim.stop());
-    };
-  }, [dot1, dot2, dot3]);
-
-  const dotSize = 8;
-  const dotSpacing = 6;
-
-  return (
-    <View style={{
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: 4,
-      paddingHorizontal: 4,
-    }}>
-      <Animated.View
-        style={{
-          width: dotSize,
-          height: dotSize,
-          borderRadius: dotSize / 2,
-          backgroundColor: theme.colors.textSecondary,
-          marginRight: dotSpacing,
-          opacity: dot1.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0.3, 1],
-          }),
-          transform: [{
-            scale: dot1.interpolate({
-              inputRange: [0, 1],
-              outputRange: [1, 1.2],
-            }),
-          }],
-        }}
-      />
-      <Animated.View
-        style={{
-          width: dotSize,
-          height: dotSize,
-          borderRadius: dotSize / 2,
-          backgroundColor: theme.colors.textSecondary,
-          marginRight: dotSpacing,
-          opacity: dot2.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0.3, 1],
-          }),
-          transform: [{
-            scale: dot2.interpolate({
-              inputRange: [0, 1],
-              outputRange: [1, 1.2],
-            }),
-          }],
-        }}
-      />
-      <Animated.View
-        style={{
-          width: dotSize,
-          height: dotSize,
-          borderRadius: dotSize / 2,
-          backgroundColor: theme.colors.textSecondary,
-          opacity: dot3.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0.3, 1],
-          }),
-          transform: [{
-            scale: dot3.interpolate({
-              inputRange: [0, 1],
-              outputRange: [1, 1.2],
-            }),
-          }],
-        }}
-      />
-    </View>
-  );
-});
-
-ThinkingIndicator.displayName = 'ThinkingIndicator';
-
-/**
- * ChatHistoryCard Component
- * 
- * Displays a single chat history item in the side panel.
- * Supports editing mode for renaming chats.
- * 
- * Performance optimizations:
- * - Memoized to prevent unnecessary re-renders
- * - Efficient selection state checking
- */
-interface ChatHistoryCardProps {
-  chat: ChatConversation;
-  currentChatId: string | null;
-  theme: any;
-  onPress: () => void;
-  onLongPress: (event: any) => void;
-  isEditing: boolean;
-  editingTitle: string;
-  onEditingTitleChange: (title: string) => void;
-  onRenameSave: () => void;
-  onRenameCancel: () => void;
-  isMultiselectMode?: boolean;
-  isSelected?: boolean;
-  onToggleSelect?: () => void;
-}
-
-const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(({
-  chat,
-  currentChatId,
-  theme,
-  onPress,
-  onLongPress,
-  isEditing,
-  editingTitle,
-  onEditingTitleChange,
-  onRenameSave,
-  onRenameCancel,
-  isMultiselectMode = false,
-  isSelected = false,
-  onToggleSelect,
-}) => {
-  const isCurrentChat = currentChatId === chat.id;
-  
-  if (isEditing) {
-    return (
-      <Pressable
-        onPress={onPress}
-        onLongPress={onLongPress}
-        style={{
-          paddingVertical: 8,
-          marginBottom: 4,
-        }}
-      >
-        <TextInput
-          value={editingTitle}
-          onChangeText={onEditingTitleChange}
-          onBlur={onRenameSave}
-          onSubmitEditing={onRenameSave}
-          style={{
-            color: theme.colors.text,
-            fontSize: 18,
-            fontWeight: "400",
-            fontFamily: "Poppins",
-          }}
-          autoFocus
-          selectTextOnFocus
-        />
-      </Pressable>
-    );
-  }
-
-  if (isMultiselectMode) {
-    return (
-      <Pressable
-        onPress={onToggleSelect}
-        style={{
-          paddingVertical: 8,
-          paddingHorizontal: 12,
-          marginBottom: 4,
-          flexDirection: 'row',
-          alignItems: 'center',
-          borderRadius: 8,
-          backgroundColor: isCurrentChat ? (theme.colors.primary + '15') : 'transparent',
-        }}
-      >
-        <View style={{
-          width: 24,
-          height: 24,
-          borderRadius: 12,
-          borderWidth: 2,
-          borderColor: isSelected ? theme.colors.primary : theme.colors.border,
-          backgroundColor: isSelected ? theme.colors.primary : 'transparent',
-          marginRight: 12,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-          {isSelected && (
-            <Ionicons name="checkmark" size={16} color={theme.colors.primaryText} />
-          )}
-        </View>
-        <Text
-          style={{
-            color: isCurrentChat ? theme.colors.text : theme.colors.textSecondary,
-            fontSize: 18,
-            fontWeight: isCurrentChat ? "500" : "400",
-            fontFamily: "Poppins",
-            flex: 1,
-          }}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
-          {chat.title}
-        </Text>
-      </Pressable>
-    );
-  }
-
-  return (
-    <Pressable
-      onPress={onPress}
-      onLongPress={onLongPress}
-      style={{
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        marginBottom: 4,
-        borderRadius: 8,
-        backgroundColor: isCurrentChat ? (theme.colors.primary + '15') : 'transparent',
-      }}
-    >
-      <Text
-        style={{
-          color: isCurrentChat ? theme.colors.text : theme.colors.textSecondary,
-          fontSize: 18,
-          fontWeight: isCurrentChat ? "500" : "400",
-          fontFamily: "Poppins",
-        }}
-        numberOfLines={1}
-        ellipsizeMode="tail"
-      >
-        {chat.title}
-      </Text>
-    </Pressable>
-  );
-}, (prevProps, nextProps) => {
-  // Custom comparison for memoization - only re-render if relevant props change
-  return (
-    prevProps.chat.id === nextProps.chat.id &&
-    prevProps.chat.title === nextProps.chat.title &&
-    prevProps.currentChatId === nextProps.currentChatId &&
-    prevProps.isEditing === nextProps.isEditing &&
-    prevProps.editingTitle === nextProps.editingTitle &&
-    prevProps.isMultiselectMode === nextProps.isMultiselectMode &&
-    prevProps.isSelected === nextProps.isSelected
-  );
-});
-
-ChatHistoryCard.displayName = 'ChatHistoryCard';
 
 /**
  * AnimatedCheckmark Component
@@ -436,64 +161,6 @@ const AnimatedCheckmark: React.FC<{
 });
 
 AnimatedCheckmark.displayName = 'AnimatedCheckmark';
-
-/**
- * Staggered fade/slide for list rows. Exit is owned by the parent panel —
- * do not snap opacity to 0 while the panel is still closing.
- */
-const StaggerFadeIn: React.FC<{
-  children: React.ReactNode;
-  index: number;
-  active: boolean;
-  /** Initial Y offset. History used 10; selector rows use 6. */
-  offset?: number;
-  /** Stagger step in ms (history: 20, selector: 16). */
-  staggerMs?: number;
-  /** Cap on stagger delay. */
-  maxDelay?: number;
-}> = React.memo(({
-  children,
-  index,
-  active,
-  offset = 10,
-  staggerMs = 20,
-  maxDelay = 200,
-}) => {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(offset)).current;
-
-  useEffect(() => {
-    if (!active) return;
-    opacity.setValue(0);
-    translateY.setValue(offset);
-    const delay = Math.min(index * staggerMs, maxDelay);
-    const anim = Animated.parallel([
-      Animated.timing(opacity, {
-        toValue: 1,
-        duration: ANIMATION_DURATIONS.STANDARD,
-        delay,
-        easing: EASING.EASE_OUT,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateY, {
-        toValue: 0,
-        duration: ANIMATION_DURATIONS.STANDARD,
-        delay,
-        easing: EASING.EASE_OUT,
-        useNativeDriver: true,
-      }),
-    ]);
-    anim.start();
-    return () => anim.stop();
-  }, [active, index, offset, staggerMs, maxDelay, opacity, translateY]);
-
-  return (
-    <Animated.View style={{ opacity, transform: [{ translateY }] }}>
-      {children}
-    </Animated.View>
-  );
-});
-StaggerFadeIn.displayName = 'StaggerFadeIn';
 
 interface Props {
   conversation: Message[];
@@ -671,6 +338,9 @@ export default function ConversationScreen({
   // Chat history state
   const [chatHistory, setChatHistory] = useState<ChatConversation[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [historySearchQuery, setHistorySearchQuery] = useState("");
+  const [contextNCtx, setContextNCtx] = useState<number>(DEFAULT_SETTINGS.n_ctx);
+  const [contextBannerDismissed, setContextBannerDismissed] = useState(false);
 
   // Long press menu state
   const [menuVisible, setMenuVisible] = useState(false);
@@ -799,6 +469,8 @@ export default function ConversationScreen({
       (status.modelPath === modelPath || lastAutoLoadedRef.current === modelPath);
     if (providerReadyForPath) {
       lastAutoLoadedRef.current = modelPath;
+      // Remount / brief background can clear React `context` while provider stays ready.
+      setContext(nativeCtx);
       return;
     }
     if (autoLoadInFlightRef.current === modelPath) {
@@ -932,6 +604,8 @@ export default function ConversationScreen({
 
   // Persona indicator animation
   const personaIndicatorOpacity = useRef(new Animated.Value(selectedPersona ? 1 : 0)).current;
+  const contextRingOpacity = useRef(new Animated.Value(0)).current;
+  const [contextRingMounted, setContextRingMounted] = useState(false);
 
   // Preset messages
   const PRESET_MESSAGES = [
@@ -947,23 +621,49 @@ export default function ConversationScreen({
     "Help me draft an email": "mail-outline",
   };
 
+  // Reset context-banner dismiss when switching chats.
+  useEffect(() => {
+    setContextBannerDismissed(false);
+  }, [currentChatId]);
+
+  // Resolve n_ctx for the active model (for fullness estimate only — no reload).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!selectedGGUF) {
+        if (!cancelled) setContextNCtx(DEFAULT_SETTINGS.n_ctx);
+        return;
+      }
+      try {
+        const settings = await getModelSettings(selectedGGUF);
+        if (!cancelled) setContextNCtx(settings.n_ctx || DEFAULT_SETTINGS.n_ctx);
+      } catch {
+        if (!cancelled) setContextNCtx(DEFAULT_SETTINGS.n_ctx);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedGGUF]);
+
   // Initialize chat history service
   useEffect(() => {
     chatHistoryService.initialize();
   }, []);
 
-  // Detect current model if context exists but selectedGGUF is null
-  // This is a fallback for cases where the app was reloaded or state was lost
+  // If provider still has a live model but UI selection was wiped (e.g. remount),
+  // Conversation relies on App.tsx rehydrate; keep this as a narrow fallback.
   useEffect(() => {
-    if (context && !selectedGGUF && downloadedModels.length > 0) {
-      // If there's only one model downloaded, assume it's the loaded one
-      if (downloadedModels.length === 1) {
-        setSelectedGGUF(downloadedModels[0]);
-      }
-      // Note: If multiple models exist, we can't reliably determine which is loaded
-      // The user will need to switch models or reload from model selection screen
-    }
-  }, [context, selectedGGUF, downloadedModels, setSelectedGGUF]);
+    if (selectedGGUF) return;
+    if (!llamaProvider.isReady()) return;
+    const nativeCtx = llamaProvider.getNativeContext();
+    const status = llamaProvider.getStatus();
+    if (!nativeCtx || !status.modelPath) return;
+    const fileName = modelFileNameFromPath(status.modelPath);
+    if (!fileName) return;
+    setSelectedGGUF(fileName);
+    setContext(nativeCtx);
+  }, [selectedGGUF, setSelectedGGUF, setContext]);
 
   // Reset temporary mode when returning to an empty new chat.
   useEffect(() => {
@@ -984,6 +684,29 @@ export default function ConversationScreen({
       useNativeDriver: true,
     }).start();
   }, [selectedPersona, personaIndicatorOpacity]);
+
+  // Context ring: fade in after first user message; fade out on new chat.
+  useEffect(() => {
+    const shouldShow = hasStartedChat && !!selectedGGUF;
+    if (shouldShow) {
+      setContextRingMounted(true);
+      Animated.timing(contextRingOpacity, {
+        toValue: 1,
+        duration: ANIMATION_DURATIONS.STANDARD,
+        easing: EASING.STANDARD,
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+    Animated.timing(contextRingOpacity, {
+      toValue: 0,
+      duration: ANIMATION_DURATIONS.STANDARD,
+      easing: EASING.EASE_IN,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) setContextRingMounted(false);
+    });
+  }, [hasStartedChat, selectedGGUF, contextRingOpacity]);
 
   // Load chat history when the drawer opens or the active chat id changes.
   useEffect(() => {
@@ -1131,6 +854,7 @@ export default function ConversationScreen({
       backdropOpacity.setValue(0);
       panelAnimationRef.current = null;
       setIsPanelOpen(false);
+      setHistorySearchQuery('');
       if (isMultiselectMode) exitMultiselectMode();
     });
   }, [panelAnim, panelWidth, backdropOpacity, isMultiselectMode, exitMultiselectMode]);
@@ -1231,6 +955,7 @@ export default function ConversationScreen({
   const handleNewChatPress = useCallback(() => {
     // Clear App identity/seed first so the next render never pairs a stale
     // currentChatId with the emptied hook transcript (that reloads old chat).
+    setContextBannerDismissed(false);
     onNewChat();
     aiChat.newChat();
   }, [aiChat.newChat, onNewChat]);
@@ -1914,29 +1639,47 @@ export default function ConversationScreen({
       return;
     }
 
-    setIsLoadingModel(true);
-    setLoadingModelFile(modelFile);
+    const attemptLoad = async () => {
+      setIsLoadingModel(true);
+      setLoadingModelFile(modelFile);
 
-    try {
-      const modelPath = `${RNFS.DocumentDirectoryPath}/${modelFile}`;
-      const success = await llamaProvider.loadModel({ modelPath });
-      if (success) {
-        lastAutoLoadedRef.current = modelPath;
-        setSelectedGGUF(modelFile);
-        setContext(llamaProvider.getNativeContext());
-        showToast("Model loaded");
-        await checkDownloadedModels();
-      } else {
-        showToast("Failed to load the model");
+      try {
+        const modelPath = `${RNFS.DocumentDirectoryPath}/${modelFile}`;
+        const success = await llamaProvider.loadModel({ modelPath });
+        if (success) {
+          lastAutoLoadedRef.current = modelPath;
+          setSelectedGGUF(modelFile);
+          setContext(llamaProvider.getNativeContext());
+          showToast("Model loaded");
+          await checkDownloadedModels();
+        } else {
+          const uf = toUserFacingLoadError(null, llamaProvider.getStatus().error);
+          showLoadFailureAlert(uf, {
+            modelFileName: modelFile,
+            onRetry: () => {
+              void attemptLoad();
+            },
+            onModels: onGoToModelSelection,
+          });
+        }
+      } catch (error) {
+        console.error("Error switching model:", error);
+        const uf = toUserFacingLoadError(error, llamaProvider.getStatus().error);
+        showLoadFailureAlert(uf, {
+          modelFileName: modelFile,
+          onRetry: () => {
+            void attemptLoad();
+          },
+          onModels: onGoToModelSelection,
+        });
+      } finally {
+        setIsLoadingModel(false);
+        setLoadingModelFile(null);
       }
-    } catch (error) {
-      console.error("Error switching model:", error);
-      showToast("Failed to switch model");
-    } finally {
-      setIsLoadingModel(false);
-      setLoadingModelFile(null);
-    }
-  }, [isGenerating, setContext, setSelectedGGUF, checkDownloadedModels, showToast]);
+    };
+
+    await attemptLoad();
+  }, [isGenerating, setContext, setSelectedGGUF, checkDownloadedModels, showToast, onGoToModelSelection]);
 
 
   // Handle Android back button
@@ -1986,12 +1729,13 @@ export default function ConversationScreen({
 
   const sendButtonDisabled = !userInput.trim() && !pendingAttachment;
 
-  // Memoize grouped chat history for performance
+  // Memoize grouped chat history for performance (respects drawer search)
   const groupedChatHistory = useMemo(() => {
-    if (chatHistory.length === 0) return null;
+    const visible = filterChatsBySearchQuery(chatHistory, historySearchQuery);
+    if (visible.length === 0) return null;
     
-    const pinnedChats = chatHistory.filter(chat => chat.pinned);
-    const unpinnedChats = chatHistory.filter(chat => !chat.pinned);
+    const pinnedChats = visible.filter(chat => chat.pinned);
+    const unpinnedChats = visible.filter(chat => !chat.pinned);
     const groupedUnpinned = groupChatsByMonth(unpinnedChats);
     
     const sortedKeys = Array.from(groupedUnpinned.keys()).sort((a, b) => {
@@ -2001,7 +1745,18 @@ export default function ConversationScreen({
     });
     
     return { pinnedChats, unpinnedChats, groupedUnpinned, sortedKeys };
-  }, [chatHistory]);
+  }, [chatHistory, historySearchQuery]);
+
+  const contextFullness = useMemo(
+    () => estimateContextFullness(conversation, contextNCtx),
+    [conversation, contextNCtx],
+  );
+
+  const showContextBanner = shouldShowContextFullnessBanner({
+    isHigh: contextFullness.isHigh,
+    dismissed: contextBannerDismissed,
+    hasUserMessages: hasStartedChat,
+  });
 
   const handleLayout = useCallback((event: LayoutChangeEvent) => {
     const { height } = event.nativeEvent.layout;
@@ -2193,7 +1948,15 @@ export default function ConversationScreen({
             <Ionicons name="reorder-two-outline" size={23} color={theme.colors.text} />
           </TouchableOpacity>
           <TouchableOpacity 
-            style={[styles.topLeftPill, { left: 73, maxWidth: screenWidth * 0.4, minHeight: 42, paddingRight: selectedPersona ? 8 : 12 }]} 
+            style={[
+              styles.topLeftPill,
+              {
+                left: 73,
+                maxWidth: screenWidth * 0.45,
+                minHeight: 42,
+                paddingRight: selectedPersona || contextRingMounted ? 8 : 12,
+              },
+            ]} 
             onPress={openModelSelector}
             activeOpacity={0.85}
           >
@@ -2226,6 +1989,42 @@ export default function ConversationScreen({
                 collapsable={false}
               >
                 <Ionicons name="person" size={14} color="#FFFFFF" />
+              </Animated.View>
+            )}
+            {contextRingMounted && (
+              <Animated.View
+                style={{ marginLeft: 8, opacity: contextRingOpacity }}
+                pointerEvents={hasStartedChat ? 'auto' : 'none'}
+                collapsable={false}
+              >
+                <TouchableOpacity
+                  onPress={(e) => {
+                    // Don't open the model sheet when tapping the ring.
+                    e?.stopPropagation?.();
+                    showAlert(
+                      `Context ~${contextFullness.percent}%`,
+                      contextFullness.isHigh
+                        ? "This chat is using most of the model’s context window. Older turns may be trimmed soon. Start a new chat for a fresh window."
+                        : "Estimated share of the model’s context window used by this chat. It isn’t an exact tokenizer count.",
+                      contextFullness.isHigh
+                        ? [
+                            { text: "New chat", onPress: () => handleNewChatPress() },
+                            { text: "OK", style: "cancel" },
+                          ]
+                        : [{ text: "OK" }],
+                      { textAlign: "left" },
+                    );
+                  }}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  accessibilityLabel={`Context about ${contextFullness.percent} percent full`}
+                >
+                  <ContextFullnessRing
+                    ratio={contextFullness.ratio}
+                    isHigh={contextFullness.isHigh}
+                    percent={contextFullness.percent}
+                  />
+                </TouchableOpacity>
               </Animated.View>
             )}
           </TouchableOpacity>
@@ -2284,935 +2083,138 @@ export default function ConversationScreen({
           </TouchableOpacity>
         </View>
 
-        {/* Long press menu — absolute overlay, not RN Modal */}
-        {menuVisible && (
-          <View
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 10000,
-              elevation: 10000,
-            }}
-            pointerEvents="box-none"
-          >
-            <TouchableWithoutFeedback onPress={dismissMenu}>
-              <Animated.View
-                style={{
-                  ...StyleSheet.absoluteFillObject,
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  opacity: menuOpacity,
-                }}
-              />
-            </TouchableWithoutFeedback>
-            {menuPosition && selectedChatId && (() => {
-              const chat = chatHistory.find(c => c.id === selectedChatId);
-              const isPinned = chat?.pinned || false;
-              const menuBlockStyle = {
-                backgroundColor: 'transparent' as const,
-                borderRadius: 12,
-                paddingVertical: 12,
-                paddingHorizontal: 14,
-                flexDirection: 'row' as const,
-                alignItems: 'center' as const,
-                borderWidth: 1,
-                borderColor: theme.colors.border,
-                overflow: 'hidden' as const,
-              };
-              return (
-                <Animated.View
-                  style={{
-                    position: 'absolute',
-                    left: Math.max(16, Math.min(menuPosition.x - 80, screenWidth - 200)),
-                    top: menuPosition.y < Dimensions.get('window').height * 0.3
-                      ? Math.min(menuPosition.y + 10, Dimensions.get('window').height - 220)
-                      : Math.max(50, menuPosition.y - 220),
-                    minWidth: 140,
-                    opacity: menuOpacity,
-                    transform: [{ scale: menuScale }],
-                  }}
-                  onStartShouldSetResponder={() => true}
-                >
-                  <Animated.View style={{ opacity: menuItem0Opacity, transform: [{ translateY: menuItem0Translate }], marginBottom: 8 }}>
-                    <TouchableOpacity
-                      onPress={() => selectedChatId && handleRename(selectedChatId)}
-                      style={menuBlockStyle}
-                      activeOpacity={0.85}
-                    >
-                      <FrostedGlass style={StyleSheet.absoluteFillObject} />
-                      <Ionicons name="pencil-outline" size={18} color={theme.colors.text} />
-                      <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>Rename</Text>
-                    </TouchableOpacity>
-                  </Animated.View>
-                  <Animated.View style={{ opacity: menuItem1Opacity, transform: [{ translateY: menuItem1Translate }], marginBottom: 8 }}>
-                    <TouchableOpacity
-                      onPress={() => selectedChatId && handlePinToggle(selectedChatId)}
-                      style={menuBlockStyle}
-                      activeOpacity={0.85}
-                    >
-                      <FrostedGlass style={StyleSheet.absoluteFillObject} />
-                      <Ionicons name={isPinned ? "bookmark" : "bookmark-outline"} size={18} color={theme.colors.text} />
-                      <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>{isPinned ? 'Unpin' : 'Pin'}</Text>
-                    </TouchableOpacity>
-                  </Animated.View>
-                  <Animated.View style={{ opacity: menuItem2Opacity, transform: [{ translateY: menuItem2Translate }], marginBottom: 8 }}>
-                    <TouchableOpacity
-                      onPress={() => selectedChatId && enterMultiselectMode(selectedChatId)}
-                      style={menuBlockStyle}
-                      activeOpacity={0.85}
-                    >
-                      <FrostedGlass style={StyleSheet.absoluteFillObject} />
-                      <Ionicons name="checkbox-outline" size={18} color={theme.colors.text} />
-                      <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>Select Multiple</Text>
-                    </TouchableOpacity>
-                  </Animated.View>
-                  <Animated.View style={{ opacity: menuItem3Opacity, transform: [{ translateY: menuItem3Translate }] }}>
-                    <TouchableOpacity
-                      onPress={() => selectedChatId && handleDeleteChat(selectedChatId)}
-                      style={menuBlockStyle}
-                      activeOpacity={0.85}
-                    >
-                      <FrostedGlass style={StyleSheet.absoluteFillObject} />
-                      <Ionicons name="trash-outline" size={18} color={theme.colors.error} />
-                      <Text style={{ color: theme.colors.error, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>Delete</Text>
-                    </TouchableOpacity>
-                  </Animated.View>
-                </Animated.View>
-              );
-            })()}
-          </View>
-        )}
+        <HistoryDrawer
+          isPanelOpen={isPanelOpen}
+          panelWidth={panelWidth}
+          panelAnim={panelAnim}
+          backdropOpacity={backdropOpacity}
+          panelStyle={styles.slideOutPanel}
+          bottomInset={insets.bottom}
+          chatHistory={chatHistory}
+          groupedChatHistory={groupedChatHistory}
+          historySearchQuery={historySearchQuery}
+          onHistorySearchQueryChange={setHistorySearchQuery}
+          isLoadingHistory={isLoadingHistory}
+          currentChatId={currentChatId}
+          isMultiselectMode={isMultiselectMode}
+          selectedChatIds={selectedChatIds}
+          multiselectHeaderHeight={multiselectHeaderHeight}
+          multiselectHeaderOpacity={multiselectHeaderOpacity}
+          onSelectAll={selectAllChats}
+          onDeselectAll={deselectAllChats}
+          onDeleteSelected={deleteSelectedChats}
+          onExitMultiselect={exitMultiselectMode}
+          onToggleSelect={toggleChatSelection}
+          editingChatId={editingChatId}
+          editingTitle={editingTitle}
+          onEditingTitleChange={setEditingTitle}
+          onRenameSave={handleRenameSave}
+          onRenameCancel={() => {
+            setEditingChatId(null);
+            setEditingTitle('');
+          }}
+          onClose={togglePanel}
+          onChatPress={handleChatSelect}
+          onChatLongPress={handleLongPress}
+          onNewChat={handleNewChatPress}
+          menuVisible={menuVisible}
+          menuPosition={menuPosition}
+          selectedMenuChatId={selectedChatId}
+          menuOpacity={menuOpacity}
+          menuScale={menuScale}
+          menuItem0Opacity={menuItem0Opacity}
+          menuItem0Translate={menuItem0Translate}
+          menuItem1Opacity={menuItem1Opacity}
+          menuItem1Translate={menuItem1Translate}
+          menuItem2Opacity={menuItem2Opacity}
+          menuItem2Translate={menuItem2Translate}
+          menuItem3Opacity={menuItem3Opacity}
+          menuItem3Translate={menuItem3Translate}
+          onDismissMenu={dismissMenu}
+          onRename={handleRename}
+          onPinToggle={handlePinToggle}
+          onEnterMultiselect={enterMultiselectMode}
+          onDeleteChat={handleDeleteChat}
+        />
 
-        {/* Attach image popup (above add button) — absolute overlay, not RN Modal */}
-        {attachMenuVisible && (
-          <View
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 10000,
-              elevation: 10000,
-            }}
-            pointerEvents="box-none"
-          >
-            <TouchableWithoutFeedback onPress={() => dismissAttachMenu()}>
-              <Animated.View
-                style={{
-                  ...StyleSheet.absoluteFillObject,
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  opacity: attachMenuOpacity,
-                }}
-              />
-            </TouchableWithoutFeedback>
-            {attachMenuAnchor && (
-              <Animated.View
-                style={{
-                  position: 'absolute',
-                  left: Math.max(
-                    16,
-                    Math.min(
-                      attachMenuAnchor.x + attachMenuAnchor.width / 2 - 90,
-                      screenWidth - 196,
-                    ),
-                  ),
-                  top: Math.max(8, attachMenuAnchor.y - 116),
-                  minWidth: 180,
-                  opacity: attachMenuOpacity,
-                  transform: [{ scale: attachMenuScale }],
-                }}
-                onStartShouldSetResponder={() => true}
-              >
-                <Animated.View
-                  style={{
-                    opacity: attachItem0Opacity,
-                    transform: [{ translateY: attachItem0Translate }],
-                    marginBottom: 8,
-                  }}
-                >
-                  <TouchableOpacity
-                    onPress={() => dismissAttachMenu(takePhoto)}
-                    style={{
-                      backgroundColor: 'transparent',
-                      borderRadius: 12,
-                      paddingVertical: 12,
-                      paddingHorizontal: 14,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      borderWidth: 1,
-                      borderColor: theme.colors.border,
-                      overflow: 'hidden',
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <FrostedGlass style={StyleSheet.absoluteFillObject} />
-                    <Ionicons name="camera-outline" size={18} color={theme.colors.text} />
-                    <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
-                      Take photo (OCR)
-                    </Text>
-                  </TouchableOpacity>
-                </Animated.View>
-                <Animated.View
-                  style={{
-                    opacity: attachItem1Opacity,
-                    transform: [{ translateY: attachItem1Translate }],
-                  }}
-                >
-                  <TouchableOpacity
-                    onPress={() => dismissAttachMenu(choosePhoto)}
-                    style={{
-                      backgroundColor: 'transparent',
-                      borderRadius: 12,
-                      paddingVertical: 12,
-                      paddingHorizontal: 14,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      borderWidth: 1,
-                      borderColor: theme.colors.border,
-                      overflow: 'hidden',
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <FrostedGlass style={StyleSheet.absoluteFillObject} />
-                    <Ionicons name="image-outline" size={18} color={theme.colors.text} />
-                    <Text style={{ color: theme.colors.text, marginLeft: 10, fontSize: 14, fontFamily: "Poppins" }}>
-                      Gallery (OCR text)
-                    </Text>
-                  </TouchableOpacity>
-                </Animated.View>
-              </Animated.View>
-            )}
-          </View>
-        )}
-
-        {/* Backdrop overlay */}
-        {isPanelOpen && (
-          <TouchableWithoutFeedback onPress={togglePanel}>
-            <Animated.View
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: "rgba(0, 0, 0, 0.4)",
-                opacity: backdropOpacity,
-                zIndex: 15,
-              }}
-            />
-          </TouchableWithoutFeedback>
-        )}
-
-        {/* Slide-out panel from the left — frosted glass, matches chat chrome */}
-        <Animated.View
-          style={[
-            styles.slideOutPanel,
-            {
-              transform: [{ translateX: panelAnim }],
-              zIndex: 20,
-              position: "absolute",
-              top: 0,
-              left: 0,
-              height: "100%",
-              width: panelWidth,
-              borderTopLeftRadius: 0,
-              borderTopRightRadius: 20,
-              borderBottomLeftRadius: 0,
-              borderBottomRightRadius: 20,
-              overflow: 'hidden',
-            },
-          ]}
-          pointerEvents={isPanelOpen ? 'auto' : 'none'}
-        >
-          <FrostedGlass
-            variant="panel"
-            style={StyleSheet.absoluteFillObject}
+        {showContextBanner && (
+          <ContextFullnessBanner
+            percent={contextFullness.percent}
+            onDismiss={() => setContextBannerDismissed(true)}
+            onNewChat={handleNewChatPress}
           />
-          {/* Multiselect header: height and opacity split so native driver only sees opacity (height is not supported by native driver) */}
-          <Animated.View
-            style={{
-              overflow: 'hidden',
-              height: multiselectHeaderHeight.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, 60],
-              }),
-            }}
-          >
-            <Animated.View style={{ opacity: multiselectHeaderOpacity }}>
-            {isMultiselectMode && (
-              <View style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                borderBottomWidth: 1,
-                borderBottomColor: theme.colors.border,
-                backgroundColor: 'transparent',
-              }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                <Text style={{
-                  color: theme.colors.text,
-                  fontSize: 16,
-                  fontWeight: '600',
-                  fontFamily: 'Poppins',
-                  marginRight: 16,
-                }}>
-                  {selectedChatIds.size} selected
-                </Text>
-                <TouchableOpacity
-                  onPress={selectedChatIds.size === chatHistory.length ? deselectAllChats : selectAllChats}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    backgroundColor: theme.colors.surface,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons 
-                    name={selectedChatIds.size === chatHistory.length ? "square-outline" : "checkbox"} 
-                    size={20} 
-                    color={theme.colors.text} 
-                  />
-                </TouchableOpacity>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                {selectedChatIds.size > 0 && (
-                  <TouchableOpacity
-                    onPress={deleteSelectedChats}
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      backgroundColor: theme.colors.error,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      marginRight: 12,
-                    }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons name="trash" size={20} color={theme.colors.primaryText} />
-                  </TouchableOpacity>
-                )}
-                <TouchableOpacity
-                  onPress={exitMultiselectMode}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    backgroundColor: theme.colors.surface,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="close" size={20} color={theme.colors.text} />
-                </TouchableOpacity>
-              </View>
-            </View>
-            )}
-            </Animated.View>
-          </Animated.View>
+        )}
 
-          {/* Chat history list - removeClippedSubviews=false to avoid Fabric "Unable to find viewState for tag" when selection state updates */}
-          <ScrollView
-            style={{ flex: 1, marginTop: isMultiselectMode ? 0 : 24, paddingHorizontal: 16 }}
-            contentContainerStyle={{ paddingBottom: 100 }}
-            removeClippedSubviews={false}
-          >
-            {isLoadingHistory ? (
-              <View style={{ padding: 20, alignItems: 'center' }}>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 18, fontFamily: "Poppins" }}>Loading...</Text>
-              </View>
-            ) : chatHistory.length === 0 ? (
-              <View style={{ padding: 20, alignItems: 'center' }}>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 18, fontFamily: "Poppins" }}>No chats yet</Text>
-                <Text style={{ color: theme.colors.textTertiary, fontSize: 14, marginTop: 8, fontFamily: "Poppins" }}>
-                  Start a conversation to see it here
-                </Text>
-              </View>
-            ) : groupedChatHistory ? (
-              <>
-                {/* Pinned Section */}
-                {groupedChatHistory.pinnedChats.length > 0 && (
-                  <View style={{ marginBottom: 24 }}>
-                    <Text style={{
-                      color: theme.colors.textSecondary,
-                      fontSize: 14,
-                      fontWeight: '600',
-                      marginBottom: 12,
-                      textTransform: 'uppercase',
-                      letterSpacing: 0.5,
-                    }}>
-                      Pinned
-                    </Text>
-                    {groupedChatHistory.pinnedChats.map((chat, index) => (
-                      <StaggerFadeIn
-                        key={chat.id}
-                        index={index}
-                        active={isPanelOpen && !isLoadingHistory}
-                      >
-                        <ChatHistoryCard
-                          chat={chat}
-                          currentChatId={currentChatId}
-                          theme={theme}
-                          onPress={() => isMultiselectMode ? toggleChatSelection(chat.id) : handleChatSelect(chat)}
-                          onLongPress={(e) => handleLongPress(chat, e)}
-                          isEditing={editingChatId === chat.id}
-                          editingTitle={editingTitle}
-                          onEditingTitleChange={setEditingTitle}
-                          onRenameSave={handleRenameSave}
-                          onRenameCancel={() => {
-                            setEditingChatId(null);
-                            setEditingTitle('');
-                          }}
-                          isMultiselectMode={isMultiselectMode}
-                          isSelected={selectedChatIds.has(chat.id)}
-                          onToggleSelect={() => toggleChatSelection(chat.id)}
-                        />
-                      </StaggerFadeIn>
-                    ))}
-                  </View>
-                )}
+        <MessageList
+          conversation={conversation}
+          scrollViewRef={scrollViewRef}
+          scrollBottomPadding={scrollBottomPadding}
+          autoScrollEnabled={autoScrollEnabled}
+          isGenerating={isGenerating}
+          keyboardPadding={keyboardPadding}
+          onScroll={handleScroll}
+          onScrollChatToEnd={scrollChatToEnd}
+          assistantDisplayMode={assistantDisplayMode}
+          tokensPerSecond={tokensPerSecond}
+          onToggleThought={toggleThought}
+          onCopyMessage={handleCopyMessage}
+          onRegenerateMessage={handleRegenerateMessage}
+          noMessages={noMessages}
+          isTemporaryMode={isTemporaryMode}
+          greetingLine={greetingLine}
+          greetingTop={greetingTop}
+          greetingOpacity={greetingOpacity}
+          greetingKeyboardShift={greetingKeyboardShift}
+          quickActionsOpacity={quickActionsOpacity}
+          tempModeExplanationAnim={tempModeExplanationAnim}
+          presetMessagesAnim={presetMessagesAnim}
+          presetMessages={PRESET_MESSAGES}
+          presetIcons={PRESET_ICONS}
+          onPresetMessage={handlePresetMessage}
+        />
 
-                {/* Month/Year Grouped Sections */}
-                {groupedChatHistory.sortedKeys.map((monthYear) => (
-                  <View key={monthYear} style={{ marginBottom: 24 }}>
-                    <Text style={{
-                      color: theme.colors.textSecondary,
-                      fontSize: 14,
-                      fontWeight: 'bold',
-                      marginBottom: 12,
-                      textTransform: 'uppercase',
-                      letterSpacing: 0.5,
-                    }}>
-                      {monthYear}
-                    </Text>
-                    {groupedChatHistory.groupedUnpinned.get(monthYear)!.map((chat, chatIndex) => {
-                      // Calculate global index for staggered animation
-                      const globalIndex = groupedChatHistory.pinnedChats.length + 
-                        groupedChatHistory.sortedKeys.slice(0, groupedChatHistory.sortedKeys.indexOf(monthYear))
-                          .reduce((sum, key) => sum + (groupedChatHistory.groupedUnpinned.get(key)?.length || 0), 0) + 
-                        chatIndex;
-                      return (
-                        <StaggerFadeIn
-                          key={chat.id}
-                          index={globalIndex}
-                          active={isPanelOpen && !isLoadingHistory}
-                        >
-                          <ChatHistoryCard
-                            chat={chat}
-                            currentChatId={currentChatId}
-                            theme={theme}
-                            onPress={() => isMultiselectMode ? toggleChatSelection(chat.id) : handleChatSelect(chat)}
-                            onLongPress={(e) => handleLongPress(chat, e)}
-                            isEditing={editingChatId === chat.id}
-                            editingTitle={editingTitle}
-                            onEditingTitleChange={setEditingTitle}
-                            onRenameSave={handleRenameSave}
-                            onRenameCancel={() => {
-                              setEditingChatId(null);
-                              setEditingTitle('');
-                            }}
-                            isMultiselectMode={isMultiselectMode}
-                            isSelected={selectedChatIds.has(chat.id)}
-                            onToggleSelect={() => toggleChatSelection(chat.id)}
-                          />
-                        </StaggerFadeIn>
-                      );
-                    })}
-                  </View>
-                ))}
-              </>
-            ) : null}
-          </ScrollView>
 
-          {/* New Chat — sits on the panel frost (no separate frosted footer) */}
-          <View style={{
-            position: "absolute",
-            bottom: 0,
-            left: 0,
-            right: 0,
-            paddingHorizontal: 16,
-            paddingTop: 12,
-            paddingBottom: Math.max(16, insets.bottom + 8),
-            backgroundColor: 'transparent',
-          }}>
-            <TouchableOpacity
-              onPress={() => {
-                handleNewChatPress();
-                togglePanel();
-              }}
-              style={{
-                backgroundColor: theme.colors.primary,
-                paddingVertical: 16,
-                paddingHorizontal: 20,
-                borderRadius: 30,
-                alignItems: "center",
-                justifyContent: "center",
-                flexDirection: "row",
-              }}
-            >
-              <Ionicons name="add" size={22} color={theme.colors.primaryText} />
-              <Text
-                style={{
-                  color: theme.colors.primaryText,
-                  fontSize: 18,
-                  fontWeight: "600",
-                  fontFamily: "Poppins",
-                  marginLeft: 8,
-                }}
-              >
-                New Chat
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </Animated.View>
-
-        {/* Chat area container */}
-        <View style={{ flex: 1, position: "relative" }}>
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{
-              flexGrow: 1,
-              justifyContent: "flex-end",
-              paddingHorizontal: Math.max(16, Dimensions.get("window").width * 0.04),
-              paddingTop: 60,
-              // Room for floating input + keyboard lift so the last bubble clears both
-              paddingBottom: scrollBottomPadding,
-            }}
-            ref={scrollViewRef}
-            onScroll={handleScroll}
-            scrollEventThrottle={16}
-            onContentSizeChange={() => {
-              // Follow new bubbles / streaming growth. Stick to bottom when the
-              // user hasn't scrolled up (including while the keyboard is open).
-              if (autoScrollEnabled && (isGenerating || keyboardPadding > 0)) {
-                scrollChatToEnd(false);
-              }
-            }}
-          >
-            {conversation.slice(1).map((msg, index) => {
-              const isLastVisible = index === conversation.slice(1).length - 1;
-              const isStreamingMessage =
-                msg.role === "assistant" && isGenerating && isLastVisible;
-              const isAssistantDirect =
-                msg.role === "assistant" && assistantDisplayMode === "direct";
-              let containerStyle = [];
-              if (msg.role === "user") {
-                containerStyle.push(styles.messageBubble, styles.userBubble);
-              } else if (msg.role === "assistant" && !isAssistantDirect) {
-                containerStyle.push(styles.messageBubble, styles.llamaBubble);
-              } else if (isAssistantDirect) {
-                // Add width constraints for direct mode to prevent overflow
-                containerStyle.push(styles.messageDirect);
-              }
-              // Only render the bubble shell when there is something to show
-              // inside it (attachments, content, or a loading indicator).
-              // The thinking toggle lives outside the bubble so it never
-              // causes the bubble to render as a lone dark pill.
-              const hasBubbleContent =
-                (msg.role === "user" && msg.attachments && msg.attachments.length > 0) ||
-                (msg.content && msg.content.trim().length > 0) ||
-                (msg.role === "assistant" &&
-                  (!msg.content || msg.content.trim().length === 0) &&
-                  isGenerating &&
-                  isLastVisible) ||
-                (msg.role === "assistant" &&
-                  !!msg.thought &&
-                  (!msg.content || msg.content.trim().length === 0) &&
-                  !isGenerating);
-
-              return (
-                <View key={index} style={styles.messageWrapper}>
-                  {hasBubbleContent && (
-                  <View style={[containerStyle, isAssistantDirect ? { maxWidth: "100%" } : {}]}>
-                    {msg.role === "user" && msg.attachments && msg.attachments.length > 0 && (
-                      <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 8, gap: 6 }}>
-                        {msg.attachments.map((att, i) =>
-                          att.type === "image" ? (
-                            <Image
-                              key={i}
-                              source={{ uri: att.uri }}
-                              style={{ width: 64, height: 64, borderRadius: 8 }}
-                              resizeMode="cover"
-                            />
-                          ) : null
-                        )}
-                      </View>
-                    )}
-                    {msg.role === "assistant" && (!msg.content || msg.content.trim().length === 0) && isGenerating && isLastVisible ? (
-                      <ThinkingIndicator theme={theme} />
-                    ) : msg.role === "assistant" && (!msg.content || msg.content.trim().length === 0) && msg.thought ? (
-                      <Text style={{ 
-                        fontSize: 14, 
-                        fontFamily: "Poppins",
-                        color: theme.colors.textTertiary,
-                        fontStyle: "italic",
-                      }}>
-                        Reasoning complete — expand Thinking below for details, or regenerate for a shorter answer.
-                      </Text>
-                    ) : msg.content ? (
-                      msg.role === "assistant" ? (
-                        <StreamingMessageText
-                          content={msg.content}
-                          isStreaming={isStreamingMessage}
-                          color={theme.colors.text}
-                        />
-                      ) : (
-                        <MessageMarkdown
-                          content={msg.content}
-                          color={theme.colors.primaryText}
-                        />
-                      )
-                    ) : null}
-                  </View>
-                  )}
-                  {/* Thinking toggle sits OUTSIDE the bubble so it never
-                      renders as a lone dark pill when there is no content. */}
-                  {msg.thought && msg.role === "assistant" && (
-                    <TouchableOpacity
-                      onPress={() => toggleThought(index + 1)}
-                      style={styles.toggleButton}
-                    >
-                      <Text style={styles.toggleText}>
-                        {msg.showThought ? "▼ Hide Thinking" : "▶ Show Thinking"}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                  {msg.showThought && msg.thought && (
-                    <View style={styles.thoughtContainer}>
-                      <Text style={styles.thoughtTitle}>Thinking Process:</Text>
-                      <View style={{ width: "100%", maxWidth: "100%", flexShrink: 1 }}>
-                        <Text style={styles.thoughtText}>
-                          {msg.thought.replace(/^(?:\s*Thinking Process:\s*)+/i, "").trim()}
-                        </Text>
-                      </View>
-                    </View>
-                  )}
-                  {msg.role === "assistant" && msg.content.trim().length > 0 && !isStreamingMessage && (
-                    <View style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      marginTop: 12,
-                      gap: 8,
-                    }}>
-                      <TouchableOpacity
-                        onPress={() => handleCopyMessage(msg.content)}
-                        style={{
-                          padding: 6,
-                          borderRadius: 16,
-                          backgroundColor: theme.colors.glass,
-                          borderWidth: 1,
-                          borderColor: theme.colors.border,
-                        }}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        <Ionicons 
-                          name="copy-outline" 
-                          size={16} 
-                          color={theme.colors.text} 
-                        />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => handleRegenerateMessage(index)}
-                        disabled={isGenerating}
-                        style={{
-                          padding: 6,
-                          borderRadius: 16,
-                          backgroundColor: theme.colors.glass,
-                          borderWidth: 1,
-                          borderColor: theme.colors.border,
-                          opacity: isGenerating ? 0.5 : 1,
-                        }}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        <Ionicons 
-                          name="refresh-outline" 
-                          size={16} 
-                          color={theme.colors.text} 
-                        />
-                      </TouchableOpacity>
-                      {(() => {
-                        const assistantTurnIndex =
-                          conversation
-                            .slice(1, index + 2)
-                            .filter((m) => m.role === "assistant").length - 1;
-                        const turnTps =
-                          typeof msg.tokensPerSecond === "number"
-                            ? msg.tokensPerSecond
-                            : assistantTurnIndex >= 0
-                              ? tokensPerSecond[assistantTurnIndex]
-                              : undefined;
-                        return typeof turnTps === "number" && turnTps > 0 ? (
-                          <Text style={[styles.tokenInfo, { marginTop: 0 }]}>
-                            {turnTps} tokens/s
-                          </Text>
-                        ) : null;
-                      })()}
-                    </View>
-                  )}
-                </View>
-              );
-            })}
-          </ScrollView>
-
-          {noMessages && (
-            <Animated.View
-              style={[
-                styles.greetingContainer,
-                {
-                  top: greetingTop,
-                  opacity: greetingOpacity,
-                  transform: [{ translateY: greetingKeyboardShift }],
-                },
-              ]}
-              pointerEvents="box-none"
-            >
-              {isTemporaryMode && (
-                <Ionicons
-                  name="flash"
-                  size={36}
-                  color={theme.colors.text}
-                  style={{ marginBottom: 12 }}
-                />
-              )}
-              <Text style={styles.greetingText}>
-                {isTemporaryMode ? "Temporary Mode" : greetingLine}
-              </Text>
-              
-              {/* Preset message suggestions or temporary mode explanation.
-                  Fade out while keyboard is up so buttons never sit under the composer. */}
-              <Animated.View
-                style={{
-                  marginTop: 20,
-                  alignItems: 'center',
-                  width: '100%',
-                  opacity: quickActionsOpacity,
-                }}
-                pointerEvents={keyboardPadding > 0 ? 'none' : 'box-none'}
-              >
-                  {isTemporaryMode ? (
-                    <Animated.View
-                      style={{
-                        opacity: tempModeExplanationAnim,
-                        transform: [{
-                          translateY: tempModeExplanationAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [10, 0],
-                          }),
-                        }],
-                        width: '100%',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <Text style={{
-                        color: theme.colors.text,
-                        fontSize: 18,
-                        fontFamily: 'Poppins',
-                        textAlign: 'center',
-                        lineHeight: 24,
-                        paddingHorizontal: 20,
-                      }}>
-                        Conversations in temporary mode are not saved. This chat will not appear in history. Photos still run on-device OCR before the model sees them.
-                      </Text>
-                    </Animated.View>
-                  ) : (
-                    <Animated.View
-                      style={{
-                        opacity: presetMessagesAnim,
-                        transform: [{
-                          translateY: presetMessagesAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [10, 0],
-                          }),
-                        }],
-                        alignItems: 'center',
-                        width: '100%',
-                      }}
-                    >
-                      {PRESET_MESSAGES.map((preset, index) => (
-                        <TouchableOpacity
-                          key={index}
-                          onPress={() => handlePresetMessage(preset)}
-                          style={{
-                            backgroundColor: 'transparent',
-                            paddingHorizontal: 20,
-                            paddingVertical: 12,
-                            borderRadius: 30,
-                            borderWidth: 1,
-                            borderColor: theme.colors.border,
-                            marginBottom: index < PRESET_MESSAGES.length - 1 ? 8 : 0,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            minWidth: 200,
-                          }}
-                        >
-                          <Ionicons 
-                            name={PRESET_ICONS[preset] as any} 
-                            size={20} 
-                            color={theme.colors.text} 
-                            style={{ marginRight: 8 }}
-                          />
-                          <Text style={{
-                            color: theme.colors.text,
-                            fontSize: 16,
-                            fontFamily: 'Poppins',
-                            textAlign: 'center',
-                          }}>
-                            {preset}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </Animated.View>
-                  )}
-              </Animated.View>
-            </Animated.View>
-          )}
-        </View>
-
-        {/* Floating input — soft fade only, never a solid bar */}
-        <View
-          style={styles.bottomContainer}
-          onLayout={(e) => {
-            const h = e.nativeEvent.layout.height;
+        <ChatComposer
+          shellBackground={shellBackground}
+          animatedBottomPadding={animatedBottomPadding}
+          scaleAnim={scaleAnim}
+          inputOverlayHeight={inputOverlayHeight}
+          onOverlayLayout={(h) => {
             if (suppressComposerMeasureRef.current || keyboardPadding > 0) return;
             if (h > 0 && Math.abs(h - inputOverlayHeight) > 1) {
               setInputOverlayHeight(h);
             }
           }}
-          pointerEvents="box-none"
-        >
-          <View style={styles.inputFade} pointerEvents="none">
-            <Svg
-              width={Dimensions.get("window").width}
-              height={inputOverlayHeight}
-              preserveAspectRatio="none"
-            >
-              <Defs>
-                <SvgLinearGradient id="chatInputFade" x1="0" y1="0" x2="0" y2="1">
-                  <Stop offset="0" stopColor={shellBackground} stopOpacity="0" />
-                  <Stop offset="0.35" stopColor={shellBackground} stopOpacity="0.35" />
-                  <Stop offset="0.7" stopColor={shellBackground} stopOpacity="0.6" />
-                  <Stop offset="1" stopColor={shellBackground} stopOpacity="0.75" />
-                </SvgLinearGradient>
-              </Defs>
-              <Rect
-                x="0"
-                y="0"
-                width={Dimensions.get("window").width}
-                height={inputOverlayHeight}
-                fill="url(#chatInputFade)"
-              />
-            </Svg>
-          </View>
-          <Animated.View
-            style={[
-              styles.inputBarArea,
-              {
-                paddingBottom: animatedBottomPadding,
-              },
-            ]}
-            pointerEvents="box-none"
-          >
-            {pendingAttachment && (
-              <View style={styles.attachmentPreviewRow}>
-                <FrostedGlass style={StyleSheet.absoluteFillObject} />
-                <Image
-                  source={{ uri: pendingAttachment.uri }}
-                  style={styles.attachmentThumb}
-                  resizeMode="cover"
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.attachmentLabel} numberOfLines={1}>
-                    {pendingAttachment.fileName || "Image ready"}
-                  </Text>
-                  {isOcrRunning && (
-                    <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4, gap: 6 }}>
-                      <ActivityIndicator size="small" color={theme.colors.text} />
-                      <Text style={[styles.attachmentLabel, { fontSize: 12 }]}>Extracting text on-device…</Text>
-                    </View>
-                  )}
-                  {!isOcrRunning && (
-                    <Text style={[styles.attachmentLabel, { fontSize: 12, marginTop: 2 }]}>
-                      Text will be read with OCR when you send
-                    </Text>
-                  )}
-                </View>
-                <TouchableOpacity
-                  style={[styles.attachmentRemove, { backgroundColor: theme.colors.surface }]}
-                  onPress={() => setPendingAttachment(null)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  disabled={isOcrRunning}
-                >
-                  <Ionicons name="close" size={20} color={theme.colors.textSecondary} />
-                </TouchableOpacity>
-              </View>
-            )}
-            <View style={styles.inputRowWrapper}>
-              <View ref={addButtonRef} collapsable={false}>
-                <TouchableOpacity
-                  style={styles.addButtonOutside}
-                  onPress={openAttachMenu}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  activeOpacity={0.85}
-                >
-                  <FrostedGlass style={StyleSheet.absoluteFillObject} />
-                  <Ionicons name="add" size={28} color={theme.colors.textSecondary} />
-                </TouchableOpacity>
-              </View>
-              <View style={[styles.inputBar, styles.inputBarInRow]}>
-                <FrostedGlass style={StyleSheet.absoluteFillObject} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Message..."
-                  placeholderTextColor={theme.colors.textTertiary}
-                  value={userInput}
-                  onChangeText={setUserInput}
-                  multiline
-                  onFocus={() => {
-                    syncKeyboardState();
-                    setTimeout(syncKeyboardState, 100);
-                    setTimeout(syncKeyboardState, 300);
-                  }}
-                />
-                {isGenerating ? (
-                  <Animated.View style={{ marginLeft: "auto" }}>
-                    <TouchableOpacity
-                      style={styles.stopButton}
-                      onPress={aiChat.stop}
-                      accessibilityLabel="Stop generation"
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                      <Ionicons name="stop-circle" size={40} color={theme.colors.error} />
-                    </TouchableOpacity>
-                  </Animated.View>
-                ) : (
-                  <Animated.View style={{ transform: [{ scale: scaleAnim }], marginLeft: "auto" }}>
-                    <TouchableOpacity
-                      style={styles.sendIconButton}
-                      onPress={handleSendMessage}
-                      disabled={sendButtonDisabled || isLoading}
-                    >
-                      <Ionicons
-                        name="arrow-up-circle"
-                        size={40}
-                        color={sendButtonDisabled ? theme.colors.textTertiary : theme.colors.text}
-                      />
-                    </TouchableOpacity>
-                  </Animated.View>
-                )}
-              </View>
-            </View>
-          </Animated.View>
-        </View>
+          userInput={userInput}
+          onChangeText={setUserInput}
+          onInputFocus={() => {
+            syncKeyboardState();
+            setTimeout(syncKeyboardState, 100);
+            setTimeout(syncKeyboardState, 300);
+          }}
+          pendingAttachment={pendingAttachment}
+          isOcrRunning={isOcrRunning}
+          onClearAttachment={() => setPendingAttachment(null)}
+          isGenerating={isGenerating}
+          isLoading={isLoading}
+          sendDisabled={sendButtonDisabled}
+          onSend={handleSendMessage}
+          onStop={aiChat.stop}
+          addButtonRef={addButtonRef}
+          onOpenAttachMenu={openAttachMenu}
+          attachMenuVisible={attachMenuVisible}
+          attachMenuAnchor={attachMenuAnchor}
+          attachMenuOpacity={attachMenuOpacity}
+          attachMenuScale={attachMenuScale}
+          attachItem0Opacity={attachItem0Opacity}
+          attachItem0Translate={attachItem0Translate}
+          attachItem1Opacity={attachItem1Opacity}
+          attachItem1Translate={attachItem1Translate}
+          onDismissAttachMenu={dismissAttachMenu}
+          onTakePhoto={takePhoto}
+          onChoosePhoto={choosePhoto}
+        />
+
 
         {/* Floating model & persona selector */}
         <BottomSheet

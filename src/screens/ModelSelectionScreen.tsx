@@ -29,7 +29,7 @@ import {
   InteractionManager,
 } from "react-native";
 import RNFS from "react-native-fs";
-import axios from "axios";
+import { hfAxiosGet } from "../services/hfTokenService";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
@@ -42,8 +42,32 @@ import { llamaProvider } from "../providers/llamaProvider";
 import { ModelCard, ModelInfo } from "../components/ModelCard";
 import { useModelFilter } from "../hooks/useModelFilter";
 import { prettifyModelName, getQuantRecommendLabel } from "../utils/modelUtils";
-import { createCancellationToken, DownloadCancellationToken } from "../api/model";
+import {
+  createCancellationToken,
+  DownloadCancellationToken,
+  discardPartialDownload,
+  getPausedDownloadProgress,
+  isDownloadPausedError,
+  isDownloadCancelledError,
+  listPausedDownloadNames,
+} from "../api/model";
 import { EASING, OVERLAY_MOTION } from "../utils/animationConfig";
+import {
+  isDownloadCancelled,
+  toUserFacingDownloadError,
+  toUserFacingLoadError,
+  userFacingHttpError,
+} from "../utils/userFacingErrors";
+import { showLoadFailureAlert } from "../utils/loadFailureAlert";
+import {
+  classifyRamFitFromSize,
+  getTotalMemoryBytes,
+} from "../services/ramFitService";
+import {
+  checkDiskSpaceForDownload,
+  diskPreflightAlertMessage,
+  parseSizeToBytes,
+} from "../utils/diskPreflight";
 
 // Type for quantization options (used internally in this file)
 interface QuantizationOption {
@@ -56,9 +80,15 @@ interface ModelSelectionScreenProps {
   downloadedModels: string[];
   localModels: LocalModelInfo[];
   setLocalModels: (models: LocalModelInfo[]) => void;
-  handleDownloadModel: (file: string, repoId: string, onProgress: (progress: number) => void, cancellationToken?: import("../api/model").DownloadCancellationToken) => Promise<void>;
+  handleDownloadModel: (
+    file: string,
+    repoId: string,
+    onProgress: (progress: number) => void,
+    cancellationToken?: import("../api/model").DownloadCancellationToken,
+    expectedBytes?: number | null,
+  ) => Promise<void>;
   setContext: (context: any) => void;
-  setCurrentPage: (page: "modelSelection" | "conversation" | "settings" | "stages" | "modelSettings") => void;
+  setCurrentPage: (page: "modelSelection" | "conversation" | "settings" | "stages" | "modelSettings" | "hfToken") => void;
   checkDownloadedModels: () => Promise<void>;
   selectedGGUF: string | null;
   setSelectedGGUF: (gguf: string | null) => void;
@@ -211,6 +241,20 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     onOpenModelSettings,
   } = props;
 
+  /** Returns false (and shows an alert) when free space is too low for this file. */
+  const ensureDiskForDownload = useCallback(
+    async (model: ModelInfo, fileName: string): Promise<boolean> => {
+      const quant = model.availableQuants?.find((q) => q.fileName === fileName);
+      const sizeHint = quant?.size ?? model.size ?? null;
+      const result = await checkDiskSpaceForDownload(sizeHint);
+      if (result.ok) return true;
+      const uf = diskPreflightAlertMessage(result);
+      showAlert(uf.title, uf.message, [{ text: "OK" }]);
+      return false;
+    },
+    [],
+  );
+
   // State declarations
   const [isLoadingModel, setIsLoadingModel] = useState<boolean>(false);
   const [loadingModelFile, setLoadingModelFile] = useState<string | null>(null);
@@ -219,6 +263,41 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const [hfModels, setHfModels] = useState<ModelInfo[]>([]);
   const [downloadProgress, setDownloadProgress] = useState<{ [key: string]: number }>({});
   const [downloadCancellationTokens, setDownloadCancellationTokens] = useState<{ [key: string]: DownloadCancellationToken }>({});
+  /** Paused partials — progress retained; tap download to resume. */
+  const [pausedDownloads, setPausedDownloads] = useState<{ [key: string]: number }>({});
+  /** S09 — device total RAM for fit chips (null until read / unavailable). */
+  const [totalMemoryBytes, setTotalMemoryBytes] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const names = await listPausedDownloadNames();
+        const next: { [key: string]: number } = {};
+        for (const name of names) {
+          const pct = await getPausedDownloadProgress(name);
+          if (pct != null) next[name] = pct;
+        }
+        if (!cancelled) setPausedDownloads(next);
+      } catch (e) {
+        console.warn('Failed to load paused downloads', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const mem = await getTotalMemoryBytes();
+      if (!cancelled) setTotalMemoryBytes(mem);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   
   // Pagination state for HuggingFace models
   const [currentAuthorIndex, setCurrentAuthorIndex] = useState<number>(0);
@@ -525,7 +604,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
             if (allModelsFound || modelBatch.length >= 50) break; // Stop if we have enough models
             
             try {
-              const response = await axios.get(
+              const response = await hfAxiosGet(
                 `https://huggingface.co/api/models`,
                 {
                   params: {
@@ -615,7 +694,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
               // Get model files with a timeout and error handling
               let filesResponse;
               try {
-                filesResponse = await axios.get(
+                filesResponse = await hfAxiosGet(
                   `https://huggingface.co/api/models/${model.id}`,
                   { 
                     timeout: 8000, // Increased timeout
@@ -923,15 +1002,15 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
 
   const handleCancelDownload = useCallback(async (file: string) => {
     const cancellationToken = downloadCancellationTokens[file];
+    const progressSnap = downloadProgress[file] ?? pausedDownloads[file] ?? 0;
     if (cancellationToken) {
       try {
-        // Cancel the download
-        await cancellationToken.cancel();
-        console.log(`Download cancelled for: ${file}`);
+        // Pause: keep .partial for resume (S06).
+        await cancellationToken.cancel('pause');
+        console.log(`Download paused for: ${file}`);
       } catch (error) {
-        console.error("Error cancelling download:", error);
+        console.error("Error pausing download:", error);
       } finally {
-        // Always clean up state, even if cancel fails
         setDownloadProgress(prev => {
           const newProgress = { ...prev };
           delete newProgress[file];
@@ -942,10 +1021,29 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           delete newTokens[file];
           return newTokens;
         });
+        setPausedDownloads(prev => ({ ...prev, [file]: progressSnap }));
         setSelectedGGUF(null);
       }
     }
-  }, [downloadCancellationTokens, setSelectedGGUF]);
+  }, [downloadCancellationTokens, downloadProgress, pausedDownloads, setSelectedGGUF]);
+
+  const handleDiscardPausedDownload = useCallback(async (file: string) => {
+    try {
+      await discardPartialDownload(file);
+    } catch (e) {
+      console.warn('Failed to discard partial', e);
+    }
+    setPausedDownloads(prev => {
+      const next = { ...prev };
+      delete next[file];
+      return next;
+    });
+    setDownloadProgress(prev => {
+      const next = { ...prev };
+      delete next[file];
+      return next;
+    });
+  }, []);
 
   const handleDeleteModel = useCallback(async (file: string) => {
     showAlert(
@@ -1117,34 +1215,49 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
 
   // Handle loading a local model
   const handleLoadLocalModel = useCallback(async (localModel: LocalModelInfo) => {
-    setIsLoadingModel(true);
-    setLoadingModelFile(localModel.fileName);
-    try {
-      // Verify file still exists
-      const fileExists = await RNFS.exists(localModel.filePath);
-      if (!fileExists) {
-        showAlert("Error", "Model file no longer exists. It will be removed from your list.", [{ text: "OK" }]);
-        await removeLocalModel(localModel.filePath);
-        await checkDownloadedModels();
-        return;
-      }
+    const attemptLoad = async () => {
+      setIsLoadingModel(true);
+      setLoadingModelFile(localModel.fileName);
+      try {
+        const fileExists = await RNFS.exists(localModel.filePath);
+        if (!fileExists) {
+          showAlert("Error", "Model file no longer exists. It will be removed from your list.", [{ text: "OK" }]);
+          await removeLocalModel(localModel.filePath);
+          await checkDownloadedModels();
+          return;
+        }
 
-      // Same path as chat model switch — keep llamaProvider + native context aligned.
-      const success = await llamaProvider.loadModel({ modelPath: localModel.filePath });
-      if (success) {
-        setContext(llamaProvider.getNativeContext());
-        setSelectedGGUF(localModel.fileName);
-        setCurrentPage("conversation");
-      } else {
-        showAlert("Error", "Failed to load the model.", [{ text: "OK" }]);
+        const success = await llamaProvider.loadModel({ modelPath: localModel.filePath });
+        if (success) {
+          setContext(llamaProvider.getNativeContext());
+          setSelectedGGUF(localModel.fileName);
+          setCurrentPage("conversation");
+        } else {
+          const uf = toUserFacingLoadError(null, llamaProvider.getStatus().error);
+          showLoadFailureAlert(uf, {
+            modelFileName: localModel.fileName,
+            onRetry: () => {
+              void attemptLoad();
+            },
+            onModels: undefined,
+          });
+        }
+      } catch (error) {
+        console.error('Error loading local model:', error);
+        const uf = toUserFacingLoadError(error, llamaProvider.getStatus().error);
+        showLoadFailureAlert(uf, {
+          modelFileName: localModel.fileName,
+          onRetry: () => {
+            void attemptLoad();
+          },
+        });
+      } finally {
+        setIsLoadingModel(false);
+        setLoadingModelFile(null);
       }
-    } catch (error) {
-      console.error('Error loading local model:', error);
-      showAlert("Error", "Failed to load the model.", [{ text: "OK" }]);
-    } finally {
-      setIsLoadingModel(false);
-      setLoadingModelFile(null);
-    }
+    };
+
+    await attemptLoad();
   }, [setContext, setSelectedGGUF, setCurrentPage, checkDownloadedModels]);
 
   // Handle deleting a local model
@@ -1189,31 +1302,213 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
 
 
 
+  const startModelFileDownload = useCallback(
+    async (model: ModelInfo, fileNameToDownload: string) => {
+      try {
+        if (!(await ensureDiskForDownload(model, fileNameToDownload))) {
+          return;
+        }
+        setDownloadProgress((prev) => ({
+          ...prev,
+          [fileNameToDownload]: pausedDownloads[fileNameToDownload] ?? 0,
+        }));
+
+        const cancellationToken = createCancellationToken(fileNameToDownload);
+        setDownloadCancellationTokens((prev) => ({
+          ...prev,
+          [fileNameToDownload]: cancellationToken,
+        }));
+
+        const expectedBytes =
+          model.availableQuants?.find((q) => q.fileName === fileNameToDownload)?.size ??
+          parseSizeToBytes(model.size);
+        setPausedDownloads((prev) => {
+          const next = { ...prev };
+          delete next[fileNameToDownload];
+          return next;
+        });
+        await handleDownloadModel(
+          fileNameToDownload,
+          model.repoId,
+          (progress) => {
+            if (!cancellationToken.isCancelled()) {
+              setDownloadProgress((prev) => ({ ...prev, [fileNameToDownload]: progress }));
+            }
+          },
+          cancellationToken,
+          expectedBytes,
+        );
+
+        if (!cancellationToken.isCancelled()) {
+          setDownloadCancellationTokens((prev) => {
+            const newTokens = { ...prev };
+            delete newTokens[fileNameToDownload];
+            return newTokens;
+          });
+          setPausedDownloads((prev) => {
+            const next = { ...prev };
+            delete next[fileNameToDownload];
+            return next;
+          });
+          setDownloadProgress((prev) => {
+            const next = { ...prev };
+            delete next[fileNameToDownload];
+            return next;
+          });
+          await checkDownloadedModels();
+        } else if (cancellationToken.getMode() !== 'discard') {
+          // App may swallow pause/cancel without throwing — keep UI in sync.
+          const pausedPct =
+            (await getPausedDownloadProgress(fileNameToDownload)) ??
+            downloadProgress[fileNameToDownload] ??
+            0;
+          setPausedDownloads((prev) => ({ ...prev, [fileNameToDownload]: pausedPct }));
+          setDownloadProgress((prev) => {
+            const next = { ...prev };
+            delete next[fileNameToDownload];
+            return next;
+          });
+          setDownloadCancellationTokens((prev) => {
+            const next = { ...prev };
+            delete next[fileNameToDownload];
+            return next;
+          });
+        }
+      } catch (error) {
+        if (
+          isDownloadPausedError(error) ||
+          isDownloadCancelledError(error) ||
+          isDownloadCancelled(error)
+        ) {
+          console.log(`Download paused/cancelled for ${fileNameToDownload}`);
+          const pausedPct =
+            (await getPausedDownloadProgress(fileNameToDownload)) ??
+            downloadProgress[fileNameToDownload] ??
+            0;
+          if (isDownloadPausedError(error)) {
+            setPausedDownloads((prev) => ({
+              ...prev,
+              [fileNameToDownload]: pausedPct,
+            }));
+          }
+          setDownloadProgress((prev) => {
+            const newProgress = { ...prev };
+            delete newProgress[fileNameToDownload];
+            return newProgress;
+          });
+          setDownloadCancellationTokens((prev) => {
+            const newTokens = { ...prev };
+            delete newTokens[fileNameToDownload];
+            return newTokens;
+          });
+        } else {
+          setDownloadProgress((prev) => {
+            const newProgress = { ...prev };
+            delete newProgress[fileNameToDownload];
+            return newProgress;
+          });
+          setDownloadCancellationTokens((prev) => {
+            const newTokens = { ...prev };
+            delete newTokens[fileNameToDownload];
+            return newTokens;
+          });
+          const pausedPct = await getPausedDownloadProgress(fileNameToDownload);
+          if (pausedPct != null) {
+            setPausedDownloads((prev) => ({ ...prev, [fileNameToDownload]: pausedPct }));
+          }
+          const uf =
+            toUserFacingDownloadError(error) ??
+            toUserFacingLoadError(error, llamaProvider.getStatus().error);
+          if (uf.kind === 'auth') {
+            showAlert(uf.title, uf.message, [
+              { text: 'OK', style: 'cancel' },
+              {
+                text: 'Add token',
+                onPress: () => setCurrentPage('hfToken'),
+              },
+            ]);
+          } else if (
+            uf.kind === 'oom' ||
+            uf.kind === 'corrupt' ||
+            uf.kind === 'generic_load' ||
+            uf.kind === 'not_found'
+          ) {
+            showLoadFailureAlert(uf, {
+              modelFileName: fileNameToDownload,
+              onRetry: () => {
+                void startModelFileDownload(
+                  // Reconstruct minimal model for resume/load-after-download
+                  {
+                    id: fileNameToDownload,
+                    name: fileNameToDownload,
+                    repoId: model.repoId,
+                    fileName: fileNameToDownload,
+                    size: model.size,
+                    availableQuants: model.availableQuants,
+                  },
+                  fileNameToDownload,
+                );
+              },
+            });
+          } else {
+            showAlert(uf.title, uf.message, [{ text: 'OK' }]);
+          }
+        }
+      }
+    },
+    [
+      ensureDiskForDownload,
+      pausedDownloads,
+      handleDownloadModel,
+      checkDownloadedModels,
+      downloadProgress,
+      setCurrentPage,
+    ],
+  );
+
   const handleModelDownload = useCallback(async (model: ModelInfo) => {
     const isDownloaded = downloadedModels.includes(model.fileName);
     
     if (isDownloaded) {
       // Load the model
-      setIsLoadingModel(true);
-      setLoadingModelFile(model.fileName);
-      try {
-        const modelPath = `${RNFS.DocumentDirectoryPath}/${model.fileName}`;
-        // Same path as chat model switch — keep llamaProvider + native context aligned.
-        const success = await llamaProvider.loadModel({ modelPath });
-        if (success) {
-          setContext(llamaProvider.getNativeContext());
-          setSelectedGGUF(model.fileName);
-          setCurrentPage("conversation");
-        } else {
-          showAlert("Error", "Failed to load the model.", [{ text: "OK" }]);
+      const attemptLoad = async () => {
+        setIsLoadingModel(true);
+        setLoadingModelFile(model.fileName);
+        try {
+          const modelPath = `${RNFS.DocumentDirectoryPath}/${model.fileName}`;
+          // Same path as chat model switch — keep llamaProvider + native context aligned.
+          const success = await llamaProvider.loadModel({ modelPath });
+          if (success) {
+            setContext(llamaProvider.getNativeContext());
+            setSelectedGGUF(model.fileName);
+            setCurrentPage("conversation");
+          } else {
+            const uf = toUserFacingLoadError(null, llamaProvider.getStatus().error);
+            showLoadFailureAlert(uf, {
+              modelFileName: model.fileName,
+              onRetry: () => {
+                void attemptLoad();
+              },
+            });
+          }
+        } catch (error) {
+          console.error("Error loading model:", error);
+          const uf = toUserFacingLoadError(error, llamaProvider.getStatus().error);
+          showLoadFailureAlert(uf, {
+            modelFileName: model.fileName,
+            onRetry: () => {
+              void attemptLoad();
+            },
+          });
+        } finally {
+          setIsLoadingModel(false);
+          setLoadingModelFile(null);
         }
-      } catch (error) {
-        console.error("Error loading model:", error);
-        showAlert("Error", "Failed to load the model.", [{ text: "OK" }]);
-      } finally {
-        setIsLoadingModel(false);
-        setLoadingModelFile(null);
-      }
+      };
+      await attemptLoad();
+    } else if (pausedDownloads[model.fileName] !== undefined) {
+      // Resume paused partial — no confirm dialog.
+      await startModelFileDownload(model, model.fileName);
     } else {
       // Show quantization selector if multiple quants are available
       if (model.availableQuants && model.availableQuants.length > 1) {
@@ -1232,53 +1527,8 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
             },
             {
               text: "Yes",
-              onPress: async () => {
-                try {
-                  setDownloadProgress(prev => ({ ...prev, [fileNameToDownload]: 0 }));
-                  
-                  // Create cancellation token
-                  const cancellationToken = createCancellationToken(fileNameToDownload);
-                  setDownloadCancellationTokens(prev => ({
-                    ...prev,
-                    [fileNameToDownload]: cancellationToken
-                  }));
-
-                  await handleDownloadModel(fileNameToDownload, model.repoId, (progress) => {
-                    // Check if cancelled before updating progress
-                    if (!cancellationToken.isCancelled()) {
-                      setDownloadProgress(prev => ({ ...prev, [fileNameToDownload]: progress }));
-                    }
-                  }, cancellationToken);
-
-                  // Clean up cancellation token if download completed successfully
-                  if (!cancellationToken.isCancelled()) {
-                    setDownloadCancellationTokens(prev => {
-                      const newTokens = { ...prev };
-                      delete newTokens[fileNameToDownload];
-                      return newTokens;
-                    });
-                    await checkDownloadedModels();
-                  }
-                } catch (error) {
-                  // Check if it's a cancellation error
-                  if (error instanceof Error && error.message === "Download was cancelled") {
-                    console.log(`Download cancelled for ${fileNameToDownload}`);
-                    // State cleanup is handled by handleCancelDownload
-                  } else {
-                    // Clean up on error
-                    setDownloadProgress(prev => {
-                      const newProgress = { ...prev };
-                      delete newProgress[fileNameToDownload];
-                      return newProgress;
-                    });
-                    setDownloadCancellationTokens(prev => {
-                      const newTokens = { ...prev };
-                      delete newTokens[fileNameToDownload];
-                      return newTokens;
-                    });
-                    showAlert("Error", "Failed to download the model.", [{ text: "OK" }]);
-                  }
-                }
+              onPress: () => {
+                void startModelFileDownload(model, fileNameToDownload);
               },
             },
           ],
@@ -1286,7 +1536,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         );
       }
     }
-  }, [downloadedModels, setContext, setSelectedGGUF, setCurrentPage, handleDownloadModel, checkDownloadedModels]);
+  }, [downloadedModels, setContext, setSelectedGGUF, setCurrentPage, pausedDownloads, startModelFileDownload]);
 
   const handleCustomUrlSubmit = useCallback(async () => {
     const parsed = parseHuggingFaceUrl(customUrlInput);
@@ -1303,18 +1553,26 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     setIsFetchingCustomUrl(true);
 
     try {
-      const response = await axios.get(
+      const response = await hfAxiosGet(
         `https://huggingface.co/api/models/${parsed.repoId}`,
         { timeout: 15000, validateStatus: (status: number) => status < 500 }
       );
 
       if (response.status === 401 || response.status === 403) {
-        showAlert("Access Denied", "This model requires authentication and cannot be downloaded.", [{ text: "OK" }]);
+        const uf = userFacingHttpError(response.status);
+        showAlert(uf.title, uf.message, [
+          { text: "OK", style: "cancel" },
+          {
+            text: "Add token",
+            onPress: () => setCurrentPage("hfToken"),
+          },
+        ]);
         return;
       }
 
       if (response.status === 404) {
-        showAlert("Not Found", "Model not found. Please check the URL and try again.", [{ text: "OK" }]);
+        const uf = userFacingHttpError(404);
+        showAlert(uf.title, uf.message, [{ text: "OK" }]);
         return;
       }
 
@@ -1394,14 +1652,30 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       setCustomUrlInput("");
       handleModelDownload(modelInfo);
     } catch (error: any) {
-      const errorMsg = error?.response?.status
-        ? `HTTP ${error.response.status}`
-        : error?.message || "Unknown error";
-      showAlert("Error", `Failed to fetch model information: ${errorMsg}`, [{ text: "OK" }]);
+      const status = error?.response?.status;
+      const uf =
+        typeof status === 'number'
+          ? userFacingHttpError(status)
+          : (toUserFacingDownloadError(error) ?? {
+              title: "Couldn't fetch model",
+              message: "Could not load model information. Check the URL and try again.",
+              kind: 'generic_download' as const,
+            });
+      if (uf.kind === 'auth' || status === 401 || status === 403) {
+        showAlert(uf.title, uf.message, [
+          { text: "OK", style: "cancel" },
+          {
+            text: "Add token",
+            onPress: () => setCurrentPage("hfToken"),
+          },
+        ]);
+      } else {
+        showAlert(uf.title, uf.message, [{ text: "OK" }]);
+      }
     } finally {
       setIsFetchingCustomUrl(false);
     }
-  }, [customUrlInput, closeCustomUrlModal, handleModelDownload]);
+  }, [customUrlInput, closeCustomUrlModal, handleModelDownload, setCurrentPage]);
 
   /**
    * Render a model card with proper props
@@ -1409,10 +1683,14 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
    */
   const renderModelCard = useCallback((model: ModelInfo, isDownloaded: boolean, index: number) => {
     const isDownloading = downloadProgress[model.fileName] !== undefined;
-    const progress = downloadProgress[model.fileName] || 0;
+    const isPaused = !isDownloading && pausedDownloads[model.fileName] !== undefined;
+    const progress = isDownloading
+      ? downloadProgress[model.fileName] || 0
+      : pausedDownloads[model.fileName] || 0;
     const isLoading = loadingModelFile === model.fileName && isLoadingModel;
     const modelKey = `${model.id}:${model.fileName}`;
     const isExpanded = expandedModelId === modelKey;
+    const ramFit = classifyRamFitFromSize(model.size, totalMemoryBytes);
     
     return (
       <ModelCard
@@ -1420,19 +1698,22 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         isDownloaded={isDownloaded}
         index={index}
         isDownloading={isDownloading}
+        isPaused={isPaused}
         progress={progress}
         isLoading={isLoading}
         onDownload={() => handleModelDownload(model)}
         onDelete={() => handleDeleteModel(model.fileName)}
         onCancel={() => handleCancelDownload(model.fileName)}
+        onDiscardPaused={() => handleDiscardPausedDownload(model.fileName)}
         onSettings={() => handleOpenSettings(model)}
         isExpanded={isExpanded}
         onToggleExpand={() => setExpandedModelId(isExpanded ? null : modelKey)}
         isInitialAnimationPhase={isInitialAnimationPhase.current}
         animatedModelIds={animatedModelIds}
+        ramFit={ramFit}
       />
     );
-  }, [downloadProgress, loadingModelFile, isLoadingModel, expandedModelId, handleModelDownload, handleDeleteModel, handleCancelDownload, handleOpenSettings, isInitialAnimationPhase, animatedModelIds]);
+  }, [downloadProgress, pausedDownloads, loadingModelFile, isLoadingModel, expandedModelId, handleModelDownload, handleDeleteModel, handleCancelDownload, handleDiscardPausedDownload, handleOpenSettings, isInitialAnimationPhase, animatedModelIds, totalMemoryBytes]);
 
   // ModelCard component has been moved to src/components/ModelCard.tsx
   // This improves code organization and reusability
@@ -1474,8 +1755,39 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         paddingHorizontal: 20,
         paddingTop: 8,
         paddingBottom: 0,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
       }}>
         <Text style={styles.settingsTitle}>Models</Text>
+        <TouchableOpacity
+          onPress={() => setCurrentPage("hfToken")}
+          accessibilityLabel="Hugging Face access token"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            backgroundColor: theme.colors.glass,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            borderRadius: 20,
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+          }}
+        >
+          <Ionicons name="key-outline" size={18} color={theme.colors.text} />
+          <Text
+            style={{
+              marginLeft: 6,
+              fontSize: 13,
+              fontFamily: "Poppins",
+              color: theme.colors.text,
+              fontWeight: "600",
+            }}
+          >
+            HF token
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Scrollable content */}
@@ -2254,54 +2566,11 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                                 },
                                 {
                                   text: "Download",
-                                  onPress: async () => {
-                                    try {
-                                      setDownloadProgress(prev => ({ ...prev, [fileNameToDownload]: 0 }));
-                                      
-                                      // Create cancellation token
-                                      const cancellationToken = createCancellationToken(fileNameToDownload);
-                                      setDownloadCancellationTokens(prev => ({
-                                        ...prev,
-                                        [fileNameToDownload]: cancellationToken
-                                      }));
-
-                                      await handleDownloadModel(fileNameToDownload, selectedModelForDownload.repoId, (progress) => {
-                                        // Check if cancelled before updating progress
-                                        if (!cancellationToken.isCancelled()) {
-                                          setDownloadProgress(prev => ({ ...prev, [fileNameToDownload]: progress }));
-                                        }
-                                      }, cancellationToken);
-
-                                      // Clean up cancellation token if download completed successfully
-                                      if (!cancellationToken.isCancelled()) {
-                                        setDownloadCancellationTokens(prev => {
-                                          const newTokens = { ...prev };
-                                          delete newTokens[fileNameToDownload];
-                                          return newTokens;
-                                        });
-                                        await checkDownloadedModels();
-                                        setSelectedModelForDownload(null);
-                                      }
-                                    } catch (error) {
-                                      // Check if it's a cancellation error
-                                      if (error instanceof Error && error.message === "Download was cancelled") {
-                                        console.log(`Download cancelled for ${fileNameToDownload}`);
-                                        // State cleanup is handled by handleCancelDownload
-                                      } else {
-                                        // Clean up on error
-                                        setDownloadProgress(prev => {
-                                          const newProgress = { ...prev };
-                                          delete newProgress[fileNameToDownload];
-                                          return newProgress;
-                                        });
-                                        setDownloadCancellationTokens(prev => {
-                                          const newTokens = { ...prev };
-                                          delete newTokens[fileNameToDownload];
-                                          return newTokens;
-                                        });
-                                        showAlert("Error", "Failed to download the model.", [{ text: "OK" }]);
-                                      }
-                                    }
+                                  onPress: () => {
+                                    void startModelFileDownload(
+                                      selectedModelForDownload,
+                                      fileNameToDownload,
+                                    ).then(() => setSelectedModelForDownload(null));
                                   },
                                 },
                               ],
