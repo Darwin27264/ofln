@@ -153,3 +153,69 @@ export function filterChatsBySearchQuery(
   if (!q) return chats;
   return chats.filter((c) => chatMatchesSearchQuery(c, q));
 }
+
+/** Common chat/history period filters (Photos / Files / messaging apps). */
+export type HistoryDatePeriod =
+  | 'all'
+  | 'today'
+  | 'yesterday'
+  | 'last7'
+  | 'last30'
+  | 'older';
+
+export const HISTORY_DATE_PERIODS: ReadonlyArray<{
+  id: HistoryDatePeriod;
+  label: string;
+}> = [
+  { id: 'all', label: 'All time' },
+  { id: 'today', label: 'Today' },
+  { id: 'yesterday', label: 'Yesterday' },
+  { id: 'last7', label: 'Last 7 days' },
+  { id: 'last30', label: 'Last 30 days' },
+  { id: 'older', label: 'Older' },
+];
+
+function startOfLocalDay(ms: number): number {
+  const d = new Date(ms);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** Match on last activity (`updatedAt`), falling back to `createdAt`. */
+export function chatMatchesDatePeriod(
+  chat: ChatConversation,
+  period: HistoryDatePeriod,
+  nowMs: number = Date.now(),
+): boolean {
+  if (period === 'all') return true;
+
+  const ts = chat.updatedAt || chat.createdAt;
+  const todayStart = startOfLocalDay(nowMs);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const yesterdayStart = todayStart - dayMs;
+  const last7Start = todayStart - 6 * dayMs;
+  const last30Start = todayStart - 29 * dayMs;
+
+  switch (period) {
+    case 'today':
+      return ts >= todayStart;
+    case 'yesterday':
+      return ts >= yesterdayStart && ts < todayStart;
+    case 'last7':
+      return ts >= last7Start;
+    case 'last30':
+      return ts >= last30Start;
+    case 'older':
+      return ts < last30Start;
+    default:
+      return true;
+  }
+}
+
+export function filterChatsByDatePeriod(
+  chats: ChatConversation[],
+  period: HistoryDatePeriod,
+  nowMs: number = Date.now(),
+): ChatConversation[] {
+  if (period === 'all') return chats;
+  return chats.filter((c) => chatMatchesDatePeriod(c, period, nowMs));
+}

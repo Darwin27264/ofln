@@ -542,9 +542,9 @@ export default function ConversationScreen({
 
 
   // Slide-out panel logic - declared early so it can be used in useEffects
-  // Panel width is 80% of screen width
+  // Full-width history page that still slides in from the left
   const screenWidth = Dimensions.get('window').width;
-  const panelWidth = screenWidth * 0.80;
+  const panelWidth = screenWidth;
   const panelAnim = useRef(new Animated.Value(-panelWidth)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const [isPanelOpen, setIsPanelOpen] = useState(false);
@@ -2089,6 +2089,7 @@ export default function ConversationScreen({
           panelAnim={panelAnim}
           backdropOpacity={backdropOpacity}
           panelStyle={styles.slideOutPanel}
+          topInset={insets.top}
           bottomInset={insets.bottom}
           chatHistory={chatHistory}
           groupedChatHistory={groupedChatHistory}

@@ -1,9 +1,9 @@
 /**
  * Chat history slide-out drawer + long-press context menu.
- * Presentational only — ConversationScreen owns state and handlers (S04a).
+ * Collage (masonry) layout — presentational only; ConversationScreen owns state (S04a).
  */
 
-import React from 'react';
+import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,19 +15,92 @@ import {
   Animated,
   StyleSheet,
   Dimensions,
+  Image,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import { FrostedGlass } from './FrostedGlass';
 import { StaggerFadeIn } from './StaggerFadeIn';
 import { useTheme } from '../context/ThemeContext';
-import type { ChatConversation } from '../services/chatHistoryService';
+import type { ChatConversation, Message } from '../services/chatHistoryService';
+import {
+  HISTORY_DATE_PERIODS,
+  filterChatsByDatePeriod,
+  type HistoryDatePeriod,
+} from '../services/chatHistoryHelpers';
+import { EASING } from '../utils/animationConfig';
 
 export type GroupedChatHistory = {
   pinnedChats: ChatConversation[];
   sortedKeys: string[];
   groupedUnpinned: Map<string, ChatConversation[]>;
 };
+
+const CARD_RADIUS = 14;
+const GAP = 10;
+
+function formatRelativeChatLabel(timestamp: number): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfThatDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayDiff = Math.round(
+    (startOfToday.getTime() - startOfThatDay.getTime()) / (1000 * 60 * 60 * 24),
+  );
+
+  if (dayDiff === 0) {
+    return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+  if (dayDiff === 1) return 'Yesterday';
+  if (dayDiff > 1 && dayDiff < 7) {
+    return date.toLocaleDateString(undefined, { weekday: 'long' });
+  }
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function firstImageUri(messages: Message[] | undefined): string | null {
+  if (!messages?.length) return null;
+  for (const m of messages) {
+    const att = m.attachments?.find((a) => a.type === 'image' && a.uri);
+    if (att?.uri) return att.uri;
+  }
+  return null;
+}
+
+function estimateCardWeight(chat: ChatConversation): number {
+  let weight = 3;
+  const preview = (chat.preview || '').trim();
+  if (preview) weight += Math.min(4, Math.ceil(preview.length / 36));
+  if (firstImageUri(chat.messages)) weight += 4;
+  return weight;
+}
+
+function flattenGroupedHistory(grouped: GroupedChatHistory): ChatConversation[] {
+  const list = [...grouped.pinnedChats];
+  for (const key of grouped.sortedKeys) {
+    const month = grouped.groupedUnpinned.get(key);
+    if (month) list.push(...month);
+  }
+  return list;
+}
+
+function splitIntoColumns(chats: ChatConversation[]): [ChatConversation[], ChatConversation[]] {
+  const left: ChatConversation[] = [];
+  const right: ChatConversation[] = [];
+  let leftWeight = 0;
+  let rightWeight = 0;
+  for (const chat of chats) {
+    const w = estimateCardWeight(chat);
+    if (leftWeight <= rightWeight) {
+      left.push(chat);
+      leftWeight += w;
+    } else {
+      right.push(chat);
+      rightWeight += w;
+    }
+  }
+  return [left, right];
+}
 
 type ChatHistoryCardProps = {
   chat: ChatConversation;
@@ -61,15 +134,22 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(
     onToggleSelect,
   }) => {
     const isCurrentChat = currentChatId === chat.id;
+    const imageUri = firstImageUri(chat.messages);
+    const preview = (chat.preview || '').trim();
+    const dateLabel = formatRelativeChatLabel(chat.updatedAt || chat.createdAt);
+    const previewLines = preview.length > 100 ? 5 : preview.length > 50 ? 4 : preview ? 3 : 0;
 
     if (isEditing) {
       return (
-        <Pressable
-          onPress={onPress}
-          onLongPress={onLongPress}
+        <View
           style={{
-            paddingVertical: 8,
-            marginBottom: 4,
+            backgroundColor: theme.colors.card,
+            borderRadius: CARD_RADIUS,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            padding: 16,
+            marginBottom: GAP,
+            minHeight: 140,
           }}
         >
           <TextInput
@@ -79,95 +159,157 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(
             onSubmitEditing={onRenameSave}
             style={{
               color: theme.colors.text,
-              fontSize: 18,
-              fontWeight: '400',
+              fontSize: 16,
+              fontWeight: '600',
               fontFamily: 'Poppins',
+              padding: 0,
             }}
             autoFocus
             selectTextOnFocus
           />
-        </Pressable>
-      );
-    }
-
-    if (isMultiselectMode) {
-      return (
-        <Pressable
-          onPress={onToggleSelect}
-          style={{
-            paddingVertical: 8,
-            paddingHorizontal: 12,
-            marginBottom: 4,
-            flexDirection: 'row',
-            alignItems: 'center',
-            borderRadius: 8,
-            backgroundColor: isCurrentChat ? theme.colors.primary + '15' : 'transparent',
-          }}
-        >
-          <View
-            style={{
-              width: 24,
-              height: 24,
-              borderRadius: 12,
-              borderWidth: 2,
-              borderColor: isSelected ? theme.colors.primary : theme.colors.border,
-              backgroundColor: isSelected ? theme.colors.primary : 'transparent',
-              marginRight: 12,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            {isSelected && (
-              <Ionicons name="checkmark" size={16} color={theme.colors.primaryText} />
-            )}
-          </View>
-          <Text
-            style={{
-              color: isCurrentChat ? theme.colors.text : theme.colors.textSecondary,
-              fontSize: 18,
-              fontWeight: isCurrentChat ? '500' : '400',
-              fontFamily: 'Poppins',
-              flex: 1,
-            }}
-            numberOfLines={1}
-            ellipsizeMode="tail"
-          >
-            {chat.title}
-          </Text>
-        </Pressable>
+        </View>
       );
     }
 
     return (
       <Pressable
-        onPress={onPress}
-        onLongPress={onLongPress}
+        onPress={isMultiselectMode ? onToggleSelect : onPress}
+        onLongPress={isMultiselectMode ? undefined : onLongPress}
         style={{
-          paddingVertical: 8,
-          paddingHorizontal: 12,
-          marginBottom: 4,
-          borderRadius: 8,
-          backgroundColor: isCurrentChat ? theme.colors.primary + '15' : 'transparent',
+          backgroundColor: isCurrentChat ? theme.colors.secondary : theme.colors.card,
+          borderRadius: CARD_RADIUS,
+          borderWidth: 1,
+          borderColor: isSelected
+            ? theme.colors.primary
+            : isCurrentChat
+              ? theme.colors.border
+              : theme.colors.borderLight,
+          padding: 16,
+          marginBottom: GAP,
+          overflow: 'hidden',
+          minHeight: imageUri ? 220 : 160,
         }}
       >
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 8,
+          }}
+        >
+          <Text
+            style={{
+              color: theme.colors.textTertiary,
+              fontSize: 12,
+              fontFamily: 'Poppins',
+              fontWeight: '500',
+              flex: 1,
+            }}
+            numberOfLines={1}
+          >
+            {dateLabel}
+          </Text>
+          {chat.pinned ? (
+            <Ionicons
+              name="bookmark"
+              size={13}
+              color={theme.colors.textTertiary}
+              style={{ marginLeft: 4 }}
+            />
+          ) : null}
+          {isMultiselectMode ? (
+            <View
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 10,
+                borderWidth: 2,
+                borderColor: isSelected ? theme.colors.primary : theme.colors.border,
+                backgroundColor: isSelected ? theme.colors.primary : 'transparent',
+                marginLeft: 6,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {isSelected ? (
+                <Ionicons name="checkmark" size={12} color={theme.colors.primaryText} />
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+
         <Text
           style={{
-            color: isCurrentChat ? theme.colors.text : theme.colors.textSecondary,
-            fontSize: 18,
-            fontWeight: isCurrentChat ? '500' : '400',
+            color: theme.colors.text,
+            fontSize: 16,
+            fontWeight: '600',
             fontFamily: 'Poppins',
+            lineHeight: 22,
+            marginBottom: preview || imageUri ? 10 : 0,
           }}
-          numberOfLines={1}
+          numberOfLines={4}
           ellipsizeMode="tail"
         >
           {chat.title}
         </Text>
+
+        {preview && !imageUri ? (
+          <Text
+            style={{
+              color: theme.colors.textSecondary,
+              fontSize: 13,
+              fontFamily: 'Poppins',
+              lineHeight: 19,
+              flexGrow: 1,
+            }}
+            numberOfLines={previewLines || 3}
+            ellipsizeMode="tail"
+          >
+            {preview}
+          </Text>
+        ) : null}
+
+        {imageUri ? (
+          <Image
+            source={{ uri: imageUri }}
+            style={{
+              width: '100%',
+              height: preview.length > 60 ? 120 : 148,
+              borderRadius: 10,
+              marginTop: preview ? 10 : 6,
+              backgroundColor: theme.colors.surface,
+            }}
+            resizeMode="cover"
+          />
+        ) : null}
+
+        {preview && imageUri ? (
+          <Text
+            style={{
+              color: theme.colors.textSecondary,
+              fontSize: 13,
+              fontFamily: 'Poppins',
+              lineHeight: 19,
+              marginTop: 10,
+            }}
+            numberOfLines={3}
+            ellipsizeMode="tail"
+          >
+            {preview}
+          </Text>
+        ) : null}
+
+        {!preview && !imageUri ? <View style={{ flexGrow: 1, minHeight: 48 }} /> : null}
       </Pressable>
     );
   },
   (prevProps, nextProps) =>
     prevProps.chat.id === nextProps.chat.id &&
     prevProps.chat.title === nextProps.chat.title &&
+    prevProps.chat.preview === nextProps.chat.preview &&
+    prevProps.chat.pinned === nextProps.chat.pinned &&
+    prevProps.chat.updatedAt === nextProps.chat.updatedAt &&
     prevProps.currentChatId === nextProps.currentChatId &&
     prevProps.isEditing === nextProps.isEditing &&
     prevProps.editingTitle === nextProps.editingTitle &&
@@ -183,6 +325,7 @@ export type HistoryDrawerProps = {
   panelAnim: Animated.Value;
   backdropOpacity: Animated.Value;
   panelStyle: object;
+  topInset: number;
   bottomInset: number;
 
   chatHistory: ChatConversation[];
@@ -239,6 +382,7 @@ export function HistoryDrawer({
   panelAnim,
   backdropOpacity,
   panelStyle,
+  topInset,
   bottomInset,
   chatHistory,
   groupedChatHistory,
@@ -286,6 +430,108 @@ export function HistoryDrawer({
   const { theme } = useTheme();
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;
+  const [datePeriod, setDatePeriod] = useState<HistoryDatePeriod>('all');
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+
+  const filterBackdropOpacity = useRef(new Animated.Value(0)).current;
+  const filterMenuScale = useRef(new Animated.Value(0.92)).current;
+  const filterItemAnims = useRef(
+    HISTORY_DATE_PERIODS.map(() => ({
+      opacity: new Animated.Value(0),
+      translate: new Animated.Value(6),
+    })),
+  ).current;
+
+  const closeFilterMenu = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(filterBackdropOpacity, {
+        toValue: 0,
+        duration: 80,
+        easing: EASING.EASE_IN,
+        useNativeDriver: true,
+      }),
+      Animated.timing(filterMenuScale, {
+        toValue: 0.92,
+        duration: 80,
+        easing: EASING.EASE_IN,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setFilterMenuOpen(false));
+  }, [filterBackdropOpacity, filterMenuScale]);
+
+  const openFilterMenu = useCallback(() => {
+    setFilterMenuOpen(true);
+    filterBackdropOpacity.setValue(0);
+    filterMenuScale.setValue(0.92);
+    filterItemAnims.forEach((item) => {
+      item.opacity.setValue(0);
+      item.translate.setValue(6);
+    });
+
+    const itemAnim = (opacity: Animated.Value, translate: Animated.Value, delay: number) =>
+      Animated.parallel([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 100,
+          delay,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+        Animated.timing(translate, {
+          toValue: 0,
+          duration: 100,
+          delay,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+      ]);
+
+    Animated.parallel([
+      Animated.timing(filterBackdropOpacity, {
+        toValue: 1,
+        duration: 80,
+        easing: EASING.EASE_OUT,
+        useNativeDriver: true,
+      }),
+      Animated.spring(filterMenuScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 280,
+        friction: 22,
+        overshootClamping: true,
+      }),
+      ...filterItemAnims.map((item, i) => itemAnim(item.opacity, item.translate, 25 + i * 25)),
+    ]).start();
+  }, [filterBackdropOpacity, filterMenuScale, filterItemAnims]);
+
+  useEffect(() => {
+    if (!isPanelOpen) {
+      setDatePeriod('all');
+      setFilterMenuOpen(false);
+      filterBackdropOpacity.setValue(0);
+      filterMenuScale.setValue(0.92);
+    }
+  }, [isPanelOpen, filterBackdropOpacity, filterMenuScale]);
+
+  const collageChats = useMemo(() => {
+    if (!groupedChatHistory) return [];
+    return filterChatsByDatePeriod(flattenGroupedHistory(groupedChatHistory), datePeriod);
+  }, [groupedChatHistory, datePeriod]);
+
+  const [leftColumn, rightColumn] = useMemo(
+    () => splitIntoColumns(collageChats),
+    [collageChats],
+  );
+
+  const indexById = useMemo(() => {
+    const map = new Map<string, number>();
+    collageChats.forEach((c, i) => map.set(c.id, i));
+    return map;
+  }, [collageChats]);
+
+  const activePeriodLabel =
+    HISTORY_DATE_PERIODS.find((p) => p.id === datePeriod)?.label ?? 'All time';
+  const filterActive = datePeriod !== 'all';
 
   const menuBlockStyle = {
     backgroundColor: 'transparent' as const,
@@ -299,10 +545,53 @@ export function HistoryDrawer({
     overflow: 'hidden' as const,
   };
 
+  const topRightPillStyle = {
+    backgroundColor: theme.colors.transparent,
+    borderRadius: 30,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    overflow: 'hidden' as const,
+  };
+
   const selectedMenuChat = selectedMenuChatId
     ? chatHistory.find((c) => c.id === selectedMenuChatId)
     : null;
   const isPinned = selectedMenuChat?.pinned || false;
+
+  const renderCard = (chat: ChatConversation) => (
+    <StaggerFadeIn
+      key={chat.id}
+      index={indexById.get(chat.id) ?? 0}
+      active={isPanelOpen && !isLoadingHistory}
+    >
+      <ChatHistoryCard
+        chat={chat}
+        currentChatId={currentChatId}
+        theme={theme}
+        onPress={() => (isMultiselectMode ? onToggleSelect(chat.id) : onChatPress(chat))}
+        onLongPress={(e) => onChatLongPress(chat, e)}
+        isEditing={editingChatId === chat.id}
+        editingTitle={editingTitle}
+        onEditingTitleChange={onEditingTitleChange}
+        onRenameSave={onRenameSave}
+        onRenameCancel={onRenameCancel}
+        isMultiselectMode={isMultiselectMode}
+        isSelected={selectedChatIds.has(chat.id)}
+        onToggleSelect={() => onToggleSelect(chat.id)}
+      />
+    </StaggerFadeIn>
+  );
+
+  const emptyPeriodMessage =
+    filterActive && groupedChatHistory
+      ? `No chats from ${activePeriodLabel.toLowerCase()}`
+      : historySearchQuery.trim()
+        ? `No chats match "${historySearchQuery.trim()}"`
+        : null;
 
   return (
     <>
@@ -483,10 +772,6 @@ export function HistoryDrawer({
             left: 0,
             height: '100%',
             width: panelWidth,
-            borderTopLeftRadius: 0,
-            borderTopRightRadius: 20,
-            borderBottomLeftRadius: 0,
-            borderBottomRightRadius: 20,
             overflow: 'hidden',
           },
         ]}
@@ -494,12 +779,172 @@ export function HistoryDrawer({
       >
         <FrostedGlass variant="panel" style={StyleSheet.absoluteFillObject} />
 
+        {!isMultiselectMode && (
+          <View
+            style={{
+              position: 'absolute',
+              top: 8,
+              left: 16,
+              right: 16,
+              zIndex: 35,
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}
+          >
+            <View
+              style={{
+                flex: 1,
+                flexDirection: 'row',
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+                borderRadius: 30,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                marginRight: 8,
+                overflow: 'hidden',
+                minHeight: 42,
+              }}
+            >
+              <FrostedGlass style={StyleSheet.absoluteFillObject} />
+              <Ionicons
+                name="search-outline"
+                size={18}
+                color={theme.colors.textTertiary}
+                style={{ marginRight: 8 }}
+              />
+              <TextInput
+                value={historySearchQuery}
+                onChangeText={onHistorySearchQueryChange}
+                placeholder="Search chats"
+                placeholderTextColor={theme.colors.textTertiary}
+                accessibilityLabel="Search chats"
+                style={{
+                  flex: 1,
+                  color: theme.colors.text,
+                  fontSize: 15,
+                  fontFamily: 'Poppins',
+                  paddingVertical: 0,
+                }}
+                autoCorrect={false}
+                autoCapitalize="none"
+                clearButtonMode="while-editing"
+              />
+              {historySearchQuery.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => onHistorySearchQueryChange('')}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel="Clear search"
+                >
+                  <Ionicons name="close-circle" size={18} color={theme.colors.textTertiary} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <TouchableOpacity
+              onPress={() => {
+                if (filterMenuOpen) closeFilterMenu();
+                else openFilterMenu();
+              }}
+              style={[
+                topRightPillStyle,
+                filterActive ? { backgroundColor: theme.colors.secondary } : null,
+              ]}
+              activeOpacity={0.85}
+              accessibilityLabel={`Filter by date, ${activePeriodLabel}`}
+            >
+              <FrostedGlass style={StyleSheet.absoluteFillObject} />
+              <Ionicons
+                name={filterActive ? 'options' : 'options-outline'}
+                size={23}
+                color={theme.colors.text}
+              />
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {filterMenuOpen && !isMultiselectMode && (
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 30,
+            }}
+            pointerEvents="box-none"
+          >
+            <TouchableWithoutFeedback onPress={closeFilterMenu}>
+              <Animated.View
+                style={{
+                  ...StyleSheet.absoluteFillObject,
+                  backgroundColor: 'rgba(0, 0, 0, 0.4)',
+                  opacity: filterBackdropOpacity,
+                }}
+              />
+            </TouchableWithoutFeedback>
+            <Animated.View
+              style={{
+                position: 'absolute',
+                top: 56,
+                right: 16,
+                minWidth: 168,
+                opacity: filterBackdropOpacity,
+                transform: [{ scale: filterMenuScale }],
+              }}
+            >
+              {HISTORY_DATE_PERIODS.map((period, index) => {
+                const selected = datePeriod === period.id;
+                const itemAnim = filterItemAnims[index];
+                return (
+                  <Animated.View
+                    key={period.id}
+                    style={{
+                      opacity: itemAnim.opacity,
+                      transform: [{ translateY: itemAnim.translate }],
+                      marginBottom: 8,
+                    }}
+                  >
+                    <TouchableOpacity
+                      onPress={() => {
+                        setDatePeriod(period.id);
+                        closeFilterMenu();
+                      }}
+                      style={menuBlockStyle}
+                      activeOpacity={0.85}
+                    >
+                      <FrostedGlass style={StyleSheet.absoluteFillObject} />
+                      <Ionicons
+                        name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={18}
+                        color={selected ? theme.colors.text : theme.colors.textTertiary}
+                      />
+                      <Text
+                        style={{
+                          color: theme.colors.text,
+                          marginLeft: 10,
+                          fontSize: 14,
+                          fontFamily: 'Poppins',
+                          fontWeight: selected ? '600' : '400',
+                        }}
+                      >
+                        {period.label}
+                      </Text>
+                    </TouchableOpacity>
+                  </Animated.View>
+                );
+              })}
+            </Animated.View>
+          </View>
+        )}
+
         <Animated.View
           style={{
             overflow: 'hidden',
             height: multiselectHeaderHeight.interpolate({
               inputRange: [0, 1],
-              outputRange: [0, 60],
+              outputRange: [0, 60 + Math.max(0, topInset)],
             }),
           }}
         >
@@ -511,7 +956,8 @@ export function HistoryDrawer({
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   paddingHorizontal: 16,
-                  paddingVertical: 12,
+                  paddingTop: Math.max(12, topInset + 4),
+                  paddingBottom: 12,
                   borderBottomWidth: 1,
                   borderBottomColor: theme.colors.border,
                   backgroundColor: 'transparent',
@@ -593,57 +1039,52 @@ export function HistoryDrawer({
         </Animated.View>
 
         <ScrollView
-          style={{ flex: 1, marginTop: isMultiselectMode ? 0 : 16, paddingHorizontal: 16 }}
-          contentContainerStyle={{ paddingBottom: 100 }}
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingBottom: 110,
+            paddingTop: isMultiselectMode ? 4 : 56,
+          }}
           keyboardShouldPersistTaps="handled"
           removeClippedSubviews={false}
         >
-          {!isMultiselectMode && (
+          {!isMultiselectMode && filterActive && (
             <View
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
-                borderWidth: 1,
-                borderColor: theme.colors.border,
-                backgroundColor: theme.colors.surface,
-                borderRadius: 14,
-                paddingHorizontal: 12,
-                marginBottom: 16,
-                minHeight: 44,
+                marginBottom: 12,
               }}
             >
-              <Ionicons
-                name="search-outline"
-                size={18}
-                color={theme.colors.textTertiary}
-                style={{ marginRight: 8 }}
-              />
-              <TextInput
-                value={historySearchQuery}
-                onChangeText={onHistorySearchQueryChange}
-                placeholder="Search chats"
-                placeholderTextColor={theme.colors.textTertiary}
-                accessibilityLabel="Search chats"
+              <View
                 style={{
-                  flex: 1,
-                  color: theme.colors.text,
-                  fontSize: 15,
-                  fontFamily: 'Poppins',
-                  paddingVertical: 10,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: theme.colors.secondary,
+                  borderRadius: 30,
+                  paddingVertical: 6,
+                  paddingHorizontal: 12,
                 }}
-                autoCorrect={false}
-                autoCapitalize="none"
-                clearButtonMode="while-editing"
-              />
-              {historySearchQuery.length > 0 && (
-                <TouchableOpacity
-                  onPress={() => onHistorySearchQueryChange('')}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityLabel="Clear search"
+              >
+                <Text
+                  style={{
+                    color: theme.colors.text,
+                    fontSize: 13,
+                    fontFamily: 'Poppins',
+                    fontWeight: '500',
+                  }}
                 >
-                  <Ionicons name="close-circle" size={18} color={theme.colors.textTertiary} />
+                  {activePeriodLabel}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setDatePeriod('all')}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  style={{ marginLeft: 8 }}
+                  accessibilityLabel="Clear date filter"
+                >
+                  <Ionicons name="close" size={14} color={theme.colors.textSecondary} />
                 </TouchableOpacity>
-              )}
+              </View>
             </View>
           )}
 
@@ -652,7 +1093,7 @@ export function HistoryDrawer({
               <Text
                 style={{
                   color: theme.colors.textSecondary,
-                  fontSize: 18,
+                  fontSize: 16,
                   fontFamily: 'Poppins',
                 }}
               >
@@ -664,7 +1105,7 @@ export function HistoryDrawer({
               <Text
                 style={{
                   color: theme.colors.textSecondary,
-                  fontSize: 18,
+                  fontSize: 16,
                   fontFamily: 'Poppins',
                 }}
               >
@@ -673,167 +1114,90 @@ export function HistoryDrawer({
               <Text
                 style={{
                   color: theme.colors.textTertiary,
-                  fontSize: 14,
+                  fontSize: 13,
                   marginTop: 8,
                   fontFamily: 'Poppins',
+                  textAlign: 'center',
                 }}
               >
                 Start a conversation to see it here
               </Text>
             </View>
-          ) : !groupedChatHistory ? (
+          ) : collageChats.length === 0 ? (
             <View style={{ padding: 20, alignItems: 'center' }}>
               <Text
                 style={{
                   color: theme.colors.textSecondary,
-                  fontSize: 16,
+                  fontSize: 15,
                   fontFamily: 'Poppins',
                   textAlign: 'center',
                 }}
               >
-                No chats match "{historySearchQuery.trim()}"
+                {emptyPeriodMessage || 'No chats found'}
               </Text>
             </View>
-          ) : groupedChatHistory ? (
-            <>
-              {groupedChatHistory.pinnedChats.length > 0 && (
-                <View style={{ marginBottom: 24 }}>
-                  <Text
-                    style={{
-                      color: theme.colors.textSecondary,
-                      fontSize: 14,
-                      fontWeight: '600',
-                      marginBottom: 12,
-                      textTransform: 'uppercase',
-                      letterSpacing: 0.5,
-                    }}
-                  >
-                    Pinned
-                  </Text>
-                  {groupedChatHistory.pinnedChats.map((chat, index) => (
-                    <StaggerFadeIn
-                      key={chat.id}
-                      index={index}
-                      active={isPanelOpen && !isLoadingHistory}
-                    >
-                      <ChatHistoryCard
-                        chat={chat}
-                        currentChatId={currentChatId}
-                        theme={theme}
-                        onPress={() =>
-                          isMultiselectMode ? onToggleSelect(chat.id) : onChatPress(chat)
-                        }
-                        onLongPress={(e) => onChatLongPress(chat, e)}
-                        isEditing={editingChatId === chat.id}
-                        editingTitle={editingTitle}
-                        onEditingTitleChange={onEditingTitleChange}
-                        onRenameSave={onRenameSave}
-                        onRenameCancel={onRenameCancel}
-                        isMultiselectMode={isMultiselectMode}
-                        isSelected={selectedChatIds.has(chat.id)}
-                        onToggleSelect={() => onToggleSelect(chat.id)}
-                      />
-                    </StaggerFadeIn>
-                  ))}
-                </View>
-              )}
-
-              {groupedChatHistory.sortedKeys.map((monthYear) => (
-                <View key={monthYear} style={{ marginBottom: 24 }}>
-                  <Text
-                    style={{
-                      color: theme.colors.textSecondary,
-                      fontSize: 14,
-                      fontWeight: 'bold',
-                      marginBottom: 12,
-                      textTransform: 'uppercase',
-                      letterSpacing: 0.5,
-                    }}
-                  >
-                    {monthYear}
-                  </Text>
-                  {groupedChatHistory.groupedUnpinned.get(monthYear)!.map((chat, chatIndex) => {
-                    const globalIndex =
-                      groupedChatHistory.pinnedChats.length +
-                      groupedChatHistory.sortedKeys
-                        .slice(0, groupedChatHistory.sortedKeys.indexOf(monthYear))
-                        .reduce(
-                          (sum, key) =>
-                            sum + (groupedChatHistory.groupedUnpinned.get(key)?.length || 0),
-                          0,
-                        ) +
-                      chatIndex;
-                    return (
-                      <StaggerFadeIn
-                        key={chat.id}
-                        index={globalIndex}
-                        active={isPanelOpen && !isLoadingHistory}
-                      >
-                        <ChatHistoryCard
-                          chat={chat}
-                          currentChatId={currentChatId}
-                          theme={theme}
-                          onPress={() =>
-                            isMultiselectMode ? onToggleSelect(chat.id) : onChatPress(chat)
-                          }
-                          onLongPress={(e) => onChatLongPress(chat, e)}
-                          isEditing={editingChatId === chat.id}
-                          editingTitle={editingTitle}
-                          onEditingTitleChange={onEditingTitleChange}
-                          onRenameSave={onRenameSave}
-                          onRenameCancel={onRenameCancel}
-                          isMultiselectMode={isMultiselectMode}
-                          isSelected={selectedChatIds.has(chat.id)}
-                          onToggleSelect={() => onToggleSelect(chat.id)}
-                        />
-                      </StaggerFadeIn>
-                    );
-                  })}
-                </View>
-              ))}
-            </>
-          ) : null}
+          ) : (
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+              <View style={{ flex: 1, paddingRight: GAP / 2 }}>
+                {leftColumn.map(renderCard)}
+              </View>
+              <View style={{ flex: 1, paddingLeft: GAP / 2, paddingTop: 22 }}>
+                {rightColumn.map(renderCard)}
+              </View>
+            </View>
+          )}
         </ScrollView>
 
         <View
           style={{
             position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            paddingHorizontal: 16,
-            paddingTop: 12,
-            paddingBottom: Math.max(16, bottomInset + 8),
+            bottom: Math.max(20, bottomInset),
+            left: 15,
+            right: 15,
             backgroundColor: 'transparent',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
           }}
         >
+          <TouchableOpacity
+            onPress={onClose}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: theme.colors.primary,
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              borderRadius: 30,
+            }}
+            activeOpacity={0.85}
+            accessibilityLabel="Back"
+          >
+            <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
+            <Text
+              style={{
+                color: theme.colors.primaryText,
+                fontSize: 20,
+                fontFamily: 'Poppins',
+                marginLeft: 8,
+                marginBottom: 2,
+              }}
+            >
+              Back
+            </Text>
+          </TouchableOpacity>
+
           <TouchableOpacity
             onPress={() => {
               onNewChat();
               onClose();
             }}
-            style={{
-              backgroundColor: theme.colors.primary,
-              paddingVertical: 16,
-              paddingHorizontal: 20,
-              borderRadius: 30,
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexDirection: 'row',
-            }}
+            style={topRightPillStyle}
+            activeOpacity={0.85}
+            accessibilityLabel="New chat"
           >
-            <Ionicons name="add" size={22} color={theme.colors.primaryText} />
-            <Text
-              style={{
-                color: theme.colors.primaryText,
-                fontSize: 18,
-                fontWeight: '600',
-                fontFamily: 'Poppins',
-                marginLeft: 8,
-              }}
-            >
-              New Chat
-            </Text>
+            <FrostedGlass style={StyleSheet.absoluteFillObject} />
+            <Ionicons name="add-outline" size={23} color={theme.colors.text} />
           </TouchableOpacity>
         </View>
       </Animated.View>

@@ -5,8 +5,10 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 import {
   MAX_CHAT_HISTORY,
   buildTitleAndPreview,
+  chatMatchesDatePeriod,
   chatToRow,
   escapeSqlLikePattern,
+  filterChatsByDatePeriod,
   filterChatsBySearchQuery,
   parseChatHistoryJson,
   rowToChat,
@@ -172,5 +174,53 @@ describe('filterChatsBySearchQuery', () => {
 describe('escapeSqlLikePattern', () => {
   it('escapes LIKE wildcards', () => {
     expect(escapeSqlLikePattern('100%_done')).toBe('100\\%\\_done');
+  });
+});
+
+describe('filterChatsByDatePeriod', () => {
+  // Fixed "now": Wed 2026-08-05 15:00 local — avoids DST edge flakiness in CI.
+  const now = new Date(2026, 7, 5, 15, 0, 0).getTime();
+  const day = 24 * 60 * 60 * 1000;
+  const todayMorning = new Date(2026, 7, 5, 9, 0, 0).getTime();
+  const yesterday = new Date(2026, 7, 4, 18, 0, 0).getTime();
+  const sixDaysAgo = now - 6 * day;
+  const twentyDaysAgo = now - 20 * day;
+  const fortyDaysAgo = now - 40 * day;
+
+  const chats = [
+    makeChat('today', todayMorning, { updatedAt: todayMorning }),
+    makeChat('yesterday', yesterday, { updatedAt: yesterday }),
+    makeChat('week', sixDaysAgo, { updatedAt: sixDaysAgo }),
+    makeChat('month', twentyDaysAgo, { updatedAt: twentyDaysAgo }),
+    makeChat('old', fortyDaysAgo, { updatedAt: fortyDaysAgo }),
+  ];
+
+  it('returns all for all-time', () => {
+    expect(filterChatsByDatePeriod(chats, 'all', now)).toHaveLength(5);
+  });
+
+  it('filters today / yesterday / rolling windows / older', () => {
+    expect(filterChatsByDatePeriod(chats, 'today', now).map((c) => c.id)).toEqual(['today']);
+    expect(filterChatsByDatePeriod(chats, 'yesterday', now).map((c) => c.id)).toEqual([
+      'yesterday',
+    ]);
+    expect(filterChatsByDatePeriod(chats, 'last7', now).map((c) => c.id)).toEqual([
+      'today',
+      'yesterday',
+      'week',
+    ]);
+    expect(filterChatsByDatePeriod(chats, 'last30', now).map((c) => c.id)).toEqual([
+      'today',
+      'yesterday',
+      'week',
+      'month',
+    ]);
+    expect(filterChatsByDatePeriod(chats, 'older', now).map((c) => c.id)).toEqual(['old']);
+  });
+
+  it('uses updatedAt over createdAt', () => {
+    const chat = makeChat('revived', fortyDaysAgo, { updatedAt: todayMorning });
+    expect(chatMatchesDatePeriod(chat, 'today', now)).toBe(true);
+    expect(chatMatchesDatePeriod(chat, 'older', now)).toBe(false);
   });
 });
