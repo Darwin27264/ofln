@@ -35,10 +35,10 @@ import {
   approxTokenCountFromText,
 } from './performanceTracking';
 import { logError } from '../utils/errorLogger';
-import { SAFE_CHAT_TEMPLATE_STUB } from './ggufSanitizeService';
+import { resolveModelPolicy } from './inference/modelPolicy';
 import {
   buildCompletionParams,
-  trimConversation,
+  applyConversationTrim,
   stripThinkBlocks,
   trimDegenerateRepetition,
   finalizeVisibleAndThought,
@@ -188,7 +188,13 @@ async function _runStream(
   let aiMessages = await formatMessagesForVision(conversationMessages, modelName);
 
   // ── Sliding-window trim ─────────────────────────────────────────────────
-  aiMessages = trimConversation(aiMessages, settings.n_ctx, settings.n_predict);
+  const trimResult = applyConversationTrim(
+    aiMessages,
+    settings.n_ctx,
+    settings.n_predict,
+  );
+  aiMessages = trimResult.messages;
+  const trimmedMessageCount = trimResult.droppedCount;
 
   // ── Thinking / reasoning config (shared builder) ────────────────────────
   const inputText = sendOptions?.textForPrompt || userInput;
@@ -291,6 +297,7 @@ async function _runStream(
       tokensPerSecond: usage?.tokensPerSecond ?? 0,
       totalTokens: usage?.tokenCount ?? approxTokens,
       inferenceTimeMs: wallTimeMs,
+      trimmedMessageCount,
     };
 
     callbacks.onFinish?.(completionResult);
@@ -303,6 +310,7 @@ async function _runStream(
         tokensPerSecond: 0,
         totalTokens: approxTokenCountFromText(fullText, currentThought),
         inferenceTimeMs: Date.now() - startTime,
+        trimmedMessageCount,
       };
       callbacks.onFinish?.(stoppedResult);
       return stoppedResult;
@@ -357,7 +365,15 @@ export async function nativeCompletion(
   let inThinkBlock = false;
   let tokenCount = 0;
 
-  const llamaMessages = messages.map((m) => ({
+  // Sliding-window trim (same helper as streamChat) — live product path.
+  const trimResult = applyConversationTrim(
+    messages,
+    settings.n_ctx,
+    settings.n_predict,
+  );
+  const trimmedMessageCount = trimResult.droppedCount;
+
+  const llamaMessages = trimResult.messages.map((m) => ({
     role: m.role,
     content:
       m.role === 'system'
@@ -384,6 +400,7 @@ export async function nativeCompletion(
       simple,
       reasoningFormat,
       messageCount: llamaMessages.length,
+      trimmedMessageCount,
       lastUserChars: userText.length,
     });
   }
@@ -404,6 +421,7 @@ export async function nativeCompletion(
       simple,
       reasoningFormat,
       messageCount: llamaMessages.length,
+      trimmedMessageCount,
       roles: llamaMessages.map((m) => m.role),
       lastUserPreview: userText.slice(0, 120),
     },
@@ -447,7 +465,7 @@ export async function nativeCompletion(
         reasoning_format: reasoningFormat,
         ...(needsExplicitTemplate
           ? {
-              chat_template: SAFE_CHAT_TEMPLATE_STUB,
+              chat_template: resolveModelPolicy(modelName).template.familyStub,
               jinja: true,
             }
           : {}),
@@ -525,6 +543,7 @@ export async function nativeCompletion(
         tokensPerSecond: 0,
         totalTokens: tokenCount,
         inferenceTimeMs: Date.now() - startTime,
+        trimmedMessageCount,
       };
     }
     await logError(
@@ -549,6 +568,7 @@ export async function nativeCompletion(
       tokensPerSecond: 0,
       totalTokens: tokenCount,
       inferenceTimeMs: Date.now() - startTime,
+      trimmedMessageCount,
     };
   }
 
@@ -627,6 +647,7 @@ export async function nativeCompletion(
     tokensPerSecond: tpsRounded,
     totalTokens: reportedTokenCount,
     inferenceTimeMs: wallTimeMs,
+    trimmedMessageCount,
   };
 
   callbacks.onFinish?.(completionResult);

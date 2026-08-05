@@ -23,7 +23,8 @@ import { getAccelerationConfig, setRuntimeAccelerationState } from '../services/
 import { isAndroidEmulator } from '../services/deviceEnv';
 import { getModelInfo, detectQuantFromFilename, isQuantAllowedForAndroidAccel } from '../services/modelInfoService';
 import { getInferencePerfParams, formatLoadError } from '../services/inferencePerfParams';
-import { ensureGgufSafeForAndroidLoad, SAFE_CHAT_TEMPLATE_STUB } from '../services/ggufSanitizeService';
+import { ensureGgufSafeForAndroidLoad } from '../services/ggufSanitizeService';
+import { resolveModelPolicy } from '../services/inference/modelPolicy';
 import { logError } from '../utils/errorLogger';
 import type { LlamaProviderConfig, ModelReadyState, ModelStatus } from '../types/ai';
 type StatusListener = (status: ModelStatus) => void;
@@ -212,8 +213,9 @@ class LlamaProviderService {
         }
       }
 
+      const modelFileName = modelPath.split(/[/\\]/).pop() || modelPath;
       if (Platform.OS === 'android') {
-        await ensureGgufSafeForAndroidLoad(modelPath);
+        await ensureGgufSafeForAndroidLoad(modelPath, { modelName: modelFileName });
       }
 
       // Unload previous model if any
@@ -302,7 +304,10 @@ class LlamaProviderService {
           } catch {
             /* ignore */
           }
-          await ensureGgufSafeForAndroidLoad(modelPath, { force: true });
+          await ensureGgufSafeForAndroidLoad(modelPath, {
+            force: true,
+            modelName: modelFileName,
+          });
           this.setStatus({
             state: 'preparing',
             modelPath,
@@ -471,13 +476,19 @@ class LlamaProviderService {
       repaired = true;
     }
     if (!model.metadata['tokenizer.chat_template']) {
-      model.metadata['tokenizer.chat_template'] = SAFE_CHAT_TEMPLATE_STUB;
+      const fileName =
+        this.status.modelPath?.split(/[/\\]/).pop() || this.status.modelPath || '';
+      const stub = resolveModelPolicy(fileName).template.familyStub;
+      model.metadata['tokenizer.chat_template'] = stub;
       repaired = true;
       void logError(
         'LlamaProvider',
-        'model.metadata missing chat_template after load — injected SAFE stub',
+        'model.metadata missing chat_template after load — injected family SAFE stub',
         undefined,
-        { modelPath: this.status.modelPath?.split('/').pop() },
+        {
+          modelPath: fileName,
+          familyId: resolveModelPolicy(fileName).familyId,
+        },
         'WARN',
       );
     }

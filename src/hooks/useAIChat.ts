@@ -13,7 +13,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect, startTransition } from 'react';
-import { ScrollView } from 'react-native';
+import { AppState, ScrollView, type AppStateStatus } from 'react-native';
 
 import { llamaProvider } from '../providers/llamaProvider';
 import { streamChat, nativeCompletion } from '../services/aiChatService';
@@ -21,6 +21,12 @@ import { getModelSettings, DEFAULT_SETTINGS } from '../services/modelSettingsSer
 import { buildPersonaSystemPrompt, Persona } from '../services/personaService';
 import { chatHistoryService } from '../services/chatHistoryService';
 import { tokensPerSecondFromMessages } from '../services/performanceTracking';
+import { shouldFlushChatPersistOnTransition } from '../utils/chatPersistAppState';
+import {
+  activateGeneratingKeepAwake,
+  deactivateGeneratingKeepAwake,
+} from '../services/keepAwakeService';
+import { logError } from '../utils/errorLogger';
 
 import type {
   ChatMessage,
@@ -70,6 +76,8 @@ export interface UseAIChatReturn {
   tokensPerSecond: number[];
   currentThought: string;
   modelStatus: ModelStatus;
+  /** True after a completion that dropped older turns to fit n_ctx (S15). */
+  showTrimNotice: boolean;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -160,6 +168,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
   const [modelStatus, setModelStatus] = useState<ModelStatus>(
     llamaProvider.getStatus(),
   );
+  const [showTrimNotice, setShowTrimNotice] = useState(false);
 
   const abortRef = useRef<(() => void) | null>(null);
   const chatIdRef = useRef<string | null>(externalChatId ?? null);
@@ -172,8 +181,11 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
    * cannot rebind an old id onto a fresh session.
    */
   const persistEpochRef = useRef(0);
+  /** Serializes saves so concurrent flushes cannot create duplicate chat rows. */
+  const persistQueueRef = useRef(Promise.resolve<void>(undefined));
   const pendingPatchRef = useRef<AssistantPatch | null>(null);
   const flushRafRef = useRef<number | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   // Stable latest callbacks / flags for async work (avoid stale closures).
   const onChatIdChangeRef = useRef(onChatIdChange);
@@ -203,6 +215,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     isGeneratingRef.current = false;
     setIsGenerating(false);
     setIsLoading(false);
+    deactivateGeneratingKeepAwake();
   }, []);
 
   /** Commit messages + keep messagesRef in lockstep (safe for external setMessages). */
@@ -261,6 +274,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     );
     setCurrentThought('');
     setError(null);
+    setShowTrimNotice(false);
   }, [externalChatId, commitMessages, abortInFlight]);
 
   const scrollToEnd = useCallback(() => {
@@ -330,6 +344,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
       }
       abortRef.current?.();
       abortRef.current = null;
+      deactivateGeneratingKeepAwake();
     };
   }, []);
 
@@ -340,22 +355,52 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
   const persistMessages = useCallback((toSave: ChatMessage[]) => {
     if (disablePersistenceRef.current) return;
     const epoch = persistEpochRef.current;
-    const existingId = chatIdRef.current;
-    chatHistoryService
-      .saveChat(toSave as any, existingId)
-      .then((savedId) => {
-        // Session changed (newChat / history load) while save was in flight.
+    // Queue saves: parallel saveChat(null) would insert two orphan chats (S16).
+    persistQueueRef.current = persistQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (disablePersistenceRef.current) return;
         if (epoch !== persistEpochRef.current) return;
-        if (chatIdRef.current) return;
-        // First save for this session: adopt id without reseeding.
-        chatIdRef.current = savedId;
-        lastSyncedChatIdRef.current = savedId;
-        onChatIdChangeRef.current?.(savedId);
-      })
-      .catch((err) => {
-        if (__DEV__) console.warn('[useAIChat] Save failed:', err);
+        try {
+          const savedId = await chatHistoryService.saveChat(
+            toSave as any,
+            chatIdRef.current,
+          );
+          if (epoch !== persistEpochRef.current) return;
+          if (!chatIdRef.current) {
+            chatIdRef.current = savedId;
+            lastSyncedChatIdRef.current = savedId;
+            onChatIdChangeRef.current?.(savedId);
+          }
+        } catch (err) {
+          void logError('ChatPersist', 'saveChat failed', err, {
+            epoch,
+            messageCount: toSave.length,
+            hadChatId: !!chatIdRef.current,
+          });
+        }
       });
   }, []);
+
+  /** Flush streaming patch + persist transcript when the app backgrounds (S16). */
+  const flushPersistOnBackground = useCallback(() => {
+    flushAssistantPatch();
+    if (disablePersistenceRef.current) return;
+    const msgs = messagesRef.current;
+    if (!msgs.some((m) => m.role === 'user')) return;
+    persistMessages(msgs);
+  }, [flushAssistantPatch, persistMessages]);
+
+  useEffect(() => {
+    const onChange = (next: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      if (!shouldFlushChatPersistOnTransition(prev, next)) return;
+      flushPersistOnBackground();
+    };
+    const sub = AppState.addEventListener('change', onChange);
+    return () => sub.remove();
+  }, [flushPersistOnBackground]);
 
   /**
    * Shared completion runner. Assumes messagesRef already ends with an empty
@@ -380,6 +425,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
           text: string;
           thought?: string;
           tokensPerSecond: number;
+          trimmedMessageCount?: number;
         };
 
         if (preferNative) {
@@ -475,6 +521,9 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
         if (generationId !== generationIdRef.current) return;
 
         flushAssistantPatch();
+        if ((completion.trimmedMessageCount ?? 0) > 0) {
+          setShowTrimNotice(true);
+        }
         const finalized = finalizeLastAssistant(messagesRef.current, completion);
         commitMessages(finalized);
         persistMessages(finalized);
@@ -484,16 +533,25 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
         if (error.name === 'AbortError') return;
 
         setError(error);
+        void logError('AIChat', 'completion failed', error, {
+          modelName,
+          generationId,
+        });
         const prev = messagesRef.current;
         const last = prev[prev.length - 1];
         if (last?.role === 'assistant' && !last.content) {
-          commitMessages([
+          const withError = [
             ...prev.slice(0, -1),
             {
               ...last,
               content: `Error: ${error.message}. Please try again.`,
             },
-          ]);
+          ];
+          commitMessages(withError);
+          persistMessages(withError);
+        } else if (prev.some((m) => m.role === 'user')) {
+          // Keep any partial streamed reply durable after a mid-turn failure.
+          persistMessages(prev);
         }
       } finally {
         if (generationId === generationIdRef.current) {
@@ -502,6 +560,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
           setIsLoading(false);
           setIsGenerating(false);
           abortRef.current = null;
+          deactivateGeneratingKeepAwake();
         }
       }
     },
@@ -528,6 +587,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     setIsLoading(true);
     setIsGenerating(true);
     setCurrentThought('');
+    activateGeneratingKeepAwake();
     return generationId;
   }, []);
 
@@ -688,6 +748,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     isGeneratingRef.current = false;
     setIsGenerating(false);
     setIsLoading(false);
+    deactivateGeneratingKeepAwake();
 
     const prev = messagesRef.current;
     if (prev.length === 0) {
@@ -724,6 +785,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     setInput('');
     setCurrentThought('');
     setError(null);
+    setShowTrimNotice(false);
     chatIdRef.current = null;
     // Mark synced to null BEFORE notifying App. If we cleared messages first
     // and left lastSynced stale, a render with the old currentChatId would
@@ -749,5 +811,6 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     tokensPerSecond,
     currentThought,
     modelStatus,
+    showTrimNotice,
   };
 }

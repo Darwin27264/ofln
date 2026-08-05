@@ -95,6 +95,8 @@ export interface CompletionResult {
   tokensPerSecond: number;
   totalTokens: number;
   inferenceTimeMs: number;
+  /** Messages dropped by sliding-window trim before completion (S15). */
+  trimmedMessageCount?: number;
 }
 
 export interface SendOptions {

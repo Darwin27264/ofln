@@ -33,6 +33,7 @@ import {
   NativeModules,
   PermissionsAndroid,
   StyleSheet,
+  Share,
 } from "react-native";
 import { launchImageLibrary, launchCamera } from "react-native-image-picker";
 
@@ -99,6 +100,11 @@ import { useAIChat } from "../hooks/useAIChat";
 import { llamaProvider } from "../providers/llamaProvider";
 import { toUserFacingLoadError } from "../utils/userFacingErrors";
 import { showLoadFailureAlert } from "../utils/loadFailureAlert";
+import {
+  buildChatMarkdown,
+  isExportableMessage,
+} from "../utils/chatMarkdownExport";
+import { logError } from "../utils/errorLogger";
 
 type MessageAttachment = {
   type: "image";
@@ -368,6 +374,8 @@ export default function ConversationScreen({
   const menuItem2Translate = useRef(new Animated.Value(8)).current;
   const menuItem3Opacity = useRef(new Animated.Value(0)).current;
   const menuItem3Translate = useRef(new Animated.Value(8)).current;
+  const menuItem4Opacity = useRef(new Animated.Value(0)).current;
+  const menuItem4Translate = useRef(new Animated.Value(8)).current;
 
   // Attach image popup menu (above add button)
   const [attachMenuVisible, setAttachMenuVisible] = useState(false);
@@ -1035,8 +1043,8 @@ export default function ConversationScreen({
 
       menuOpacity.setValue(0);
       menuScale.setValue(0.92);
-      [menuItem0Opacity, menuItem1Opacity, menuItem2Opacity, menuItem3Opacity].forEach((v) => v.setValue(0));
-      [menuItem0Translate, menuItem1Translate, menuItem2Translate, menuItem3Translate].forEach((v) => v.setValue(6));
+      [menuItem0Opacity, menuItem1Opacity, menuItem2Opacity, menuItem3Opacity, menuItem4Opacity].forEach((v) => v.setValue(0));
+      [menuItem0Translate, menuItem1Translate, menuItem2Translate, menuItem3Translate, menuItem4Translate].forEach((v) => v.setValue(6));
 
       const itemAnim = (opacity: Animated.Value, translate: Animated.Value, delay: number) =>
         Animated.parallel([
@@ -1051,9 +1059,10 @@ export default function ConversationScreen({
         itemAnim(menuItem1Opacity, menuItem1Translate, 50),
         itemAnim(menuItem2Opacity, menuItem2Translate, 75),
         itemAnim(menuItem3Opacity, menuItem3Translate, 100),
+        itemAnim(menuItem4Opacity, menuItem4Translate, 125),
       ]).start();
     }
-  }, [isMultiselectMode, toggleChatSelection, menuOpacity, menuScale, menuItem0Opacity, menuItem0Translate, menuItem1Opacity, menuItem1Translate, menuItem2Opacity, menuItem2Translate, menuItem3Opacity, menuItem3Translate]);
+  }, [isMultiselectMode, toggleChatSelection, menuOpacity, menuScale, menuItem0Opacity, menuItem0Translate, menuItem1Opacity, menuItem1Translate, menuItem2Opacity, menuItem2Translate, menuItem3Opacity, menuItem3Translate, menuItem4Opacity, menuItem4Translate]);
 
   /**
    * Handle rename chat
@@ -1112,6 +1121,50 @@ export default function ConversationScreen({
       showToast('Failed to pin/unpin chat');
     }
   }, [dismissMenu, showToast]);
+
+  /** Export chat as Markdown via the system share sheet (S18). */
+  const handleExportChat = useCallback(
+    async (chatId: string) => {
+      dismissMenu();
+      try {
+        const listed = chatHistory.find((c) => c.id === chatId);
+        let title = listed?.customTitle || listed?.title || 'Chat';
+        let messages =
+          chatId === currentChatId
+            ? (conversation as { role: string; content: string; thought?: string }[])
+            : null;
+
+        if (!messages || !messages.some(isExportableMessage)) {
+          const chat = await chatHistoryService.getChat(chatId);
+          if (!chat) {
+            showToast('Chat not found');
+            return;
+          }
+          title = chat.customTitle || chat.title || title;
+          messages = chat.messages;
+        }
+
+        if (!messages.some(isExportableMessage)) {
+          showToast('Nothing to export yet');
+          return;
+        }
+
+        const markdown = buildChatMarkdown(messages, {
+          title,
+          exportedAt: new Date().toLocaleString(),
+        });
+
+        await Share.share({
+          message: markdown,
+          title,
+        });
+      } catch (error) {
+        void logError('ChatExport', 'Export Markdown failed', error, { chatId });
+        showToast('Could not export chat');
+      }
+    },
+    [chatHistory, conversation, currentChatId, dismissMenu, showToast],
+  );
 
   /**
    * Enter multiselect mode
@@ -2131,9 +2184,12 @@ export default function ConversationScreen({
           menuItem2Translate={menuItem2Translate}
           menuItem3Opacity={menuItem3Opacity}
           menuItem3Translate={menuItem3Translate}
+          menuItem4Opacity={menuItem4Opacity}
+          menuItem4Translate={menuItem4Translate}
           onDismissMenu={dismissMenu}
           onRename={handleRename}
           onPinToggle={handlePinToggle}
+          onExportChat={handleExportChat}
           onEnterMultiselect={enterMultiselectMode}
           onDeleteChat={handleDeleteChat}
         />
@@ -2172,6 +2228,7 @@ export default function ConversationScreen({
           presetMessages={PRESET_MESSAGES}
           presetIcons={PRESET_ICONS}
           onPresetMessage={handlePresetMessage}
+          showTrimNotice={aiChat.showTrimNotice}
         />
 
 

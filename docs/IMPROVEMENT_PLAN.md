@@ -98,7 +98,7 @@ Legend: **S** = safe/simple · **M** = medium, careful · **H** = hard / race-pr
 | 2.8 Storage manager | **S–M** | Confirm + unload if deleting active model |
 | Stretch summary memory | **D** | Defer — easy to hurt quality |
 | 3.1 Thinking mode setting | **S–M** | Wire to existing heuristics; don’t rewrite parser |
-| 3.2 Family “recommended” copy | **S** | Settings help text from `modelFamily` |
+| 3.2 Family “recommended” copy | **S** | **Done (S19p/S23)** — `policyRecommendedBlurb` |
 | 3.3 Debug chip | **D** | Already Diagnostics — skip product UI |
 | 3.4 Stages trends | **M** | Aggregate **existing** `usage_log` — no new telemetry system |
 | 3.5 Accel chip | **S** | Read `getAccelerationStatusSnapshot` |
@@ -181,20 +181,26 @@ Each **Sxx** = one agent session / one PR. Do not batch.
 | **S12** | SQLite behind service API | op-sqlite; migrate AsyncStorage; backup | 100+ chats; API unchanged for UI — **DONE 2026-08-01** (device smoke pending rebuild) |
 | **S13** | Drawer search | Filter sessions by title/preview/content | Snappy on mid device — **DONE 2026-08-02** |
 | **S14** | Context fullness banner | ≥80% estimate; dismiss; **New chat** CTA only; ring in model pill | **DONE 2026-08-03** |
-| **S15** | Visible trim notice | One line when trim drops turns | User sees honesty |
-| **S16** | AppState flush save | Persist on background | Kill mid-debounce safe |
-| **S17** | Keep-awake while generating | Only during completion | Screen can sleep after |
-| **S18** | Export chat Markdown | Share sheet | Local only |
-| **S19** | Storage manager | List/delete GGUF with confirm | Active model unloaded first if deleted |
+| **S15** | Visible trim notice | One line when trim drops turns | **DONE 2026-08-03** |
+| **S16** | AppState flush save | Persist on background | **DONE 2026-08-03** |
+| **S17** | Keep-awake while generating | Only during completion | **DONE 2026-08-03** |
+| **S18** | Export chat Markdown | Share sheet | **DONE 2026-08-03** |
+| **S19** | Storage manager | List/delete GGUF with confirm | **DONE 2026-08-04** |
+
+### Side work (quality — not a Phase 3 product chrome item)
+
+| Step | Goal | Max scope | Done when |
+|------|------|-----------|-----------|
+| **S19p** | ModelRuntimePolicy (GGUF-first prompts/templates) | Dynamic family+size policy; family sanitize stubs; default-source system prompts | Multi-model coherent chat without a prompt DB — **DONE 2026-08-04** |
 
 ### Phase 3 (thin wedge)
 
 | Step | Goal | Max scope | Done when |
 |------|------|-----------|-----------|
-| **S20** | Thinking Auto/On/Off | Setting → existing enable_thinking path | Default Auto = today’s behavior |
+| **S20** | Thinking Auto/On/Off | Setting → existing enable_thinking path | Default Auto = today’s behavior — **DONE 2026-08-04** |
 | **S21** | Accel status chip | Chat chrome; tap → reason | Uses existing accel snapshot |
 | **S22** | Stages trends from usage_log | Simple charts/lists; no new backend | Personal tok/s history |
-| **S23** | Family recommended blurb | Model Settings help from `modelFamily` | Copy only |
+| **S23** | Family recommended blurb | Model Settings help from policy | Copy only — **DONE 2026-08-04** (via `policyRecommendedBlurb` on Model Settings) |
 | **S24** | Persona memory notes | Field + `buildPersonaSystemPrompt` | Empty = identical to before |
 | **S25** | Temp chat polish | Clear UX for non-saved mode | Persistence still off |
 
@@ -227,10 +233,15 @@ Guide: §4 Phase 1. UX copy: actionable, calm, not “Error.”
 
 ### Phase 2 — Durable honesty
 SQLite (same API), drawer search, context banner (new chat only), trim notice, flush, keep-awake, export, storage UI.  
+**Phase 2 code-complete 2026-08-04** (device smoke still pending native rebuild).  
 **No** background unload. Guide: §4 Phase 2.
 
 ### Phase 3 — Wedge
-Productize existing reasoning/accel/Stages/personas — settings and UI, not new engines.
+Productize existing reasoning/accel/Stages/personas — settings and UI, not new engines.  
+**S19p (2026-08-04):** GGUF-first **ModelRuntimePolicy** landed — see §8a.  
+**S20 (2026-08-04):** Thinking Auto/On/Off per-model via `thinkingMode` + `resolveThinkingModeForTurn` (jinja_enable only).  
+**S23** blurbs: already on Model Settings via `policyRecommendedBlurb` (do not re-add a second help system).  
+**Next:** **S21** Accel status chip.
 
 ### Phase 4 — Selective capability
 Edit, docs, optional vision, OS voice, optional remote — **serial**, never parallel native adds.
@@ -260,15 +271,59 @@ Copy into issues; check off **S01…** only when smoke passes.
 - [x] S01 … S05 (Phase 0 + disk) — smoke OK earlier in arc  
 - [x] S06 … S10 (resume, size verify, HF token, RAM fit, load CTAs) — **code + Jest done; device smoke pending native rebuild**  
 - [x] **S11** (Phase 1 onboarding) — **code + Jest done; device smoke pending**  
-- [x] **S12** (SQLite chat history) — **code + Jest done; device smoke pending native rebuild**  
-- [x] **S13** (Drawer search) — **code + Jest done**  
-- [x] **S14** (Context fullness banner + ring) — **code + Jest done**  
-- [ ] **S15** (Trim notice) ← next implementation step  
-- [ ] S16 … S19 (rest of Phase 2)  
-- [ ] S20 … S25 (Phase 3)  
+- [x] **S12** … **S19** (Phase 2) — **code + Jest done; device smoke pending native rebuild**  
+- [x] **S19p** (ModelRuntimePolicy — system prompts + family template stubs) — **code + Jest done 2026-08-04**  
+- [x] **S23** (family recommended blurb on Model Settings) — **done with S19p**  
+- [x] **S20** (Thinking mode Auto/On/Off) — **code + Jest done 2026-08-04**  
+- [ ] **S21** (Accel status chip) ← next implementation step  
+- [ ] S22, S24, S25 (rest of Phase 3)  
 - [ ] S26 … S31 (Phase 4, as needed)  
 
-Update [`AGENT_IMPLEMENTATION_GUIDE.md`](./AGENT_IMPLEMENTATION_GUIDE.md) if symbols/libs change. See guide **Handoff** section for rebuild + smoke checklist (2026-08-03).
+Update [`AGENT_IMPLEMENTATION_GUIDE.md`](./AGENT_IMPLEMENTATION_GUIDE.md) if symbols/libs change. See guide **Handoff** for rebuild + smoke checklist.
+
+---
+
+## 8a. S19p — ModelRuntimePolicy (landed 2026-08-04)
+
+**Why:** Broken/off-topic replies on multi-model mobile chat are often **wrong chat templates** or **bloated system prompts on tiny models**, not missing cloud data.  
+**What:** Pure, dynamic policy — **no database**. Resolved each load/settings/send from filename heuristics + family packages.
+
+### Layer stack (do not invert)
+
+1. **GGUF** `tokenizer.chat_template` when valid (preferred always)  
+2. **User** per-file settings (`@model_settings_{file}` + `systemPromptSource`)  
+3. **`resolveModelPolicy(modelName)`** — family + size tier defaults  
+4. **Family Jinja stub** only when sanitize/metadata forces a fallback  
+
+### New / key files
+
+| File | Role |
+|------|------|
+| `src/services/inference/modelPolicy.ts` | `resolveModelPolicy`, `policyRecommendedBlurb`, `POLICY_SCHEMA_VERSION` |
+| `src/services/inference/modelFamily.ts` | Families: `qwen3`, `deepseek-r1`, `smollm3`, `gemma4`, `phi`, `generic` + `resolveSizeTier` + thinking strategy |
+| `src/services/inference/familyTemplates.ts` | Fallback Jinja: ChatML+think / Gemma turns / Phi tags |
+| `src/services/inference/promptDefaults.ts` | Short positive system prompts by size/family |
+| `src/services/modelSettingsService.ts` | `systemPromptSource: 'default' \| 'user'`; `getDefaultSettingsForModel` |
+| `src/services/ggufSanitizeService.ts` | Sanitize pad **v5** embeds family id + family stub (not ChatML-for-all) |
+| `llamaProvider` / `nativeCompletion` | Inject **family** stub when metadata/template missing |
+| `__tests__/inference/modelPolicy.test.ts` | Policy + defaults unit tests |
+
+### Agent rules when extending
+
+- **New HF GGUF with healthy template:** usually **zero code** — load + use GGUF.  
+- **New family:** add profile in `modelFamily.ts` + stub in `familyTemplates.ts` (and sampling tweak in `modelPolicy` if needed).  
+- **Do not** add a prompt/recipe SQLite table or remote catalog for this.  
+- **S20 DONE:** user Thinking Auto/On/Off via `thinkingMode` + `policy.thinking.strategy` (`jinja_enable` / `always_on` / `none`).  
+- Prefer **native GGUF template**; only replace multimodal/oversized/broken Jinja.  
+- User `systemPromptSource: 'user'` must never be auto-overwritten; `default` may refresh on policy upgrades.  
+
+### Device smoke (S19p)
+
+1. Load **Qwen3.5 0.8B** → short answers; Model Settings shows tiny-ish default prompt + policy blurb  
+2. Load **Gemma 4 E2B** (if present) → coherent chat (not ChatML token soup if stub path used)  
+3. Custom system prompt → save → reopen still custom after app restart  
+4. Reset settings → returns to policy defaults for that filename  
+5. Diagnostics log: sanitize decision includes `familyId` when pad runs  
 
 ---
 

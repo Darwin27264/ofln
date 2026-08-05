@@ -45,6 +45,7 @@ import ModelSettingsScreen from "./src/screens/ModelSettingsScreen";
 import InfoScreen from "./src/screens/InfoScreen";
 import DiagnosticsScreen from "./src/screens/DiagnosticsScreen";
 import OnboardingScreen from "./src/screens/OnboardingScreen";
+import StorageScreen from "./src/screens/StorageScreen";
 import { Persona, getPersonas } from "./src/services/personaService";
 import { ModelInfo } from "./src/components/ModelCard";
 
@@ -160,7 +161,8 @@ function AppContent(): React.JSX.Element {
     | "modelSettings"
     | "info"
     | "diagnostics"
-    | "hfToken";
+    | "hfToken"
+    | "storage";
   const [currentPage, setCurrentPage] = useState<PageType>("conversation");
   /** False until `@has_completed_onboarding` is read — avoids flashing chat for new users. */
   const [bootstrapped, setBootstrapped] = useState(false);
@@ -362,6 +364,23 @@ function AppContent(): React.JSX.Element {
     setCurrentChatId(null);
     setCurrentPage("modelSelection");
   }, []);
+
+  /** Unload if deleting the active GGUF from Storage (S19); dual release. */
+  const handleUnloadIfActiveModel = useCallback(async (fileName: string) => {
+    if (selectedGGUF !== fileName) return;
+    setContext(null);
+    try {
+      await Promise.resolve(releaseAllLlama()).catch(() => {});
+    } catch {
+      // ignore
+    }
+    try {
+      await llamaProvider.unloadModel();
+    } catch {
+      // ignore
+    }
+    setSelectedGGUF(null);
+  }, [selectedGGUF]);
 
   /**
    * Start a new chat conversation
@@ -579,6 +598,18 @@ function AppContent(): React.JSX.Element {
           onGoToPersonas={() => setCurrentPage("personas")}
           onGoToInfo={() => setCurrentPage("info")}
           onGoToDiagnostics={() => setCurrentPage("diagnostics")}
+          onGoToStorage={() => setCurrentPage("storage")}
+          />
+        </PageFadeIn>
+      )}
+
+      {currentPage === "storage" && (
+        <PageFadeIn key="storage">
+          <StorageScreen
+            onBack={() => setCurrentPage("settings")}
+            activeModelFileName={selectedGGUF}
+            onUnloadIfActive={handleUnloadIfActiveModel}
+            onModelsChanged={checkDownloadedModels}
           />
         </PageFadeIn>
       )}

@@ -15,6 +15,7 @@ interface Props {
   onGoToPersonas: () => void;
   onGoToInfo: () => void;
   onGoToDiagnostics: () => void;
+  onGoToStorage: () => void;
 }
 
 export default function SettingsScreen({
@@ -26,6 +27,7 @@ export default function SettingsScreen({
   onGoToPersonas,
   onGoToInfo,
   onGoToDiagnostics,
+  onGoToStorage,
 }: Props) {
   const { theme, toggleTheme, isDark, isTransitioning } = useTheme();
   const styles = createStyles(theme.colors);
@@ -141,6 +143,16 @@ export default function SettingsScreen({
               <Ionicons name="person-circle-outline" size={21} color={theme.colors.text} style={styles.blockIcon}/>
               <View style={styles.blockTextContainer}>
                 <Text style={styles.blockText}>Personas</Text>
+              </View>
+            </Animated.View>
+          </TouchableOpacity>
+        </View>
+        <View style={{ flexDirection: "row", height: 100, marginTop: 10 }}>
+          <TouchableOpacity style={{ flex: 1 }} onPress={onGoToStorage}>
+            <Animated.View style={[styles.settingsBlock, { minHeight: 90 }]}>
+              <Ionicons name="folder-outline" size={21} color={theme.colors.text} style={styles.blockIcon}/>
+              <View style={styles.blockTextContainer}>
+                <Text style={styles.blockText}>Storage</Text>
               </View>
             </Animated.View>
           </TouchableOpacity>

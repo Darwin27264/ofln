@@ -1,4 +1,7 @@
-import { trimConversation } from '../../src/services/inference/contextTrim';
+import {
+  applyConversationTrim,
+  trimConversation,
+} from '../../src/services/inference/contextTrim';
 
 describe('trimConversation', () => {
   it('returns short conversations unchanged', () => {
@@ -39,5 +42,29 @@ describe('trimConversation', () => {
     expect(trimmed[trimmed.length - 1].content).toBe('latest');
     expect(trimmed.some((m) => String(m.content).startsWith('u2'))).toBe(true);
     expect(trimmed.some((m) => String(m.content).startsWith('u1'))).toBe(false);
+  });
+});
+
+describe('applyConversationTrim', () => {
+  it('reports droppedCount 0 when nothing is removed', () => {
+    const messages = [
+      { role: 'system', content: 'You are helpful.' },
+      { role: 'user', content: 'Hi' },
+    ];
+    const result = applyConversationTrim(messages, 2048, 256);
+    expect(result.messages).toEqual(messages);
+    expect(result.droppedCount).toBe(0);
+  });
+
+  it('reports how many messages were dropped', () => {
+    const messages = [
+      { role: 'system', content: 'SYS' },
+      { role: 'user', content: 'old-1' },
+      { role: 'assistant', content: 'old-a' },
+      { role: 'user', content: 'current' },
+    ];
+    const result = applyConversationTrim(messages, 64, 48);
+    expect(result.messages).toEqual([messages[0], messages[3]]);
+    expect(result.droppedCount).toBe(2);
   });
 });

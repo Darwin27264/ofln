@@ -27,6 +27,7 @@
     "@react-native-community/slider": "^5.2.0",
     "@react-native-documents/picker": "^10.1.7",
     "@react-native-ml-kit/text-recognition": "^2.0.0",
+    "@sayem314/react-native-keep-awake": "^1.4.0",
     "@types/uuid": "^10.0.0",
     "ai": "^6.0.225",
     "axios": "^1.18.1",

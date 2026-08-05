@@ -131,6 +131,8 @@ export type MessageListProps = {
   presetMessages: string[];
   presetIcons: Record<string, string>;
   onPresetMessage: (preset: string) => void;
+  /** Calm one-liner when context trim dropped older turns (S15). */
+  showTrimNotice?: boolean;
 };
 
 export function MessageList({
@@ -159,6 +161,7 @@ export function MessageList({
   presetMessages,
   presetIcons,
   onPresetMessage,
+  showTrimNotice = false,
 }: MessageListProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
@@ -354,6 +357,15 @@ export function MessageList({
             </View>
           );
         })}
+        {showTrimNotice && (
+          <Text
+            accessibilityRole="text"
+            accessibilityLabel="Older messages were trimmed to fit context"
+            style={styles.trimNotice}
+          >
+            Older messages were trimmed to fit context
+          </Text>
+        )}
       </ScrollView>
 
       {noMessages && (

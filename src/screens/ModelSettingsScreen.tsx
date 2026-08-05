@@ -24,12 +24,14 @@ import {
   getModelSettings,
   saveModelSettings,
   ModelSettings,
-  DEFAULT_SETTINGS,
+  ThinkingMode,
+  getDefaultSettingsForModel,
   SETTING_RANGES,
   snapNCtx,
   snapToStep,
   validateSettings,
 } from "../services/modelSettingsService";
+import { resolveModelPolicy, policyRecommendedBlurb } from "../services/inference/modelPolicy";
 import { ModelInfo } from "../components/ModelCard";
 
 interface ModelSettingsScreenProps {
@@ -38,6 +40,12 @@ interface ModelSettingsScreenProps {
 }
 
 const N_CTX_VALUES = SETTING_RANGES.n_ctx.values;
+
+const THINKING_MODE_OPTIONS: { value: ThinkingMode; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "on", label: "On" },
+  { value: "off", label: "Off" },
+];
 
 // Metric explanations (ranges match SETTING_RANGES)
 const metricExplanations: { [key: string]: { title: string; explanation: string } } = {
@@ -238,11 +246,11 @@ export default function ModelSettingsScreen({
       try {
         setIsLoading(true);
         const settings = await getModelSettings(model.fileName);
-        setModelSettings(validateSettings(settings));
+        setModelSettings(validateSettings(settings, model.fileName));
       } catch (error) {
         console.error("Error loading model settings:", error);
         showAlert("Error", "Failed to load model settings.", [{ text: "OK" }]);
-        setModelSettings({ ...DEFAULT_SETTINGS });
+        setModelSettings(getDefaultSettingsForModel(model.fileName));
       } finally {
         setIsLoading(false);
       }
@@ -253,15 +261,21 @@ export default function ModelSettingsScreen({
   const patchSetting = useCallback(<K extends keyof ModelSettings>(key: K, value: ModelSettings[K]) => {
     setModelSettings((prev) => {
       if (!prev) return prev;
-      return validateSettings({ ...prev, [key]: value });
+      const next: Partial<ModelSettings> = { ...prev, [key]: value };
+      if (key === "systemPrompt" && typeof value === "string") {
+        const defaults = getDefaultSettingsForModel(model.fileName);
+        next.systemPromptSource =
+          value.trim() === defaults.systemPrompt.trim() ? "default" : "user";
+      }
+      return validateSettings(next, model.fileName);
     });
-  }, []);
+  }, [model.fileName]);
 
   const handleSaveSettings = useCallback(async () => {
     if (!modelSettings) return;
 
     try {
-      const sanitized = validateSettings(modelSettings);
+      const sanitized = validateSettings(modelSettings, model.fileName);
       await saveModelSettings(model.fileName, sanitized);
       setModelSettings(sanitized);
       showAlert("Success", "Model settings saved successfully.", [{ text: "OK" }]);
@@ -273,8 +287,13 @@ export default function ModelSettingsScreen({
   }, [modelSettings, model.fileName, onBack]);
 
   const handleResetSettings = useCallback(() => {
-    setModelSettings({ ...DEFAULT_SETTINGS });
-  }, []);
+    setModelSettings(getDefaultSettingsForModel(model.fileName));
+  }, [model.fileName]);
+
+  const policyBlurb = useMemo(
+    () => policyRecommendedBlurb(resolveModelPolicy(model.fileName)),
+    [model.fileName],
+  );
 
   const showMetricInfo = useCallback((metricKey: string) => {
     const info = metricExplanations[metricKey];
@@ -383,6 +402,17 @@ export default function ModelSettingsScreen({
           >
             System Prompt
           </Text>
+          <Text
+            style={{
+              fontSize: 12,
+              color: theme.colors.textTertiary,
+              fontFamily: "Poppins",
+              marginBottom: 8,
+              lineHeight: 18,
+            }}
+          >
+            {policyBlurb}
+          </Text>
           <TextInput
             style={{
               backgroundColor: theme.colors.surface,
@@ -402,6 +432,72 @@ export default function ModelSettingsScreen({
             placeholder="Enter system prompt..."
             placeholderTextColor={theme.colors.textTertiary}
           />
+        </View>
+
+        {/* Thinking mode (S20) — Auto matches prompt heuristic; On/Off for Qwen-style models only */}
+        <View style={localStyles.metricBlock}>
+          <Text style={[localStyles.metricTitle, { color: theme.colors.text }]}>
+            Thinking
+          </Text>
+          <Text
+            style={{
+              fontSize: 12,
+              color: theme.colors.textTertiary,
+              fontFamily: "Poppins",
+              marginTop: 4,
+              marginBottom: 10,
+              lineHeight: 18,
+            }}
+          >
+            Auto uses complexity for supported models. On/Off force thinking where the template allows it.
+          </Text>
+          <View
+            style={{
+              flexDirection: "row",
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              overflow: "hidden",
+              backgroundColor: theme.colors.surface,
+            }}
+          >
+            {THINKING_MODE_OPTIONS.map((opt, idx) => {
+              const selected = modelSettings.thinkingMode === opt.value;
+              return (
+                <TouchableOpacity
+                  key={opt.value}
+                  onPress={() => patchSetting("thinkingMode", opt.value)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 10,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: selected
+                      ? theme.colors.primary
+                      : "transparent",
+                    borderLeftWidth: idx === 0 ? 0 : 1,
+                    borderLeftColor: theme.colors.border,
+                    minHeight: 40,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: selected ? "600" : "500",
+                      fontFamily: "Poppins",
+                      color: selected
+                        ? theme.colors.primaryText
+                        : theme.colors.textSecondary,
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
         <MetricSlider

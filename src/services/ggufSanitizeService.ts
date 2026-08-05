@@ -26,6 +26,11 @@
 
 import { Platform } from "react-native";
 import RNFS from "react-native-fs";
+import {
+  getSafeChatTemplateStub,
+  SAFE_CHAT_TEMPLATE_STUB as CHATML_STUB,
+} from "./inference/familyTemplates";
+import { resolveModelFamily, type ModelFamilyId } from "./inference/modelFamily";
 
 const GGUF_MAGIC = 0x46554747; // "GGUF" little-endian
 const META_STRING = 8;
@@ -37,19 +42,12 @@ export const NATIVE_META_STRING_BUF = 16384;
 /** Sanitize when template would overflow the native 16KB UTF-8 buffer. */
 const SANITIZE_LEN_THRESHOLD = NATIVE_META_STRING_BUF;
 
-/** Chat stub with Qwen-style thinking gate + dead-branch length pad. */
-export const SAFE_CHAT_TEMPLATE_STUB =
-  "{% for message in messages %}" +
-  "{{ '<|im_start|>' + message['role'] + '\\n' + message['content'] + '<|im_end|>\\n' }}" +
-  "{% endfor %}" +
-  "{% if add_generation_prompt %}" +
-  "{{ '<|im_start|>assistant\\n' }}" +
-  // When llama.rn passes enable_thinking=false, force an empty think block so
-  // Qwen3.5 skips chain-of-thought and answers immediately (keeps replies short).
-  "{% if enable_thinking is defined and enable_thinking is false %}" +
-  "{{ '<think>\\n\\n</think>\\n' }}" +
-  "{% endif %}" +
-  "{% endif %}";
+/**
+ * Default ChatML+think stub (Qwen / generic). Prefer
+ * getSafeChatTemplateStub(family) via sanitize options when the model is known.
+ * @deprecated Import from familyTemplates — kept for Diagnostics / legacy imports.
+ */
+export const SAFE_CHAT_TEMPLATE_STUB = CHATML_STUB;
 
 /**
  * Qwen3.5 (and similar) ship a ~7.8KB multimodal Jinja that is under the 16KB
@@ -70,11 +68,10 @@ export function looksLikeMultimodalChatTemplate(preview: string): boolean {
 }
 
 /**
- * Pad strategy (v4): `{% if false %}…{% endif %}` trailer + enable_thinking
- * empty-think injection. v3 lacked the think gate → long "Thinking in English"
- * dumps on simple follow-ups.
+ * Pad strategy (v5): family-aware Jinja stub + dead-branch length pad.
+ * v4 was Qwen ChatML-only (wrong for Gemma/Phi after force sanitize).
  */
-export const SANITIZE_MARKER = "{% set __ofln_s=4 %}";
+export const SANITIZE_MARKER = "{% set __ofln_s=5 %}";
 /** Prior pads that must be rewritten on next load. */
 const LEGACY_SANITIZE_PREFIXES = [
   "<!--ofln-sanitized-v1-->",
@@ -83,6 +80,7 @@ const LEGACY_SANITIZE_PREFIXES = [
   "{% set __ofln_s=1 %}",
   "{% set __ofln_s=2 %}",
   "{% set __ofln_s=3 %}",
+  "{% set __ofln_s=4 %}",
 ];
 
 export type SanitizeResult = {
@@ -100,21 +98,46 @@ export type SanitizeOptions = {
    * Used for load-time recovery after getFormattedChat fails.
    */
   force?: boolean;
+  /**
+   * Model filename / path so the pad uses a family-matched Jinja stub
+   * (Gemma vs ChatML vs Phi) instead of always ChatML.
+   */
+  modelName?: string;
+  /** Override family when already known (skips re-parse from modelName). */
+  familyId?: ModelFamilyId;
 };
+
+function resolveSanitizeFamily(options: SanitizeOptions): ModelFamilyId {
+  if (options.familyId) return options.familyId;
+  if (options.modelName) {
+    return resolveModelFamily(options.modelName).id;
+  }
+  return "generic";
+}
+
+function familyMarker(familyId: ModelFamilyId): string {
+  return `{% set __ofln_f='${familyId}' %}`;
+}
 
 function isLegacyOrBrokenSanitize(preview: string): boolean {
   return LEGACY_SANITIZE_PREFIXES.some((p) => preview.startsWith(p));
 }
 
-function isCleanSanitize(preview: string): boolean {
-  return preview.startsWith(SANITIZE_MARKER);
+/** Clean only when v5 marker + matching family id are present. */
+function isCleanSanitize(preview: string, familyId: ModelFamilyId): boolean {
+  if (!preview.startsWith(SANITIZE_MARKER)) return false;
+  return preview.includes(`__ofln_f='${familyId}'`);
 }
 
 /**
- * Same-length replacement: stub + `{% if false %} spaces {% endif %}`.
+ * Same-length replacement: marker + family + stub + `{% if false %} spaces {% endif %}`.
  */
-function buildInPlaceTemplateReplacement(strLen: number): Uint8Array | null {
-  const stub = `${SANITIZE_MARKER}${SAFE_CHAT_TEMPLATE_STUB}`;
+function buildInPlaceTemplateReplacement(
+  strLen: number,
+  familyId: ModelFamilyId,
+): Uint8Array | null {
+  const familyStub = getSafeChatTemplateStub(familyId);
+  const stub = `${SANITIZE_MARKER}${familyMarker(familyId)}${familyStub}`;
   const stubBytes = encodeUtf8(stub);
   const open = encodeUtf8("{% if false %}");
   const close = encodeUtf8("{% endif %}");
@@ -431,6 +454,10 @@ export async function sanitizeGgufChatTemplateInPlace(
   io?: GgufIo,
   options: SanitizeOptions = {}
 ): Promise<SanitizeResult> {
+  const familyId = resolveSanitizeFamily({
+    ...options,
+    modelName: options.modelName || filePath.split(/[/\\]/).pop() || "",
+  });
   const baseIo = io ?? bareRnfsIo;
   const exists = await baseIo.exists(filePath);
   if (!exists) {
@@ -517,8 +544,8 @@ export async function sanitizeGgufChatTemplateInPlace(
       foundTemplateOffset = strDataOffset;
       foundTemplatePreview = preview.slice(0, 120);
 
-      if (isCleanSanitize(preview)) {
-        // Confirm v3 dead-branch trailer is present; rewrite if a prior write was truncated.
+      if (isCleanSanitize(preview, familyId)) {
+        // Confirm dead-branch trailer is present; rewrite if a prior write was truncated.
         const tail = decodeUtf8(
           await readExact(
             activeIo,
@@ -528,17 +555,20 @@ export async function sanitizeGgufChatTemplateInPlace(
           )
         );
         if (tail.includes("endif") || /%\s*}/.test(tail)) {
-          skipReason = "already_v3_clean";
+          skipReason = "already_v5_clean";
           offset = strDataOffset + strLen;
           continue;
         }
-        skipReason = "v3_missing_endif_trailer";
+        skipReason = "v5_missing_endif_trailer";
       }
 
       const oversized = strLen >= SANITIZE_LEN_THRESHOLD;
       const needsRepair =
         isLegacyOrBrokenSanitize(preview) ||
-        skipReason === "v3_missing_endif_trailer";
+        skipReason === "v5_missing_endif_trailer" ||
+        // Wrong family stub, or pre-v5 ofln pad.
+        (preview.startsWith("{% set __ofln_s=") &&
+          !isCleanSanitize(preview, familyId));
       const multimodal = looksLikeMultimodalChatTemplate(preview);
       // Pad oversized, broken, multimodal-under-16KB, or force-rewrite any
       // remaining template (recovery after getFormattedChat fails).
@@ -554,7 +584,7 @@ export async function sanitizeGgufChatTemplateInPlace(
         skipReason = "multimodal_jinja_under_16kb";
       }
 
-      const replacement = buildInPlaceTemplateReplacement(strLen);
+      const replacement = buildInPlaceTemplateReplacement(strLen, familyId);
       if (!replacement) {
         offset = strDataOffset + strLen;
         continue;
@@ -617,8 +647,12 @@ export async function ensureGgufSafeForAndroidLoad(
   if (Platform.OS !== "android") {
     return filePath;
   }
+  const opts: SanitizeOptions = {
+    ...options,
+    modelName: options.modelName || filePath.split(/[/\\]/).pop() || "",
+  };
   try {
-    const result = await sanitizeGgufChatTemplateInPlace(filePath, undefined, options);
+    const result = await sanitizeGgufChatTemplateInPlace(filePath, undefined, opts);
     // Always persist a short breadcrumb so Diagnostics → Copy Log shows load state.
     const { logError } = await import("../utils/errorLogger");
     await logError(
@@ -634,7 +668,8 @@ export async function ensureGgufSafeForAndroidLoad(
         offset: result.offset,
         previewHead: result.preview?.slice(0, 100),
         decision: result.reason,
-        force: !!options.force,
+        force: !!opts.force,
+        familyId: resolveSanitizeFamily(opts),
       },
       "INFO"
     );

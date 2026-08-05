@@ -48,3 +48,22 @@ export function trimConversation<T extends TrimableMessage>(
 
   return [systemMsg, ...kept, currentUserMsg];
 }
+
+export type ConversationTrimResult<T extends TrimableMessage> = {
+  messages: T[];
+  /** How many turns were dropped (0 = no trim). Algorithm unchanged. */
+  droppedCount: number;
+};
+
+/** Same trim as `trimConversation`, plus drop metadata for UI honesty (S15). */
+export function applyConversationTrim<T extends TrimableMessage>(
+  messages: T[],
+  n_ctx: number,
+  n_predict: number,
+): ConversationTrimResult<T> {
+  const trimmed = trimConversation(messages, n_ctx, n_predict);
+  return {
+    messages: trimmed,
+    droppedCount: Math.max(0, messages.length - trimmed.length),
+  };
+}

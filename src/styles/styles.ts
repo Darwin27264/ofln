@@ -161,6 +161,17 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     textAlign: "right",
     fontFamily: "Poppins",
   },
+  trimNotice: {
+    alignSelf: "center",
+    marginTop: 16,
+    marginBottom: 8,
+    marginHorizontal: 24,
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: "Poppins",
+    color: colors.textSecondary,
+    textAlign: "center",
+  },
 
   bottomContainer: {
     position: "absolute",

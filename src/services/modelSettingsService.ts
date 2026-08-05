@@ -1,8 +1,27 @@
 // modelSettingsService.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { resolveModelPolicy } from "./inference/modelPolicy";
+import { SYSTEM_PROMPT_MOBILE } from "./inference/promptDefaults";
+
+export type SystemPromptSource = "default" | "user";
+
+/** Per-turn thinking override (S20). Only affects jinja_enable families (Qwen). */
+export type ThinkingMode = "auto" | "on" | "off";
+
+export const THINKING_MODES = ["auto", "on", "off"] as const;
 
 export interface ModelSettings {
   systemPrompt: string;
+  /**
+   * How systemPrompt was set. `default` may be refreshed when OFLN ships better
+   * policy defaults; `user` is never auto-overwritten.
+   */
+  systemPromptSource?: SystemPromptSource;
+  /**
+   * Thinking control: Auto = prompt heuristic; On/Off force enable_thinking
+   * only for jinja_enable families. Default auto matches pre-S20 behavior.
+   */
+  thinkingMode: ThinkingMode;
   n_ctx: number; // Context window size
   n_gpu_layers: number; // Number of GPU layers
   temperature: number; // Sampling temperature (0.0 - 2.0)
@@ -39,7 +58,7 @@ export const SETTING_RANGES = {
 
 export type NCtxAllowed = (typeof SETTING_RANGES.n_ctx.values)[number];
 
-/** Prior shipped defaults — upgraded in validateSettings so existing installs pick up the new prompt. */
+/** Prior shipped defaults — upgraded when systemPromptSource is still default. */
 const LEGACY_DEFAULT_SYSTEM_PROMPTS = [
   "You are a helpful assistant. " +
     "For simple questions, reply in 1–3 short sentences with the answer only. " +
@@ -53,29 +72,34 @@ const LEGACY_DEFAULT_SYSTEM_PROMPTS = [
     "(avoid phrases like \"Thinking in English\", \"I need to\", or \"Wait,\"). " +
     "Do not repeat facts already given in this conversation.",
   "This is a conversation between user and assistant, a friendly chatbot.",
+  // Generic mobile default before per-family policy
+  SYSTEM_PROMPT_MOBILE,
+  // First policy-era tiny default
+  "You are a concise assistant on this phone. " +
+    "Answer the user's latest message clearly. Prefer short answers unless detail is needed.",
 ];
 
 /**
- * Keep this short and positive. Tiny on-device models (e.g. Qwen3.5 0.8B) burn
- * their thinking budget listing/debating long negative rule lists — especially
- * "do not repeat facts" / conversation-history meta-checks.
+ * Fallback when no model filename is known.
+ * Prefer getDefaultSettingsForModel(fileName) for real loads.
  */
 export const DEFAULT_SETTINGS: ModelSettings = {
-  systemPrompt:
-    "You are a helpful assistant on the user's device. " +
-    "Answer the latest user message clearly and accurately. " +
-    "Keep simple asks short; give more detail only when the question needs it. " +
-    "Start with the answer — avoid reply openers like \"I need to\" or \"Wait,\".",
-  n_ctx: 2048, // Enough headroom for multi-turn chats without overflow
+  systemPrompt: SYSTEM_PROMPT_MOBILE,
+  systemPromptSource: "default",
+  thinkingMode: "auto",
+  n_ctx: 2048,
   n_gpu_layers: 1,
-  // Closer to Qwen3.5 text defaults; per-turn builder still overrides for thinking.
   temperature: 0.8,
   top_p: 0.95,
   top_k: 20,
-  // Mapped to llama.rn `penalty_repeat`. Keep mild — presence_penalty handles loops.
   repeat_penalty: 1.05,
-  n_predict: 256, // Slightly more room than 192; still conservative for phone inference
+  n_predict: 256,
 };
+
+function normalizeThinkingMode(value: unknown): ThinkingMode {
+  if (value === "auto" || value === "on" || value === "off") return value;
+  return "auto";
+}
 
 const MODEL_SETTINGS_KEY_PREFIX = "@model_settings_";
 
@@ -94,7 +118,6 @@ export function snapToStep(
   const clamped = clamp(value, min, max);
   if (step <= 0) return clamped;
   const snapped = Math.round((clamped - min) / step) * step + min;
-  // Avoid float drift (e.g. 0.7000000001)
   const decimals = String(step).includes(".")
     ? (String(step).split(".")[1]?.length ?? 0)
     : 0;
@@ -118,19 +141,49 @@ export function snapNCtx(value: number): NCtxAllowed {
   return best;
 }
 
+function isLegacyOrShippedDefaultPrompt(prompt: string): boolean {
+  const trimmed = prompt.trim();
+  return LEGACY_DEFAULT_SYSTEM_PROMPTS.some((legacy) => legacy.trim() === trimmed);
+}
+
+/**
+ * Policy-seeded defaults for a concrete model file (no AsyncStorage).
+ */
+export function getDefaultSettingsForModel(modelFileName: string): ModelSettings {
+  const policy = resolveModelPolicy(modelFileName || "");
+  return {
+    systemPrompt: policy.systemPromptDefault,
+    systemPromptSource: "default",
+    thinkingMode: "auto",
+    n_ctx: DEFAULT_SETTINGS.n_ctx,
+    n_gpu_layers: DEFAULT_SETTINGS.n_gpu_layers,
+    temperature: policy.sampling.temperature,
+    top_p: policy.sampling.top_p,
+    top_k: policy.sampling.top_k,
+    repeat_penalty: policy.sampling.repeat_penalty,
+    n_predict: policy.sampling.n_predict,
+  };
+}
+
 /**
  * Validate and sanitize model settings.
- * Ensures all values are within valid ranges and all required fields exist.
+ * When modelFileName is set, default-source prompts refresh from ModelRuntimePolicy.
  */
 export const validateSettings = (
   settings: Partial<ModelSettings>,
+  modelFileName?: string,
 ): ModelSettings => {
-  const validated = { ...DEFAULT_SETTINGS, ...settings };
+  const policyDefaults = modelFileName
+    ? getDefaultSettingsForModel(modelFileName)
+    : DEFAULT_SETTINGS;
+  const validated = { ...policyDefaults, ...settings };
+
+  validated.thinkingMode = normalizeThinkingMode(validated.thinkingMode);
 
   validated.n_ctx = snapNCtx(
     typeof validated.n_ctx === "number"
       ? validated.n_ctx
-      : DEFAULT_SETTINGS.n_ctx,
+      : policyDefaults.n_ctx,
   );
 
   validated.n_gpu_layers = snapToStep(
@@ -176,14 +229,24 @@ export const validateSettings = (
   );
 
   if (typeof validated.systemPrompt !== "string") {
-    validated.systemPrompt = DEFAULT_SETTINGS.systemPrompt;
+    validated.systemPrompt = policyDefaults.systemPrompt;
+    validated.systemPromptSource = "default";
+    return validated;
+  }
+
+  const prompt = validated.systemPrompt;
+  let source = validated.systemPromptSource;
+  if (source !== "default" && source !== "user") {
+    // Older installs: infer from whether text matches a shipped default.
+    source = isLegacyOrShippedDefaultPrompt(prompt) ? "default" : "user";
+  }
+
+  // Refresh policy defaults only when still on a shipped/default prompt.
+  if (source === "default" || isLegacyOrShippedDefaultPrompt(prompt)) {
+    validated.systemPrompt = policyDefaults.systemPrompt;
+    validated.systemPromptSource = "default";
   } else {
-    const trimmed = validated.systemPrompt.trim();
-    if (
-      LEGACY_DEFAULT_SYSTEM_PROMPTS.some((legacy) => legacy.trim() === trimmed)
-    ) {
-      validated.systemPrompt = DEFAULT_SETTINGS.systemPrompt;
-    }
+    validated.systemPromptSource = "user";
   }
 
   return validated;
@@ -201,13 +264,12 @@ export const getModelSettings = async (
     const settingsJson = await AsyncStorage.getItem(key);
     if (settingsJson) {
       const settings = JSON.parse(settingsJson);
-      // Validate and merge with defaults to ensure all fields exist and are valid
-      return validateSettings(settings);
+      return validateSettings(settings, modelFileName);
     }
-    return { ...DEFAULT_SETTINGS };
+    return getDefaultSettingsForModel(modelFileName);
   } catch (error) {
     console.error(`Error loading settings for ${modelFileName}:`, error);
-    return { ...DEFAULT_SETTINGS };
+    return getDefaultSettingsForModel(modelFileName);
   }
 };
 
@@ -222,8 +284,21 @@ export const saveModelSettings = async (
   try {
     const key = `${MODEL_SETTINGS_KEY_PREFIX}${modelFileName}`;
     const currentSettings = await getModelSettings(modelFileName);
-    // Merge user settings with current settings, then validate
-    const updatedSettings = validateSettings({ ...currentSettings, ...settings });
+    const merged: Partial<ModelSettings> = { ...currentSettings, ...settings };
+
+    // Editing the prompt string marks it as user-owned unless caller sets source.
+    if (
+      typeof settings.systemPrompt === "string" &&
+      settings.systemPromptSource === undefined
+    ) {
+      const defaults = getDefaultSettingsForModel(modelFileName);
+      merged.systemPromptSource =
+        settings.systemPrompt.trim() === defaults.systemPrompt.trim()
+          ? "default"
+          : "user";
+    }
+
+    const updatedSettings = validateSettings(merged, modelFileName);
     await AsyncStorage.setItem(key, JSON.stringify(updatedSettings));
   } catch (error) {
     console.error(`Error saving settings for ${modelFileName}:`, error);
@@ -232,14 +307,15 @@ export const saveModelSettings = async (
 };
 
 /**
- * Reset settings to defaults for a specific model
+ * Reset settings to policy defaults for a specific model
  */
 export const resetModelSettings = async (
   modelFileName: string,
 ): Promise<void> => {
   try {
     const key = `${MODEL_SETTINGS_KEY_PREFIX}${modelFileName}`;
-    await AsyncStorage.setItem(key, JSON.stringify(DEFAULT_SETTINGS));
+    const defaults = getDefaultSettingsForModel(modelFileName);
+    await AsyncStorage.setItem(key, JSON.stringify(defaults));
   } catch (error) {
     console.error(`Error resetting settings for ${modelFileName}:`, error);
     throw error;

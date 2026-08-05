@@ -369,9 +369,12 @@ export type HistoryDrawerProps = {
   menuItem2Translate: Animated.Value;
   menuItem3Opacity: Animated.Value;
   menuItem3Translate: Animated.Value;
+  menuItem4Opacity: Animated.Value;
+  menuItem4Translate: Animated.Value;
   onDismissMenu: () => void;
   onRename: (chatId: string) => void;
   onPinToggle: (chatId: string) => void;
+  onExportChat: (chatId: string) => void;
   onEnterMultiselect: (chatId: string) => void;
   onDeleteChat: (chatId: string) => void;
 };
@@ -421,9 +424,12 @@ export function HistoryDrawer({
   menuItem2Translate,
   menuItem3Opacity,
   menuItem3Translate,
+  menuItem4Opacity,
+  menuItem4Translate,
   onDismissMenu,
   onRename,
   onPinToggle,
+  onExportChat,
   onEnterMultiselect,
   onDeleteChat,
 }: HistoryDrawerProps) {
@@ -624,8 +630,8 @@ export function HistoryDrawer({
                 left: Math.max(16, Math.min(menuPosition.x - 80, screenWidth - 200)),
                 top:
                   menuPosition.y < screenHeight * 0.3
-                    ? Math.min(menuPosition.y + 10, screenHeight - 220)
-                    : Math.max(50, menuPosition.y - 220),
+                    ? Math.min(menuPosition.y + 10, screenHeight - 280)
+                    : Math.max(50, menuPosition.y - 280),
                 minWidth: 140,
                 opacity: menuOpacity,
                 transform: [{ scale: menuScale }],
@@ -696,6 +702,33 @@ export function HistoryDrawer({
                 }}
               >
                 <TouchableOpacity
+                  onPress={() => onExportChat(selectedMenuChatId)}
+                  style={menuBlockStyle}
+                  activeOpacity={0.85}
+                  accessibilityLabel="Export as Markdown"
+                >
+                  <FrostedGlass style={StyleSheet.absoluteFillObject} />
+                  <Ionicons name="share-outline" size={18} color={theme.colors.text} />
+                  <Text
+                    style={{
+                      color: theme.colors.text,
+                      marginLeft: 10,
+                      fontSize: 14,
+                      fontFamily: 'Poppins',
+                    }}
+                  >
+                    Export
+                  </Text>
+                </TouchableOpacity>
+              </Animated.View>
+              <Animated.View
+                style={{
+                  opacity: menuItem3Opacity,
+                  transform: [{ translateY: menuItem3Translate }],
+                  marginBottom: 8,
+                }}
+              >
+                <TouchableOpacity
                   onPress={() => onEnterMultiselect(selectedMenuChatId)}
                   style={menuBlockStyle}
                   activeOpacity={0.85}
@@ -716,8 +749,8 @@ export function HistoryDrawer({
               </Animated.View>
               <Animated.View
                 style={{
-                  opacity: menuItem3Opacity,
-                  transform: [{ translateY: menuItem3Translate }],
+                  opacity: menuItem4Opacity,
+                  transform: [{ translateY: menuItem4Translate }],
                 }}
               >
                 <TouchableOpacity

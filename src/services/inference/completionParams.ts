@@ -8,11 +8,12 @@
  */
 
 import type { ModelSettings } from '../modelSettingsService';
-import { resolveModelFamily, type ModelFamilyProfile } from './modelFamily';
+import type { ModelFamilyProfile } from './modelFamily';
+import { resolveModelPolicy } from './modelPolicy';
 import {
   isSimplePrompt,
-  resolveEnableThinking,
   resolveNPredict,
+  resolveThinkingModeForTurn,
 } from './promptHeuristics';
 import { buildStopSequences } from './thinkStreamParser';
 
@@ -22,7 +23,10 @@ export interface BuildCompletionParamsInput {
   settings: Pick<
     ModelSettings,
     'temperature' | 'n_predict' | 'repeat_penalty' | 'top_p' | 'top_k'
-  >;
+  > & {
+    /** Optional for older call sites; defaults to auto (pre-S20 behavior). */
+    thinkingMode?: ModelSettings['thinkingMode'];
+  };
 }
 
 export interface BuiltCompletionParams {
@@ -44,24 +48,22 @@ export interface BuiltCompletionParams {
   supportsThinkTags: boolean;
 }
 
-/** Qwen3.5-0.8B filenames — HF card warns this size loops more in thinking mode. */
-function isTinyQwenModel(modelName: string): boolean {
-  const n = (modelName || '').toLowerCase();
-  if (!/qwen3/.test(n)) return false;
-  return /0\.?8\s*b|0_8b|\b800m\b/.test(n);
-}
-
 export function buildCompletionParams(
   input: BuildCompletionParamsInput,
 ): BuiltCompletionParams {
   const { userText, modelName, settings } = input;
-  const family = resolveModelFamily(modelName);
+  const policy = resolveModelPolicy(modelName);
+  const family = policy.family;
   const simple = isSimplePrompt(userText);
-  const tinyQwen = isTinyQwenModel(modelName);
+  // Qwen tiny (≤1B): HF warns 0.8B loops more in thinking mode.
+  const tinyQwen = family.id === 'qwen3' && policy.sizeTier === 'tiny';
 
-  const enableThinking = family.usesEnableThinking
-    ? resolveEnableThinking(userText, true)
-    : undefined;
+  // Auto/On/Off only set enable_thinking for jinja_enable (Qwen). always_on/none omit it.
+  const enableThinking = resolveThinkingModeForTurn({
+    thinkingMode: settings.thinkingMode,
+    strategy: policy.thinking.strategy,
+    userText,
+  });
 
   const thinkingActive = !!enableThinking;
   let n_predict = resolveNPredict(userText, settings.n_predict, thinkingActive);

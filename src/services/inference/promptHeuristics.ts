@@ -3,6 +3,9 @@
  * token budgets for on-device inference.
  */
 
+import type { ThinkingMode } from '../modelSettingsService';
+import type { ThinkingStrategy } from './modelFamily';
+
 /** Strong signals that justify spending tokens on private reasoning. */
 const STRONG_THINKING_RE =
   /\b(step by step|think (hard|carefully|deeply)|reason through|prove|derive|debug|optimize|refactor|implement|calculate|solve|algorithm|complexity|proof)\b/i;
@@ -79,6 +82,28 @@ export function resolveEnableThinking(
   if (isSimplePrompt(userText)) return false;
   // Prefer off: only complex asks turn thinking on.
   return isComplexQuery(userText);
+}
+
+/**
+ * Apply user Thinking Auto/On/Off for a single completion turn.
+ * Returns `undefined` when the family does not use Jinja `enable_thinking`
+ * (always_on / none) — caller omits the param; stream parsing unchanged.
+ */
+export function resolveThinkingModeForTurn(opts: {
+  thinkingMode?: ThinkingMode | null;
+  strategy: ThinkingStrategy;
+  userText: string;
+}): boolean | undefined {
+  // On/Off only force the Jinja flag (mainly Qwen). always_on is a no-op vs Auto here.
+  if (opts.strategy !== 'jinja_enable') {
+    return undefined;
+  }
+
+  const mode: ThinkingMode = opts.thinkingMode ?? 'auto';
+  if (mode === 'on') return true;
+  if (mode === 'off') return false;
+  // auto: identical to pre-S20 resolveEnableThinking path
+  return resolveEnableThinking(opts.userText, true);
 }
 
 /**

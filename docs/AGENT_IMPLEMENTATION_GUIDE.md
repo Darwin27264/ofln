@@ -1,14 +1,14 @@
 # OFLN Agent Implementation Guide
 
-**Companion to:** [`IMPROVEMENT_PLAN.md`](./IMPROVEMENT_PLAN.md) (atomic steps **S01–S31**)  
-**Code map date:** 2026-08-03 · **Last handoff:** 2026-08-03  
+**Companion to:** [`IMPROVEMENT_PLAN.md`](./IMPROVEMENT_PLAN.md) (atomic steps **S01–S31** + **S19p**)  
+**Code map date:** 2026-08-04 · **Last handoff:** 2026-08-04 (S20 Thinking mode)  
 **Stack:** RN **0.78.1**, New Architecture (bridgeless), `llama.rn` **0.12.6**
 
 The app is **working**. Prefer surgical, clean code. **One Sxx step per session** (small adjacent steps may merge if the user asks).
 
 ---
 
-## Handoff — session status (2026-08-03)
+## Handoff — session status (2026-08-04)
 
 ### Completed (code in working tree — **not committed**)
 
@@ -23,10 +23,30 @@ The app is **working**. Prefer surgical, clean code. **One Sxx step per session*
 | **S12** | Chat history → **op-sqlite** (`ofln_chats.sqlite`, WAL); same API; migrate + `@chat_history_async_backup` |
 | **S13** | History drawer search — title / preview / message snippets; in-memory filter + `searchChats` SQL |
 | **S14** | Context fullness: ≥80% banner (Dismiss + New chat); small ring inside model quick-select (fade in/out) |
+| **S15** | Trim notice: `applyConversationTrim` + live `nativeCompletion` trim; MessageList one-liner when drops > 0 |
+| **S16** | AppState flush on leave-`active`; serialized `persistMessages` (no duplicate chat rows); `logError` on save fail |
+| **S17** | Keep-awake while generating: `@sayem314/react-native-keep-awake@1`; activate start / clear stop·end·abort |
+| **S18** | Export Markdown: history long-press **Export** → `buildChatMarkdown` + system `Share` sheet |
+| **S19** | Storage manager: Settings → **Storage**; list GGUF sizes; delete+confirm; dual-unload if active |
+| **S19p** | **ModelRuntimePolicy**: GGUF-first templates; family stubs (Qwen/Gemma/Phi); size-tier system prompts; `systemPromptSource`; Settings policy blurb (**S23**) |
+| **S20** | **Thinking mode** Auto/On/Off per-model (`thinkingMode`); `resolveThinkingModeForTurn` → `buildCompletionParams`; Model Settings segmented control |
+| **S23** | Family recommended blurb — done with S19p via `policyRecommendedBlurb` on Model Settings |
+
+**Phase 2 (S12–S19) is code-complete.** **S19p** + **S20** landed. Next product step is **S21**.
 
 **Side fix (not an Sxx):** Brief background remount could wipe `selectedGGUF` while `llamaProvider` still held RAM — `App.tsx` + Conversation rehydrate from provider when ready (`modelSelectionRehydrate.ts`). No load/unload on resume.
 
-**Next unchecked step:** **S15 — Trim notice** (alone; do not start S16).
+**Next unchecked step:** **S21 — Accel status chip** (alone; do not start S22). Read existing accel snapshot — do not invent a parallel GPU detector.
+
+### Robustness notes (landed with S15–S20 + S19p)
+
+- **Live chat path** uses `useNativeCompletion: true` → `aiChatService.nativeCompletion` (not dead `llamaService` completion helpers).
+- **S15 gap fixed:** `nativeCompletion` now calls `applyConversationTrim` (streamChat already did). UI notice is session-sticky after first drop; clears on new chat / history switch.
+- **S16:** Flush once on `active` → `inactive|background`; serialize saves so parallel first-saves cannot create two chat IDs; completion errors also persist partial/error text.
+- **S17:** Quiet no-op until native rebuild (`TurboModuleRegistry.get`, never import package’s `getEnforcing` path in product JS).
+- **S19:** Final `.gguf` only; basename-safe delete; unload uses `releaseAllLlama()` + `llamaProvider.unloadModel()`.
+- **S19p:** Prefer GGUF Jinja; Android sanitize pad **v5** is family-aware (`__ofln_f='…'`); missing metadata → `resolveModelPolicy(file).template.familyStub`; settings seed via `getDefaultSettingsForModel`; no prompt DB.
+- **S20:** `settings.thinkingMode` (`auto`|`on`|`off`, default **auto**) applied only for `policy.thinking.strategy === 'jinja_enable'`; Auto = `resolveEnableThinking` unchanged; always_on/none omit `enable_thinking` (On/Off no-ops vs Auto for those).
 
 ### Native rebuild required before device smoke
 
@@ -35,16 +55,17 @@ JS-only reload is **not** enough. New native deps:
 - `react-native-keychain` (^10)
 - `react-native-device-info` (^15)
 - `@op-engineering/op-sqlite` (^15)
+- `@sayem314/react-native-keep-awake` (^1.4) — S17
 
 ```bash
 cd android && ./gradlew clean && cd .. && npm run android
 ```
 
-Until rebuild: HF token may show “secure storage isn’t linked”; RAM dots may be absent; chat history falls back to AsyncStorage if SQLite isn’t linked.
+Until rebuild: HF token may show “secure storage isn’t linked”; RAM dots may be absent; chat history falls back to AsyncStorage if SQLite isn’t linked; keep-awake is a quiet no-op.
 
 ### Device smoke still owed (user pending rebuild)
 
-Treat **S06–S14** as **code-complete / Jest-green**, not fully device-signed-off until:
+Treat **S06–S20 + S19p** as **code-complete / Jest-green**, not fully device-signed-off until:
 
 1. Pause → resume → complete download; Discard removes partial  
 2. `.partial` / `.chunk` never appear as loadable models  
@@ -55,7 +76,14 @@ Treat **S06–S14** as **code-complete / Jest-green**, not fully device-signed-o
 7. **S12:** Existing chats survive migrate; save/load/delete/pin/rename; kill/reopen  
 8. **S13:** Drawer search title/preview/body; clear + close resets query  
 9. **S14:** Long chat → banner ≥80%; ring in model pill; fade in on first send / fade out on new chat  
-10. **Rehydrate:** Load model → home briefly → return → pill still shows model (no full reload)  
+10. **S15:** Long chat that exceeds budget → one calm “Older messages were trimmed…” line (not on short chats); clears on New chat  
+11. **S16:** Mid-reply → home/kill → reopen → user turn (+ partial assistant if any) still in history  
+12. **S17:** During generation screen stays awake; after Stop / reply ends, screen can sleep again  
+13. **S18:** History long-press → Export → share sheet with Markdown (user/assistant; thoughts included)  
+14. **S19:** Settings → Storage → sizes; delete inactive; delete loaded model unloads first then removes file  
+15. **Rehydrate:** Load model → home briefly → return → pill still shows model (no full reload)  
+16. **S19p:** Qwen 0.8B short default prompt; Gemma/Phi coherent if force-sanitize path runs; custom system prompt persists; Reset restores policy defaults; Settings shows family blurb  
+17. **S20:** Qwen Auto — short “hi” no forced CoT; complex “solve step by step…” may think; On forces thinking on short asks; Off suppresses on complex; non-Qwen (e.g. Gemma/Phi) still loads/chats  
 
 Also run `IMPROVEMENT_PLAN.md` §7 core smoke after rebuild.
 
@@ -68,21 +96,37 @@ Also run `IMPROVEMENT_PLAN.md` §7 core smoke after rebuild.
 | RAM fit | `src/services/ramFitService.ts`, `ModelCard` props `ramFit` |
 | Load CTAs | `src/utils/loadFailureAlert.ts`, `userFacingErrors.ts` |
 | Disk | `src/utils/diskPreflight.ts` |
+| Storage (S19) | `src/utils/modelStorageHelpers.ts`, `src/services/modelStorageService.ts`, `src/screens/StorageScreen.tsx`, Settings tile, App page `storage` |
 | Onboarding | `src/services/onboardingService.ts`, `src/screens/OnboardingScreen.tsx`, `App.tsx` gate |
 | Chat history | `src/services/chatHistoryService.ts`, `chatHistoryHelpers.ts`; search in `HistoryDrawer` |
 | Context UI | `src/utils/contextFullness.ts`, `ContextFullnessBanner.tsx`, `ContextFullnessRing.tsx` |
+| Trim notice (S15) | `contextTrim.ts` (`applyConversationTrim`), `aiChatService.nativeCompletion`, `useAIChat.showTrimNotice`, `MessageList` |
+| Persist flush (S16) | `src/utils/chatPersistAppState.ts`, `useAIChat` AppState + persist queue |
+| Keep-awake (S17) | `src/services/keepAwakeService.ts`, `useAIChat` generation lifecycle; dep in `package.json` |
+| Export MD (S18) | `src/utils/chatMarkdownExport.ts`, HistoryDrawer Export, ConversationScreen `Share` |
 | Rehydrate | `src/utils/modelSelectionRehydrate.ts`, `App.tsx` AppState restore |
 | Chat extract | `HistoryDrawer.tsx`, `ChatComposer.tsx`, `MessageList.tsx`, `StaggerFadeIn.tsx` |
-| Tests | `__tests__/inference/*`, `downloadHelpers`, `diskPreflight`, `hfTokenService`, `ramFitService`, `loadFailureAlert`, `userFacingErrors`, `onboardingService`, `chatHistoryHelpers`, `contextFullness`, `modelSelectionRehydrate` |
+| **Policy (S19p)** | `modelPolicy.ts`, `modelFamily.ts`, `familyTemplates.ts`, `promptDefaults.ts`, `modelSettingsService.ts`, `ggufSanitizeService.ts` (v5), `llamaProvider.ts`, `aiChatService.ts`, `completionParams.ts`, `ModelSettingsScreen.tsx` |
+| **Thinking (S20)** | `modelSettingsService.thinkingMode`, `promptHeuristics.resolveThinkingModeForTurn`, `completionParams.buildCompletionParams`, `ModelSettingsScreen` segment |
+| Tests | `__tests__/inference/*` (incl. `completionParams`, `modelPolicy`), downloadHelpers, … |
 
-`npm test` → **15 suites / 78 tests** green (2026-08-03).
+`npm test` → **20 suites / 114 tests** green (2026-08-04, after S20).
 
-### Do **not** for S15
+### Git / commit state
 
-- Don’t change `trimConversation` algorithm — only surface when turns were dropped  
-- Don’t combine with S16 (AppState flush)  
+- **Not committed** — large working tree of uncommitted Sxx work (plus prior uncommitted S01–S14 if still dirty).
+- Do **not** commit unless the user asks.
+- New dep: `@sayem314/react-native-keep-awake` in `package.json` / lockfiles.
+
+### Do **not** for S21
+
+- Don’t invent a second acceleration detector — read existing runtime accel snapshot / load metadata  
+- Don’t add GPU vendor branding chrome or colorful “NPU” marketing UI  
+- Don’t combine with S22 (Stages trends) or reopen S20 thinking parser  
+- Don’t change load path / quant allowlist as part of the chip  
+- Keep chat chrome monochrome; tap → short alert with reason  
 - Keep `useNativeCompletion: true`; don’t touch Conversation `selectedGGUF` effect deps  
-- Dual unload still: `releaseAllLlama()` + `llamaProvider.unloadModel()` when leaving to models  
+- Dual unload still: `releaseAllLlama()` + `llamaProvider.unloadModel()` when leaving to models / deleting active GGUF  
 
 ---
 
@@ -119,8 +163,11 @@ downloadModel|createCancellationToken|DocumentDirectoryPath|.partial|USE_RESUMAB
 hfAuthHeaders|hfAxiosGet|HfTokenScreen|getHfToken
 classifyRamFit|ramFit|getTotalMemoryBytes|showLoadFailureAlert
 chatHistoryService|@chat_history|saveChat|@has_completed_onboarding
-trimConversation|contextTrim|aiChatService.nativeCompletion
+trimConversation|applyConversationTrim|contextTrim|aiChatService.nativeCompletion
 contextFullness|ContextFullnessBanner|ContextFullnessRing
+shouldFlushChatPersist|keepAwake|activateGeneratingKeepAwake
+buildChatMarkdown|listStoredGgufModels|StorageScreen
+resolveEnableThinking|buildCompletionParams|enable_thinking|ModelSettings
 shouldRehydrateSelectionFromProvider|modelSelectionRehydrate
 createStyles|DESIGN
 ```
@@ -173,6 +220,7 @@ createStyles|DESIGN
 | HF token | **`react-native-keychain`** | AsyncStorage secrets |
 | RAM / disk | **`react-native-device-info`** | Guessing from model name only |
 | Chat DB | **`@op-engineering/op-sqlite`** (S12 ✅) | WatermelonDB; sqlite-storage |
+| Keep-awake | **`@sayem314/react-native-keep-awake@1`** (S17 ✅) | expo-keep-awake (not Expo app) |
 | TTS / STT | OS: `react-native-tts`, `@react-native-voice/voice` | Neural ONNX / PocketPal speech engines |
 | Tools (deferred) | `expr-eval` if ever | `eval()`, full agent OS |
 
@@ -271,44 +319,44 @@ Add **at most one native module per Sxx**. Rebuild + smoke.
 **Done:** `estimateContextFullness` (~3.5 chars/token vs model `n_ctx`); soft `ContextFullnessBanner` at ≥80% (Dismiss + New chat only); `ContextFullnessRing` inside model quick-select pill (right); fade in on first user message / fade out on new chat; tap ring → calm alert. No n_ctx reload sheet.  
 **UI:** Banner: `surface` + border; warning icon only. Ring: monochrome track/fill; warning fill when high.
 
-### S15 — Trim notice (safe) — **NEXT**
+### S15 — Trim notice (safe) ✅
 
-**Trace:** `trimConversation` in `src/services/inference/contextTrim.ts`; product path `aiChatService.nativeCompletion` (~line 191); dead/legacy path also in `llamaService` (prefer not to expand).  
-**Do:** When trim drops turns, surface **one** calm system-style line in the chat (or equivalent single notice). Prefer returning trim metadata from the completion path (e.g. dropped count) rather than guessing in UI.  
-**Don’t:** Change trim algorithm / budgets; don’t add a second trim implementation; don’t do S16.  
-**UI:** `textSecondary`, 13–14 px; no accent spam; one job.
+**Trace:** `trimConversation` in `src/services/inference/contextTrim.ts`; product path `aiChatService.nativeCompletion`; dead/legacy path also in `llamaService` (left alone).  
+**Done:** `applyConversationTrim` wraps unchanged algorithm + `droppedCount`; live `nativeCompletion` now trims (was missing) and returns `trimmedMessageCount`; `useAIChat.showTrimNotice` → MessageList one-liner (`textSecondary` 13 px). Clears on new chat / history switch.  
+**Don’t (still):** Change trim budgets; don’t do S16.  
+**UI:** `styles.trimNotice`; no accent spam; one job.
 
-### S16 — AppState flush (safe)
+### S16 — AppState flush (safe) ✅
 
-**Do:** On background, flush `persistMessages` / pending save.  
-**Don’t:** Unload model here.
+**Done:** `shouldFlushChatPersistOnTransition` (flush once on leave-`active`); `useAIChat` serializes `persistMessages` (no duplicate chat rows on concurrent flush); streaming patch flush + save; skips temp mode / empty chats; save failures → `logError`. No model unload.  
+**Don’t (still):** Background unload (deferred).
 
-### S17 — Keep-awake while generating (safe)
+### S17 — Keep-awake while generating (safe) ✅
 
-**Do:** Activate only during completion; clear on stop/end.  
-**Don’t:** Background unload (deferred — races).
+**Done:** `@sayem314/react-native-keep-awake@1.4` (RN 0.78-compatible); `keepAwakeService` uses `TurboModuleRegistry.get` + cache (no-op until rebuild); `useAIChat` activates on `beginGeneration`, deactivates on stop / completion finally / abort / unmount.  
+**Don’t (still):** Background unload (deferred).  
+**Requires:** full native rebuild.
 
-### S18 — Export Markdown (safe)
+### S18 — Export Markdown (safe) ✅
 
-**Do:** Build MD from messages; share sheet.  
-**UI:** Row action; confirm not needed for export.
+**Done:** `buildChatMarkdown` / `isExportableMessage` (pure + Jest); HistoryDrawer long-press **Export** (share-outline); Conversation uses live messages when exporting the open chat, else `getChat`; RN `Share.share` — local only, no confirm.  
+**Don’t (still):** Cloud accounts / hubs.
 
-### S19 — Storage manager (safe–medium)
+### S19 — Storage manager (safe–medium) ✅
 
-**Do:** List GGUF sizes; delete with confirm; if active → unload first.  
-**UI:** Settings-style sections; destructive = `error` + confirm alert.
+**Done:** `modelStorageHelpers` + `modelStorageService` (final `.gguf` only); Settings → **Storage** tile → `StorageScreen` (sizes, free space, delete with confirm/`error` CTA); active model dual-unloads before unlink.  
+**Don’t (still):** Silent delete; load `.partial`.
 
-### S20 — Thinking mode (safe–medium)
+### S20 — Thinking mode (safe–medium) — **DONE 2026-08-04**
 
-**Trace:** `buildCompletionParams`, `resolveEnableThinking`.  
-**Do:** Auto/On/Off setting; Auto = current behavior.  
-**Don’t:** Rewrite think parser.  
-**UI:** Model Settings slider/segment using existing settings controls.
+**Done:** Per-model `thinkingMode: 'auto'|'on'|'off'` (default auto) in `modelSettingsService`; pure `resolveThinkingModeForTurn` applies only for `jinja_enable`; `buildCompletionParams` wires it; Model Settings segmented Auto/On/Off; Jest Auto identity + On/Off overrides.  
+**Don’t reopen:** thinkStreamParser; dual family tables; S21.
 
-### S21 — Accel chip (safe)
+### S21 — Accel chip (safe) — **NEXT**
 
 **Do:** Read runtime accel snapshot; tap → short alert with reason.  
-**UI:** Small frosted/top pill style consistent with existing top pills; monochrome.
+**UI:** Small frosted/top pill style consistent with existing top pills; monochrome.  
+**Don’t:** New GPU detector; Stages trends (S22); change quant allowlist.
 
 ### S22 — Stages trends (medium, thin)
 
@@ -316,10 +364,10 @@ Add **at most one native module per Sxx**. Rebuild + smoke.
 **Don’t:** Network upload; new analytics SDK.  
 **UI:** Stages already exists — extend calmly; one section job.
 
-### S23 — Family blurb (safe)
+### S23 — Family blurb (safe) — **DONE with S19p**
 
-**Do:** Help text from `resolveModelFamily` in Model Settings.  
-**UI:** Body help `textSecondary` 14 px.
+**Done:** `policyRecommendedBlurb(resolveModelPolicy(fileName))` under System Prompt on Model Settings.  
+**Don’t:** Duplicate a second recommended-copy system.
 
 ### S24 — Persona memory notes (safe)
 
