@@ -11,6 +11,11 @@
 import { Platform } from 'react-native';
 import RNFS from 'react-native-fs';
 import type { ImageLibraryOptions, CameraOptions } from 'react-native-image-picker';
+import {
+  DOCUMENT_MAX_INJECT_CHARS,
+  DOCUMENT_MAX_PDF_BYTES,
+  truncateDocumentForInject,
+} from '../utils/documentHelpers';
 
 /** Max edge length passed to the image picker (keeps OCR / decode memory bounded). */
 export const MEDIA_MAX_EDGE = 1600;
@@ -18,11 +23,11 @@ export const MEDIA_MAX_EDGE = 1600;
 /** JPEG quality for picked/captured photos (0–1). */
 export const MEDIA_JPEG_QUALITY = 0.75;
 
-/** Hard cap on OCR text injected into the chat prompt. */
-export const MAX_OCR_CHARS = 8000;
+/** Hard cap on OCR text injected into the chat prompt (S27 single source). */
+export const MAX_OCR_CHARS = DOCUMENT_MAX_INJECT_CHARS;
 
 /** Soft cap for naive PDF text reads (bytes). Larger files are refused. */
-export const MAX_PDF_PARSE_BYTES = 8 * 1024 * 1024;
+export const MAX_PDF_PARSE_BYTES = DOCUMENT_MAX_PDF_BYTES;
 
 const TEMP_PREFIX = 'ofln_media_';
 
@@ -61,17 +66,28 @@ export const IMAGE_PICKER_OPTIONS: ImageLibraryOptions & CameraOptions = {
  * Resolve any picker URI to a readable file path under our control.
  * Android content:// is copied into CachesDirectoryPath.
  */
-export async function normalizeMediaToFile(uri: string): Promise<NormalizedMedia> {
+export async function normalizeMediaToFile(
+  uri: string,
+  options?: { preferredExt?: string },
+): Promise<NormalizedMedia> {
   const trimmed = (uri || '').trim();
   if (!trimmed) {
     throw new Error('Empty media URI');
   }
 
   if (Platform.OS === 'android' && trimmed.startsWith('content://')) {
-    const ext = guessExtFromUri(trimmed) || 'jpg';
+    const preferred = (options?.preferredExt || '')
+      .replace(/^\./, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+    const guessed = guessExtFromUri(trimmed);
+    const ext =
+      preferred ||
+      guessed ||
+      'jpg'; // default image-safe for library path; PDFs pass preferredExt
     const tempPath = `${RNFS.CachesDirectoryPath}/${TEMP_PREFIX}${Date.now()}_${Math.random()
       .toString(36)
-      .slice(2, 8)}.${ext}`;
+      .slice(2, 8)}.${ext === 'jpeg' ? 'jpg' : ext}`;
     await RNFS.copyFile(trimmed, tempPath);
     return {
       path: tempPath,
@@ -116,9 +132,7 @@ export async function cleanupNormalizedMedia(media: NormalizedMedia | null | und
 
 /** Truncate OCR / document text for safe injection into limited n_ctx windows. */
 export function truncateForPrompt(text: string, maxChars: number = MAX_OCR_CHARS): string {
-  const trimmed = (text || '').trim();
-  if (trimmed.length <= maxChars) return trimmed;
-  return `${trimmed.slice(0, maxChars)}\n\n[…truncated ${trimmed.length - maxChars} characters for context limits]`;
+  return truncateDocumentForInject(text, maxChars);
 }
 
 /**

@@ -20,6 +20,13 @@ import {
   MAX_PDF_PARSE_BYTES,
   type NormalizedMedia,
 } from './mediaNormalizeService';
+import {
+  DOCUMENT_MESSAGES,
+  documentInjectCharBudget,
+  inspectPdfSample,
+  isInsufficientPdfExtract,
+  sanitizeChatDocumentFileName,
+} from '../utils/documentHelpers';
 import type { ParsedDocument, ParsedPage, MessageAttachment } from '../types/ai';
 
 // ── File Type Detection ────────────────────────────────────────────────────────
@@ -28,12 +35,26 @@ type SupportedFileType = 'pdf' | 'image' | 'unsupported';
 
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.heic', '.heif'];
 const PDF_EXTENSION = '.pdf';
+const PDF_HEADER_SAMPLE_BYTES = 64 * 1024;
 
 function detectFileType(fileName: string): SupportedFileType {
   const lower = fileName.toLowerCase();
   if (lower.endsWith(PDF_EXTENSION)) return 'pdf';
   if (IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return 'image';
   return 'unsupported';
+}
+
+function pdfRefusalDoc(
+  sourceUri: string,
+  message: string,
+): ParsedDocument {
+  return {
+    text: message,
+    pages: [{ pageNumber: 1, text: '' }],
+    pageCount: 1,
+    sourceUri,
+    sourceType: 'pdf',
+  };
 }
 
 // ── Image Parsing ────────────────────────────────────────────────────────────────
@@ -45,9 +66,10 @@ function detectFileType(fileName: string): SupportedFileType {
 async function parseImage(
   filePath: string,
   sourceUri: string,
-  options?: { skipOcr?: boolean; skipBase64?: boolean },
+  options?: { skipOcr?: boolean; skipBase64?: boolean; maxChars?: number },
 ): Promise<ParsedDocument> {
-  const ocrText = options?.skipOcr ? '' : await extractTextFromImage(filePath);
+  const cap = options?.maxChars ?? MAX_OCR_CHARS;
+  const ocrText = options?.skipOcr ? '' : await extractTextFromImage(filePath, cap);
   let imageBase64: string | undefined;
 
   if (!options?.skipBase64) {
@@ -79,29 +101,61 @@ async function parseImage(
 
 /**
  * Best-effort PDF text extraction from uncompressed text operators.
- * Refuses oversized files to avoid OOM; scanned PDFs need OCR of page images
- * (not implemented without a PDF renderer).
+ * Refuses oversized / encrypted / scanned files with honest messages.
  */
 async function parsePdf(
   filePath: string,
   sourceUri: string,
-  maxPages?: number,
+  options?: { maxPages?: number; maxChars?: number },
 ): Promise<ParsedDocument> {
+  const maxChars = options?.maxChars ?? MAX_OCR_CHARS;
+  const maxPages = options?.maxPages;
+
   try {
     const stat = await RNFS.stat(filePath);
     const size = typeof stat.size === 'number' ? Number(stat.size) : 0;
     if (size > MAX_PDF_PARSE_BYTES) {
-      return {
-        text: `[PDF too large to parse on-device (${(size / (1024 * 1024)).toFixed(1)} MB). Limit is ${MAX_PDF_PARSE_BYTES / (1024 * 1024)} MB. Try a smaller text PDF or paste key excerpts.]`,
-        pages: [{ pageNumber: 1, text: '' }],
-        pageCount: 1,
+      return pdfRefusalDoc(
         sourceUri,
-        sourceType: 'pdf',
-      };
+        DOCUMENT_MESSAGES.tooLarge(
+          (size / (1024 * 1024)).toFixed(1),
+          String(MAX_PDF_PARSE_BYTES / (1024 * 1024)),
+        ),
+      );
+    }
+
+    // Header sample first — catch encrypted / non-PDF without loading the whole file.
+    const sampleLen = Math.min(size > 0 ? size : PDF_HEADER_SAMPLE_BYTES, PDF_HEADER_SAMPLE_BYTES);
+    let sample = '';
+    try {
+      sample = await RNFS.read(filePath, sampleLen, 0, 'utf8');
+    } catch {
+      // Fall through to full read path or refuse
+    }
+
+    if (sample) {
+      const flags = inspectPdfSample(sample);
+      if (!flags.isPdf) {
+        return pdfRefusalDoc(sourceUri, DOCUMENT_MESSAGES.malformed);
+      }
+      if (flags.encrypted) {
+        return pdfRefusalDoc(sourceUri, DOCUMENT_MESSAGES.encrypted);
+      }
     }
 
     // Only attempt stream scrape on modest files — still loads into JS string.
-    const rawContent = await RNFS.readFile(filePath, 'utf8');
+    const rawContent =
+      size > 0 && size <= sampleLen && sample
+        ? sample
+        : await RNFS.readFile(filePath, 'utf8');
+
+    const fullFlags = inspectPdfSample(rawContent);
+    if (!fullFlags.isPdf) {
+      return pdfRefusalDoc(sourceUri, DOCUMENT_MESSAGES.malformed);
+    }
+    if (fullFlags.encrypted) {
+      return pdfRefusalDoc(sourceUri, DOCUMENT_MESSAGES.encrypted);
+    }
 
     const textBlocks: string[] = [];
     const btEtPattern = /BT\s([\s\S]*?)ET/g;
@@ -131,17 +185,12 @@ async function parsePdf(
       }
     }
 
-    const extractedText = truncateForPrompt(textBlocks.join('\n').trim(), MAX_OCR_CHARS);
-
-    if (!extractedText) {
-      return {
-        text: '[PDF has no extractable text streams (likely scanned). Export as images and attach those, or paste text.]',
-        pages: [{ pageNumber: 1, text: '' }],
-        pageCount: 1,
-        sourceUri,
-        sourceType: 'pdf',
-      };
+    const joined = textBlocks.join('\n').trim();
+    if (isInsufficientPdfExtract(joined)) {
+      return pdfRefusalDoc(sourceUri, DOCUMENT_MESSAGES.scanned);
     }
+
+    const extractedText = truncateForPrompt(joined, maxChars);
 
     let pages: ParsedPage[] = extractedText.split(/\f/).map((pageText, idx) => ({
       pageNumber: idx + 1,
@@ -163,14 +212,7 @@ async function parsePdf(
     if (__DEV__) {
       console.warn('[documentParsing] PDF parsing failed:', error);
     }
-
-    return {
-      text: '[PDF could not be parsed. The file may be encrypted, compressed, or malformed.]',
-      pages: [{ pageNumber: 1, text: '' }],
-      pageCount: 1,
-      sourceUri,
-      sourceType: 'pdf',
-    };
+    return pdfRefusalDoc(sourceUri, DOCUMENT_MESSAGES.malformed);
   }
 }
 
@@ -193,6 +235,28 @@ export interface ParseOptions {
   skipBase64?: boolean;
   /** Maximum pages to keep from PDF text split */
   maxPages?: number;
+  /**
+   * Char budget for injected document/OCR text (S27).
+   * Prefer `documentInjectCharBudget(n_ctx, n_predict)` from the active model.
+   */
+  maxChars?: number;
+  /** Model context size — used when maxChars is omitted */
+  n_ctx?: number;
+  /** Model max predict — used when maxChars is omitted */
+  n_predict?: number;
+}
+
+function resolveMaxChars(options?: ParseOptions): number {
+  if (typeof options?.maxChars === 'number' && options.maxChars > 0) {
+    return options.maxChars;
+  }
+  if (
+    typeof options?.n_ctx === 'number' &&
+    typeof options?.n_predict === 'number'
+  ) {
+    return documentInjectCharBudget(options.n_ctx, options.n_predict);
+  }
+  return MAX_OCR_CHARS;
 }
 
 /**
@@ -207,12 +271,15 @@ export async function parseDocument(
   const fileType = detectFileType(fileName);
 
   if (fileType === 'unsupported') {
-    throw new Error(`Unsupported file type: ${fileName}`);
+    throw new Error(DOCUMENT_MESSAGES.unsupported(fileName));
   }
 
+  const maxChars = resolveMaxChars(options);
   let media: NormalizedMedia | null = null;
   try {
-    media = await normalizeMediaToFile(uri);
+    media = await normalizeMediaToFile(uri, {
+      preferredExt: fileType === 'pdf' ? 'pdf' : undefined,
+    });
     const exists = await RNFS.exists(media.path);
     if (!exists) {
       throw new Error(`File not found: ${uri}`);
@@ -222,10 +289,14 @@ export async function parseDocument(
       return await parseImage(media.path, uri, {
         skipOcr: options?.skipOcr,
         skipBase64: options?.skipBase64 ?? true,
+        maxChars,
       });
     }
 
-    return await parsePdf(media.path, uri, options?.maxPages ?? 20);
+    return await parsePdf(media.path, uri, {
+      maxPages: options?.maxPages ?? 20,
+      maxChars,
+    });
   } finally {
     // Always remove content:// copies; UI still holds the original URI for thumbs.
     await cleanupNormalizedMedia(media);
@@ -234,23 +305,40 @@ export async function parseDocument(
 
 /**
  * Convenience: parse an attachment and return text for chat prompt injection.
+ * Always returns a string — limitation notices are plain text the model can relay.
  */
 export async function extractTextFromAttachment(
   attachment: MessageAttachment,
+  options?: ParseOptions,
 ): Promise<string> {
-  const fileName = attachment.fileName || attachment.uri.split('/').pop() || 'file';
+  const rawName =
+    attachment.fileName ||
+    attachment.uri.split(/[/\\]/).pop() ||
+    (attachment.type === 'pdf' ? 'document.pdf' : 'file');
+  // Force a detectable .pdf when the product path marked the attachment as PDF
+  // (Android pickers often omit extensions while still reporting PDF MIME).
+  const fileName =
+    attachment.type === 'pdf'
+      ? sanitizeChatDocumentFileName(rawName)
+      : rawName;
 
   try {
     const doc = await parseDocument(attachment.uri, fileName, {
       skipBase64: true,
       maxPages: 20,
+      maxChars: resolveMaxChars(options),
+      n_ctx: options?.n_ctx,
+      n_predict: options?.n_predict,
     });
-    return doc.text;
+    return doc.text || DOCUMENT_MESSAGES.readFailed;
   } catch (error) {
     if (__DEV__) {
       console.warn('[documentParsing] Attachment parsing failed:', error);
     }
-    return '';
+    if (error instanceof Error && error.message.startsWith('[')) {
+      return error.message;
+    }
+    return DOCUMENT_MESSAGES.readFailed;
   }
 }
 
@@ -260,6 +348,7 @@ export async function extractTextFromAttachment(
  */
 export async function prepareAttachmentForVision(
   attachment: MessageAttachment,
+  options?: ParseOptions,
 ): Promise<{ base64Images: string[]; extractedText: string }> {
   const fileName = attachment.fileName || attachment.uri.split('/').pop() || 'file';
 
@@ -267,6 +356,9 @@ export async function prepareAttachmentForVision(
     const doc = await parseDocument(attachment.uri, fileName, {
       skipOcr: false,
       skipBase64: false,
+      maxChars: resolveMaxChars(options),
+      n_ctx: options?.n_ctx,
+      n_predict: options?.n_predict,
     });
     const base64Images = doc.pages
       .map((p) => p.imageBase64)
@@ -280,6 +372,6 @@ export async function prepareAttachmentForVision(
     if (__DEV__) {
       console.warn('[documentParsing] Vision prep failed:', error);
     }
-    return { base64Images: [], extractedText: '' };
+    return { base64Images: [], extractedText: DOCUMENT_MESSAGES.readFailed };
   }
 }

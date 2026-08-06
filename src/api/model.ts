@@ -54,11 +54,25 @@ const activeDownloads = new Map<string, ActiveDownload>();
 const inFlightByModel = new Map<string, Promise<string>>();
 
 export function normalizeModelFileName(modelName: string): string {
-  return modelName.toLowerCase().endsWith('.gguf') ? modelName : `${modelName}.gguf`;
+  // Prevent path traversal if a malicious backup injects `../` into a model name.
+  const base = (modelName || '').replace(/^.*[/\\]/, '').trim() || 'model.gguf';
+  return base.toLowerCase().endsWith('.gguf') ? base : `${base}.gguf`;
 }
 
 export function getModelDestPath(modelName: string): string {
-  return `${RNFS.DocumentDirectoryPath}/${normalizeModelFileName(modelName)}`;
+  const name = normalizeModelFileName(modelName);
+  // Refuse anything that still looks path-like after basename strip.
+  if (
+    !name ||
+    name === '.' ||
+    name === '..' ||
+    name.includes('..') ||
+    name.includes('/') ||
+    name.includes('\\')
+  ) {
+    throw new Error('Invalid model file name');
+  }
+  return `${RNFS.DocumentDirectoryPath}/${name}`;
 }
 
 /** Final models are `*.gguf`. Partials are `*.gguf.partial` — never load these. */
@@ -372,6 +386,19 @@ async function downloadModelResumable(
     await clearMeta(modelName);
     activeDownloads.delete(downloadKey);
     onProgress?.(100);
+    // Persist download URL so full-device backups can re-fetch on another phone (S32).
+    try {
+      const { registerModelSource } = await import(
+        '../services/modelCatalogService'
+      );
+      await registerModelSource({
+        fileName: modelName,
+        downloadUrl: modelUrl,
+        expectedBytes,
+      });
+    } catch {
+      /* catalog is best-effort */
+    }
     return activated;
   } catch (error) {
     const info = activeDownloads.get(downloadKey);
@@ -506,6 +533,18 @@ async function downloadModelLegacy(
       );
     }
     onProgress?.(100);
+    try {
+      const { registerModelSource } = await import(
+        '../services/modelCatalogService'
+      );
+      await registerModelSource({
+        fileName: modelName,
+        downloadUrl: modelUrl,
+        expectedBytes: expectedBytes ?? null,
+      });
+    } catch {
+      /* catalog is best-effort */
+    }
     return destPath;
   } catch (error) {
     activeDownloads.delete(downloadKey);

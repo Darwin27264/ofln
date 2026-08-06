@@ -26,11 +26,12 @@ import { createStyles } from '../styles/styles';
 import { ANIMATION_DURATIONS, EASING } from '../utils/animationConfig';
 
 export type MessageListAttachment = {
-  type: 'image';
+  type: 'image' | 'pdf';
   uri: string;
   width?: number;
   height?: number;
   fileName?: string;
+  mimeType?: string;
 };
 
 export type MessageListItem = {
@@ -122,6 +123,10 @@ export type MessageListProps = {
   onToggleThought: (absoluteIndex: number) => void;
   onCopyMessage: (content: string) => void;
   onRegenerateMessage: (visibleIndex: number) => void;
+  /** Speak / stop assistant reply via OS TTS (S29). */
+  onSpeakMessage?: (content: string, visibleIndex: number) => void;
+  /** When set, play button shows stop icon for this visible index. */
+  speakingVisibleIndex?: number | null;
   /** Edit user turn → truncate later turns → regenerate (visible = slice(1) index). */
   onEditUserMessage: (visibleIndex: number, newContent: string) => void;
 
@@ -155,6 +160,8 @@ export function MessageList({
   onToggleThought,
   onCopyMessage,
   onRegenerateMessage,
+  onSpeakMessage,
+  speakingVisibleIndex = null,
   onEditUserMessage,
   noMessages,
   isTemporaryMode,
@@ -406,6 +413,39 @@ export function MessageList({
                             style={{ width: 64, height: 64, borderRadius: 8 }}
                             resizeMode="cover"
                           />
+                        ) : att.type === 'pdf' ? (
+                          <View
+                            key={i}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              maxWidth: 180,
+                              paddingVertical: 8,
+                              paddingHorizontal: 10,
+                              borderRadius: 8,
+                              borderWidth: 1,
+                              borderColor: theme.colors.border,
+                              backgroundColor: theme.colors.surface,
+                              gap: 8,
+                            }}
+                          >
+                            <Ionicons
+                              name="document-text-outline"
+                              size={20}
+                              color={theme.colors.textSecondary}
+                            />
+                            <Text
+                              numberOfLines={1}
+                              style={{
+                                flex: 1,
+                                fontSize: 12,
+                                fontFamily: 'Poppins',
+                                color: theme.colors.textSecondary,
+                              }}
+                            >
+                              {att.fileName || 'Document.pdf'}
+                            </Text>
+                          </View>
                         ) : null,
                       )}
                     </View>
@@ -579,57 +619,101 @@ export function MessageList({
                 !isStreamingMessage && (
                   <View
                     style={{
+                      width: '100%',
                       flexDirection: 'row',
                       alignItems: 'center',
                       marginTop: 12,
-                      gap: 8,
                     }}
                   >
-                    <TouchableOpacity
-                      onPress={() => onCopyMessage(msg.content)}
+                    <View
                       style={{
-                        padding: 6,
-                        borderRadius: 16,
-                        backgroundColor: theme.colors.glass,
-                        borderWidth: 1,
-                        borderColor: theme.colors.border,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        flexShrink: 1,
+                        gap: 8,
                       }}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
-                      <Ionicons name="copy-outline" size={16} color={theme.colors.text} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => onRegenerateMessage(index)}
-                      disabled={isGenerating}
-                      style={{
-                        padding: 6,
-                        borderRadius: 16,
-                        backgroundColor: theme.colors.glass,
-                        borderWidth: 1,
-                        borderColor: theme.colors.border,
-                        opacity: isGenerating ? 0.5 : 1,
-                      }}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                      <Ionicons name="refresh-outline" size={16} color={theme.colors.text} />
-                    </TouchableOpacity>
-                    {(() => {
-                      const assistantTurnIndex =
-                        conversation
-                          .slice(1, index + 2)
-                          .filter((m) => m.role === 'assistant').length - 1;
-                      const turnTps =
-                        typeof msg.tokensPerSecond === 'number'
-                          ? msg.tokensPerSecond
-                          : assistantTurnIndex >= 0
-                            ? tokensPerSecond[assistantTurnIndex]
-                            : undefined;
-                      return typeof turnTps === 'number' && turnTps > 0 ? (
-                        <Text style={[styles.tokenInfo, { marginTop: 0 }]}>
-                          {turnTps} tokens/s
-                        </Text>
-                      ) : null;
-                    })()}
+                      <TouchableOpacity
+                        onPress={() => onCopyMessage(msg.content)}
+                        style={{
+                          padding: 6,
+                          borderRadius: 16,
+                          backgroundColor: theme.colors.glass,
+                          borderWidth: 1,
+                          borderColor: theme.colors.border,
+                        }}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        accessibilityLabel="Copy message"
+                      >
+                        <Ionicons name="copy-outline" size={16} color={theme.colors.text} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => onRegenerateMessage(index)}
+                        disabled={isGenerating}
+                        style={{
+                          padding: 6,
+                          borderRadius: 16,
+                          backgroundColor: theme.colors.glass,
+                          borderWidth: 1,
+                          borderColor: theme.colors.border,
+                          opacity: isGenerating ? 0.5 : 1,
+                        }}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        accessibilityLabel="Regenerate message"
+                      >
+                        <Ionicons name="refresh-outline" size={16} color={theme.colors.text} />
+                      </TouchableOpacity>
+                      {(() => {
+                        const assistantTurnIndex =
+                          conversation
+                            .slice(1, index + 2)
+                            .filter((m) => m.role === 'assistant').length - 1;
+                        const turnTps =
+                          typeof msg.tokensPerSecond === 'number'
+                            ? msg.tokensPerSecond
+                            : assistantTurnIndex >= 0
+                              ? tokensPerSecond[assistantTurnIndex]
+                              : undefined;
+                        return typeof turnTps === 'number' && turnTps > 0 ? (
+                          <Text style={[styles.tokenInfo, { marginTop: 0 }]}>
+                            {turnTps} tokens/s
+                          </Text>
+                        ) : null;
+                      })()}
+                    </View>
+                    {onSpeakMessage && (
+                      <>
+                        <View style={{ flex: 1, minWidth: 24 }} />
+                        <TouchableOpacity
+                          onPress={() => onSpeakMessage(msg.content, index)}
+                          disabled={isGenerating}
+                          style={{
+                            padding: 6,
+                            borderRadius: 16,
+                            backgroundColor: theme.colors.glass,
+                            borderWidth: 1,
+                            borderColor: theme.colors.border,
+                            opacity: isGenerating ? 0.5 : 1,
+                          }}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          accessibilityLabel={
+                            speakingVisibleIndex === index
+                              ? 'Stop speaking'
+                              : 'Speak message'
+                          }
+                        >
+                          <Ionicons
+                            name={
+                              speakingVisibleIndex === index
+                                ? 'stop-outline'
+                                : 'volume-medium-outline'
+                            }
+                            size={16}
+                            color={theme.colors.text}
+                          />
+                        </TouchableOpacity>
+                      </>
+                    )}
                   </View>
                 )}
             </View>

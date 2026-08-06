@@ -26,6 +26,7 @@ import {
   activateGeneratingKeepAwake,
   deactivateGeneratingKeepAwake,
 } from '../services/keepAwakeService';
+import { stopSpeaking } from '../services/ttsService';
 import { logError } from '../utils/errorLogger';
 import { buildMessagesAfterUserEdit } from '../utils/chatEditHelpers';
 
@@ -589,6 +590,8 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
       cancelAnimationFrame(flushRafRef.current);
       flushRafRef.current = null;
     }
+    // New inference always stops OS speech (S29).
+    void stopSpeaking();
     setError(null);
     isGeneratingRef.current = true;
     setIsLoading(true);
@@ -619,7 +622,17 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
 
       const generationId = beginGeneration();
 
-      const displayContent = typed || (hasAttachments ? '(Image attached)' : '');
+      const hasPdf = !!(
+        sendOptions?.attachments &&
+        sendOptions.attachments.some((a) => a.type === 'pdf')
+      );
+      const displayContent =
+        typed ||
+        (hasAttachments
+          ? hasPdf
+            ? '(Document attached)'
+            : '(Image attached)'
+          : '');
       const userMessage: ChatMessage = {
         role: 'user',
         content: displayContent,
@@ -776,6 +789,9 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
   const stop = useCallback(() => {
     // Invalidate in-flight generation first so late tokens/thoughts are ignored.
     generationIdRef.current += 1;
+
+    // Also halt OS speech if the user hits Stop while listening (S29).
+    void stopSpeaking();
 
     try {
       abortRef.current?.();

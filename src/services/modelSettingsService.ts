@@ -336,3 +336,66 @@ export const deleteModelSettings = async (
     throw error;
   }
 };
+
+/**
+ * Export all per-model settings for backup (S32).
+ * Keys are model file names (without storage prefix).
+ */
+export const exportAllModelSettings = async (): Promise<
+  Record<string, ModelSettings>
+> => {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const settingKeys = keys.filter((k) =>
+      k.startsWith(MODEL_SETTINGS_KEY_PREFIX),
+    );
+    if (settingKeys.length === 0) return {};
+    const pairs = await AsyncStorage.multiGet(settingKeys);
+    const out: Record<string, ModelSettings> = {};
+    for (const [key, raw] of pairs) {
+      if (!raw) continue;
+      const fileName = key.slice(MODEL_SETTINGS_KEY_PREFIX.length);
+      if (!fileName) continue;
+      try {
+        const parsed = JSON.parse(raw);
+        out[fileName] = validateSettings(parsed, fileName);
+      } catch {
+        /* skip corrupt entry */
+      }
+    }
+    return out;
+  } catch (error) {
+    console.error("Error exporting model settings:", error);
+    return {};
+  }
+};
+
+/**
+ * Import per-model settings map from backup.
+ * replace: overwrites listed models only (does not wipe unrelated keys).
+ * merge: same — both modes upsert because settings are keyed per model.
+ */
+export const importModelSettingsMap = async (
+  map: Record<string, Partial<ModelSettings>>,
+  _mode: "merge" | "replace" = "merge",
+): Promise<void> => {
+  if (!map || typeof map !== "object") return;
+  for (const [rawName, partial] of Object.entries(map)) {
+    if (!partial || typeof partial !== "object") continue;
+    // Basename only — never let keys inject path separators into storage.
+    const fileName = (rawName || "").replace(/^.*[/\\]/, "").trim().slice(0, 240);
+    if (
+      !fileName ||
+      fileName === "." ||
+      fileName === ".." ||
+      fileName.includes("..") ||
+      fileName.includes("/") ||
+      fileName.includes("\\")
+    ) {
+      continue;
+    }
+    const validated = validateSettings(partial, fileName);
+    const key = `${MODEL_SETTINGS_KEY_PREFIX}${fileName}`;
+    await AsyncStorage.setItem(key, JSON.stringify(validated));
+  }
+};

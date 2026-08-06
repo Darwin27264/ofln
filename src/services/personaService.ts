@@ -151,6 +151,45 @@ export const generatePersonaId = (): string => {
 };
 
 /**
+ * Replace all personas (backup restore, replace mode).
+ * Filters invalid entries; never writes secrets.
+ */
+export const replaceAllPersonas = async (personas: Persona[]): Promise<void> => {
+  const valid = (personas || []).filter(
+    (p) =>
+      p &&
+      typeof p.id === "string" &&
+      p.id.trim().length > 0 &&
+      typeof p.name === "string" &&
+      p.name.trim().length > 0 &&
+      typeof p.createdAt === "number",
+  );
+  await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(valid));
+};
+
+/**
+ * Merge personas by id (import wins on collision).
+ */
+export const mergePersonasImport = async (
+  incoming: Persona[],
+): Promise<void> => {
+  const existing = await getPersonas();
+  const map = new Map<string, Persona>();
+  for (const p of existing) map.set(p.id, p);
+  for (const p of incoming || []) {
+    if (
+      p &&
+      typeof p.id === "string" &&
+      typeof p.name === "string" &&
+      typeof p.createdAt === "number"
+    ) {
+      map.set(p.id, p);
+    }
+  }
+  await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify([...map.values()]));
+};
+
+/**
  * Build a system prompt from persona settings
  * 
  * @param persona - The persona to build the prompt from

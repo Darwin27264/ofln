@@ -21,9 +21,13 @@ function collapseBlankLines(text: string): string {
 
 /**
  * Extract text from an image using on-device ML Kit OCR.
+ * @param maxChars Char budget for inject (defaults to MAX_OCR_CHARS).
  * @returns Length-capped text, or "" on failure (caller handles UX)
  */
-export async function extractTextFromImage(uri: string): Promise<string> {
+export async function extractTextFromImage(
+  uri: string,
+  maxChars: number = MAX_OCR_CHARS,
+): Promise<string> {
   const trimmed = (uri || '').trim();
   if (!trimmed) {
     if (__DEV__) console.warn('[ocrService] Empty or invalid image URI');
@@ -35,7 +39,7 @@ export async function extractTextFromImage(uri: string): Promise<string> {
     media = await normalizeMediaToFile(trimmed);
     const result = await TextRecognition.recognize(toFileUri(media.path));
     const raw = (result?.text ?? '').trim();
-    const text = truncateForPrompt(collapseBlankLines(raw), MAX_OCR_CHARS);
+    const text = truncateForPrompt(collapseBlankLines(raw), maxChars);
     if (__DEV__ && raw) {
       console.log('[ocrService] Extracted length:', text.length, '(raw:', raw.length, ')');
     }

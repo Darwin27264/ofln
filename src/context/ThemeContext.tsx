@@ -102,13 +102,15 @@ const darkTheme: Theme = {
 interface ThemeContextType {
   theme: Theme;
   toggleTheme: () => void;
+  /** Apply a saved theme without toggle animation (backup restore). */
+  setThemeMode: (mode: ThemeMode) => void;
   isDark: boolean;
   isTransitioning: boolean;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-const THEME_STORAGE_KEY = '@app_theme_mode';
+export const THEME_STORAGE_KEY = '@app_theme_mode';
 
 export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [themeMode, setThemeMode] = useState<ThemeMode>('light');
@@ -166,6 +168,16 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
   };
 
+  /** Quiet apply (backup / restore) — no crossfade. */
+  const applyThemeMode = (mode: ThemeMode) => {
+    if (mode !== 'light' && mode !== 'dark') return;
+    setThemeMode(mode);
+    previousThemeMode.current = mode;
+    AsyncStorage.setItem(THEME_STORAGE_KEY, mode).catch((error) => {
+      console.error('Error saving theme:', error);
+    });
+  };
+
   const theme = themeMode === 'dark' ? darkTheme : lightTheme;
 
   if (!isInitialized) {
@@ -177,6 +189,7 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       value={{
         theme,
         toggleTheme,
+        setThemeMode: applyThemeMode,
         isDark: themeMode === 'dark',
         isTransitioning,
       }}

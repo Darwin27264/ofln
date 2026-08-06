@@ -611,6 +611,12 @@ function AppContent(): React.JSX.Element {
             onUnloadIfActive={handleUnloadIfActiveModel}
             onModelsChanged={checkDownloadedModels}
             onChatHistoryCleared={handleNewChat}
+            onBackupImported={async () => {
+              await checkDownloadedModels();
+              await loadAvailablePersonas();
+              // Replace path already resets conversation via onChatHistoryCleared;
+              // merge keeps the open chat unless parent opts to refresh.
+            }}
           />
         </PageFadeIn>
       )}

@@ -12,6 +12,7 @@ import {
   MAX_CHAT_HISTORY,
   buildTitleAndPreview,
   chatToRow,
+  isChatConversation,
   parseChatHistoryJson,
   rowToChat,
   sortChatsForDisplay,
@@ -21,13 +22,15 @@ import {
   escapeSqlLikePattern,
   type ChatRow,
 } from './chatHistoryHelpers';
+import { sanitizeChatForBackup } from '../utils/backupSchema';
 
 export interface MessageAttachment {
-  type: 'image';
+  type: 'image' | 'pdf';
   uri: string;
   width?: number;
   height?: number;
   fileName?: string;
+  mimeType?: string;
 }
 
 export interface Message {
@@ -359,6 +362,73 @@ class ChatHistoryService {
     } catch (error) {
       console.error('Error loading chat history:', error);
       return [];
+    }
+  }
+
+  /**
+   * Bulk import for backup restore (S32).
+   * mode replace = clear then insert; merge = upsert by id (import wins).
+   * @returns number of chats written (not necessarily net gain on merge)
+   */
+  async importChats(
+    chats: ChatConversation[],
+    mode: 'merge' | 'replace' = 'merge',
+  ): Promise<number> {
+    await this.initialize();
+    // Re-validate + strip attachment URIs even if caller already parsed (defense in depth).
+    const valid = trimChatsToMax(
+      chats
+        .filter(isChatConversation)
+        .map((c) => sanitizeChatForBackup(c)),
+    );
+    if (valid.length === 0) return 0;
+
+    if (this.backend === 'async') {
+      if (mode === 'replace') {
+        await this.writeAsyncHistory(valid);
+        return valid.length;
+      }
+      const existing = await this.readAsyncHistory();
+      const map = new Map<string, ChatConversation>();
+      for (const c of existing) map.set(c.id, c);
+      for (const c of valid) map.set(c.id, c);
+      const merged = trimChatsToMax(
+        [...map.values()].sort((a, b) => b.updatedAt - a.updatedAt),
+      );
+      await this.writeAsyncHistory(merged);
+      return valid.length;
+    }
+
+    const db = this.db!;
+    try {
+      await db.transaction(async (tx) => {
+        if (mode === 'replace') {
+          await tx.execute('DELETE FROM chats;');
+        }
+        for (const chat of valid) {
+          const row = chatToRow(chat);
+          await tx.execute(
+            `INSERT OR REPLACE INTO chats
+              (id, title, preview, messages_json, created_at, updated_at, pinned, custom_title)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+            [
+              row.id,
+              row.title,
+              row.preview,
+              row.messages_json,
+              row.created_at,
+              row.updated_at,
+              row.pinned,
+              row.custom_title,
+            ],
+          );
+        }
+      });
+      await this.enforceMaxChats();
+      return valid.length;
+    } catch (error) {
+      console.error('Error importing chats:', error);
+      throw error;
     }
   }
 

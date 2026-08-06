@@ -58,15 +58,6 @@ function computeGreetingTop(layoutHeight: number, overlayHeight: number): number
   return Math.max(bandTop, mid - 70);
 }
 
-/** Returns false if the image picker native module is not linked (e.g. app not rebuilt after install). */
-function isImagePickerAvailable(): boolean {
-  try {
-    const mod = NativeModules.ImagePicker;
-    return mod != null && typeof mod.launchImageLibrary === "function";
-  } catch {
-    return false;
-  }
-}
 import Ionicons from "react-native-vector-icons/Ionicons";
 import Clipboard from "@react-native-clipboard/clipboard";
 import { HistoryDrawer } from "../components/HistoryDrawer";
@@ -95,7 +86,23 @@ import { useKeyboardPadding } from "../hooks/useKeyboardPadding";
 import { Persona, getPersonas } from "../services/personaService";
 import { ANIMATION_CONFIG, EASING, ANIMATION_DURATIONS } from "../utils/animationConfig";
 import { extractTextFromImage } from "../services/ocrService";
+import {
+  extractTextFromAttachment,
+} from "../services/documentParsingService";
 import { IMAGE_PICKER_OPTIONS, cleanupStaleMediaTemps } from "../services/mediaNormalizeService";
+import {
+  documentInjectCharBudget,
+  buildAttachmentTextForPrompt,
+  sanitizeChatDocumentFileName,
+  isLikelyPdfMeta,
+} from "../utils/documentHelpers";
+import {
+  pick,
+  keepLocalCopy,
+  isErrorWithCode,
+  errorCodes,
+  types as documentPickerTypes,
+} from "@react-native-documents/picker";
 import { useAIChat } from "../hooks/useAIChat";
 import { llamaProvider } from "../providers/llamaProvider";
 import { toUserFacingLoadError } from "../utils/userFacingErrors";
@@ -107,13 +114,19 @@ import {
 import { logError } from "../utils/errorLogger";
 import { getAccelerationStatusSnapshot } from "../services/accelerationCapabilityService";
 import { formatAccelLogDisplay } from "../utils/accelChipDisplay";
+import {
+  speakText,
+  stopSpeaking,
+  setSpeechStatusListener,
+} from "../services/ttsService";
 
 type MessageAttachment = {
-  type: "image";
+  type: "image" | "pdf";
   uri: string;
   width?: number;
   height?: number;
   fileName?: string;
+  mimeType?: string;
 };
 
 type Message = {
@@ -419,6 +432,8 @@ export default function ConversationScreen({
   const attachItem0Translate = useRef(new Animated.Value(8)).current;
   const attachItem1Opacity = useRef(new Animated.Value(0)).current;
   const attachItem1Translate = useRef(new Animated.Value(8)).current;
+  const attachItem2Opacity = useRef(new Animated.Value(0)).current;
+  const attachItem2Translate = useRef(new Animated.Value(8)).current;
   const addButtonRef = useRef<View>(null);
 
   // Animation configurations are imported from centralized config
@@ -566,16 +581,19 @@ export default function ConversationScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only selectedGGUF should (re)load
   }, [selectedGGUF]);
 
-  // Pending image attachment (local state only until send)
+  // Pending attachment (local state only until send) — image OCR or PDF extract
   type PendingAttachment = {
     uri: string;
     fileName?: string;
     type?: string;
+    kind: "image" | "pdf";
     width?: number;
     height?: number;
   };
   const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
   const [isOcrRunning, setIsOcrRunning] = useState(false);
+  /** Blocks double-send while extract / animation is in flight (before isGenerating). */
+  const sendPrepareRef = useRef(false);
 
   // Helper function to prettify model name
   const prettifyModelName = (fileName: string): string => {
@@ -1357,15 +1375,24 @@ export default function ConversationScreen({
    * - Scroll to bottom after sending
    */
   const handleSendMessage = useCallback(async () => {
+    if (sendPrepareRef.current || isOcrRunning || isGenerating || isLoading) {
+      return;
+    }
     if (!llamaProvider.isReady() || !selectedGGUF) {
       warnModelNotLoaded();
       return;
     }
 
     const displayContent = userInput.trim();
-    // Validate: need either text or an attachment
-    if (!displayContent && !pendingAttachment) {
+    // Snapshot — UI may clear while the send animation runs.
+    const attachment = pendingAttachment;
+    if (!displayContent && !attachment) {
       return;
+    }
+
+    sendPrepareRef.current = true;
+    if (attachment) {
+      setIsOcrRunning(true);
     }
 
     // Animate send icon for visual feedback
@@ -1383,66 +1410,137 @@ export default function ConversationScreen({
         easing: EASING.STANDARD,
       }),
     ]).start(async () => {
-      if (!llamaProvider.isReady() || !selectedGGUF) {
-        warnModelNotLoaded();
-        return;
-      }
-
       try {
+        if (!llamaProvider.isReady() || !selectedGGUF) {
+          warnModelNotLoaded();
+          return;
+        }
+
         let sendOptions: {
           text: string;
           textForPrompt?: string;
           attachments?: MessageAttachment[];
         } = { text: displayContent };
 
-        if (pendingAttachment) {
-          setIsOcrRunning(true);
+        if (attachment) {
           try {
-            const ocrText = await extractTextFromImage(pendingAttachment.uri);
-            if (ocrText === "" && __DEV__) {
-              console.log("[ConversationScreen] OCR returned no text");
-            }
-            const textForPrompt =
-              "[Attached Image OCR]\n" +
-              (ocrText || "(No text detected.)") +
-              "\n\n[User]\n" +
-              (displayContent || "(No additional text)");
-            const attachments: MessageAttachment[] = [
-              {
-                type: "image",
-                uri: pendingAttachment.uri,
-                width: pendingAttachment.width,
-                height: pendingAttachment.height,
-                fileName: pendingAttachment.fileName,
-              },
-            ];
-            sendOptions = { text: displayContent, textForPrompt, attachments };
-          } catch (ocrErr) {
-            if (__DEV__) console.warn("OCR error:", ocrErr);
-            showToast("Could not read text from image. Sending image anyway.");
-            sendOptions = {
-              text: displayContent,
-              textForPrompt:
-                "[Attached Image]\n(No text detected.)\n\n[User]\n" +
-                (displayContent || "(No additional text)"),
-              attachments: [
+            const settings = await getModelSettings(selectedGGUF).catch(
+              () => DEFAULT_SETTINGS,
+            );
+            if (attachment.kind === "pdf") {
+              const safeName = sanitizeChatDocumentFileName(attachment.fileName);
+              const docText = await extractTextFromAttachment(
+                {
+                  type: "pdf",
+                  uri: attachment.uri,
+                  fileName: safeName,
+                  mimeType: attachment.type || "application/pdf",
+                },
+                {
+                  n_ctx: settings.n_ctx,
+                  n_predict: settings.n_predict,
+                },
+              );
+              if (!docText && __DEV__) {
+                console.log("[ConversationScreen] PDF extract returned no text");
+              }
+              const textForPrompt = buildAttachmentTextForPrompt(
+                "pdf",
+                docText,
+                displayContent,
+              );
+              sendOptions = {
+                text: displayContent,
+                textForPrompt,
+                attachments: [
+                  {
+                    type: "pdf",
+                    uri: attachment.uri,
+                    fileName: safeName,
+                    mimeType: attachment.type || "application/pdf",
+                  },
+                ],
+              };
+            } else {
+              const injectBudget = documentInjectCharBudget(
+                settings.n_ctx,
+                settings.n_predict,
+              );
+              const ocrText = await extractTextFromImage(
+                attachment.uri,
+                injectBudget,
+              );
+              if (ocrText === "" && __DEV__) {
+                console.log("[ConversationScreen] OCR returned no text");
+              }
+              const textForPrompt = buildAttachmentTextForPrompt(
+                "image",
+                ocrText,
+                displayContent,
+              );
+              const attachments: MessageAttachment[] = [
                 {
                   type: "image",
-                  uri: pendingAttachment.uri,
-                  width: pendingAttachment.width,
-                  height: pendingAttachment.height,
-                  fileName: pendingAttachment.fileName,
+                  uri: attachment.uri,
+                  width: attachment.width,
+                  height: attachment.height,
+                  fileName: attachment.fileName,
                 },
-              ],
-            };
-          } finally {
-            setIsOcrRunning(false);
+              ];
+              sendOptions = { text: displayContent, textForPrompt, attachments };
+            }
+          } catch (extractErr) {
+            if (__DEV__) console.warn("Attachment extract error:", extractErr);
+            if (attachment.kind === "pdf") {
+              const safeName = sanitizeChatDocumentFileName(attachment.fileName);
+              showToast("Could not read the PDF. Sending with a limitation note.");
+              sendOptions = {
+                text: displayContent,
+                textForPrompt: buildAttachmentTextForPrompt(
+                  "pdf",
+                  "",
+                  displayContent,
+                ),
+                attachments: [
+                  {
+                    type: "pdf",
+                    uri: attachment.uri,
+                    fileName: safeName,
+                    mimeType: attachment.type || "application/pdf",
+                  },
+                ],
+              };
+            } else {
+              showToast("Could not read text from image. Sending image anyway.");
+              sendOptions = {
+                text: displayContent,
+                textForPrompt: buildAttachmentTextForPrompt(
+                  "image",
+                  "",
+                  displayContent,
+                ),
+                attachments: [
+                  {
+                    type: "image",
+                    uri: attachment.uri,
+                    width: attachment.width,
+                    height: attachment.height,
+                    fileName: attachment.fileName,
+                  },
+                ],
+              };
+            }
           }
-          setPendingAttachment(null);
         }
 
-        // Clear the input bar immediately; pass text explicitly so submit
-        // does not depend on async aiChat.setInput (that race was a silent no-op).
+        // Re-check readiness after async OCR/PDF extract (model can unload mid-flight).
+        if (!llamaProvider.isReady() || !selectedGGUF) {
+          warnModelNotLoaded();
+          return;
+        }
+
+        // Clear composer only once we are ready to hand off to the chat hook.
+        setPendingAttachment(null);
         setUserInput("");
         aiChat.setInput("");
         setAutoScrollEnabled(true);
@@ -1453,12 +1551,18 @@ export default function ConversationScreen({
       } catch (error) {
         console.error("Error sending message:", error);
         showToast("Failed to send message. Please try again.");
+      } finally {
+        setIsOcrRunning(false);
+        sendPrepareRef.current = false;
       }
     });
   }, [
     selectedGGUF,
     userInput,
     pendingAttachment,
+    isOcrRunning,
+    isGenerating,
+    isLoading,
     showToast,
     warnModelNotLoaded,
     scaleAnim,
@@ -1533,6 +1637,47 @@ export default function ConversationScreen({
     Clipboard.setString(content);
     showToast("Message copied to clipboard");
   }, [showToast]);
+
+  const [speakingVisibleIndex, setSpeakingVisibleIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    setSpeechStatusListener((status) => {
+      if (!status.speaking) {
+        setSpeakingVisibleIndex(null);
+      }
+    });
+    return () => {
+      setSpeechStatusListener(null);
+      void stopSpeaking();
+    };
+  }, []);
+
+  /** Play / stop OS TTS for an assistant bubble (S29). */
+  const handleSpeakMessage = useCallback(
+    async (content: string, visibleIndex: number) => {
+      if (speakingVisibleIndex === visibleIndex) {
+        await stopSpeaking();
+        setSpeakingVisibleIndex(null);
+        return;
+      }
+      const result = await speakText(content);
+      if (!result.ok) {
+        if (result.reason === 'unavailable') {
+          showToast(
+            'Speech not linked. Rebuild the app (e.g. npm run android) and try again.',
+          );
+        } else if (result.reason === 'empty') {
+          showToast('Nothing to speak in this reply.');
+        } else {
+          showToast('Could not speak this reply.');
+        }
+        setSpeakingVisibleIndex(null);
+        return;
+      }
+      setSpeakingVisibleIndex(visibleIndex);
+    },
+    [speakingVisibleIndex, showToast],
+  );
 
   /**
    * Opens the floating model / persona selector
@@ -1628,6 +1773,7 @@ export default function ConversationScreen({
         uri,
         fileName: asset.fileName,
         type: asset.type || 'image/jpeg',
+        kind: 'image',
         width: asset.width,
         height: asset.height,
       });
@@ -1675,6 +1821,7 @@ export default function ConversationScreen({
         uri,
         fileName: asset.fileName,
         type: asset.type || 'image/jpeg',
+        kind: 'image',
         width: asset.width,
         height: asset.height,
       });
@@ -1691,10 +1838,82 @@ export default function ConversationScreen({
     }
   }, [showToast]);
 
+  /** Open document picker for a PDF and set pendingAttachment (S27b). */
+  const chooseDocument = useCallback(async () => {
+    try {
+      if (sendPrepareRef.current || isOcrRunning) {
+        return;
+      }
+      if (!pick || typeof pick !== "function") {
+        showToast(
+          "Document picker not linked. Rebuild the app (e.g. npm run android) and try again.",
+        );
+        return;
+      }
+      const result = await pick({
+        type: [documentPickerTypes.pdf, "application/pdf"],
+        allowMultiSelection: false,
+      });
+      const picked = Array.isArray(result) ? result[0] : result;
+      if (!picked?.uri || typeof picked.uri !== "string") {
+        return;
+      }
+
+      const rawName = (picked.name || "document.pdf").trim() || "document.pdf";
+      const mime = typeof picked.type === "string" ? picked.type : "";
+      if (!isLikelyPdfMeta(rawName, mime)) {
+        showToast("Please select a PDF file.");
+        return;
+      }
+
+      const safeName = sanitizeChatDocumentFileName(rawName);
+      let uri = String(picked.uri).trim();
+      if (!uri) {
+        showToast("Could not access the selected file.");
+        return;
+      }
+
+      try {
+        const copies = await keepLocalCopy({
+          files: [{ uri, fileName: safeName }],
+          destination: "cachesDirectory",
+        });
+        const first = Array.isArray(copies) ? copies[0] : copies;
+        if (first?.status === "success" && first.localUri) {
+          uri = String(first.localUri);
+        } else if (first?.status === "error" && __DEV__) {
+          console.warn("keepLocalCopy failed", first.copyError);
+        }
+      } catch (copyErr) {
+        // content:// may still work later via normalizeMediaToFile on send
+        if (__DEV__) console.warn("keepLocalCopy error:", copyErr);
+      }
+
+      setPendingAttachment({
+        uri,
+        fileName: safeName,
+        type: "application/pdf",
+        kind: "pdf",
+      });
+      void cleanupStaleMediaTemps();
+    } catch (err) {
+      if (isErrorWithCode(err) && err.code === errorCodes.OPERATION_CANCELED) {
+        return;
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      const needsRebuild = /null|not found|undefined/i.test(msg);
+      if (__DEV__) console.warn("Document picker error:", err);
+      showToast(
+        needsRebuild
+          ? "Document picker not linked. Rebuild the app (e.g. npm run android) and try again."
+          : "Could not open document picker",
+      );
+    }
+  }, [showToast, isOcrRunning]);
+
   /** Show attach popup above the add button */
   const openAttachMenu = useCallback(() => {
-    if (!isImagePickerAvailable()) {
-      showToast("Image picker not available. Rebuild the app (e.g. npm run android) and try again.");
+    if (sendPrepareRef.current || isOcrRunning || isGenerating) {
       return;
     }
     addButtonRef.current?.measureInWindow((x, y, width, height) => {
@@ -1706,6 +1925,8 @@ export default function ConversationScreen({
       attachItem0Translate.setValue(6);
       attachItem1Opacity.setValue(0);
       attachItem1Translate.setValue(6);
+      attachItem2Opacity.setValue(0);
+      attachItem2Translate.setValue(6);
       Animated.parallel([
         Animated.timing(attachMenuOpacity, {
           toValue: 1,
@@ -1742,9 +1963,34 @@ export default function ConversationScreen({
           easing: EASING.EASE_OUT,
           useNativeDriver: true,
         }),
+        Animated.timing(attachItem2Opacity, {
+          toValue: 1,
+          duration: 100,
+          delay: 75,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
+        Animated.timing(attachItem2Translate, {
+          toValue: 0,
+          duration: 100,
+          delay: 75,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        }),
       ]).start();
     });
-  }, [showToast, attachMenuOpacity, attachMenuScale, attachItem0Opacity, attachItem0Translate, attachItem1Opacity, attachItem1Translate]);
+  }, [
+    isOcrRunning,
+    isGenerating,
+    attachMenuOpacity,
+    attachMenuScale,
+    attachItem0Opacity,
+    attachItem0Translate,
+    attachItem1Opacity,
+    attachItem1Translate,
+    attachItem2Opacity,
+    attachItem2Translate,
+  ]);
 
   /**
    * Closes the floating model / persona selector
@@ -1890,7 +2136,9 @@ export default function ConversationScreen({
     ],
   );
 
-  const sendButtonDisabled = !userInput.trim() && !pendingAttachment;
+  const sendButtonDisabled =
+    isOcrRunning ||
+    (!userInput.trim() && !pendingAttachment);
 
   // Memoize grouped chat history for performance (respects drawer search)
   const groupedChatHistory = useMemo(() => {
@@ -2333,6 +2581,8 @@ export default function ConversationScreen({
           onToggleThought={toggleThought}
           onCopyMessage={handleCopyMessage}
           onRegenerateMessage={handleRegenerateMessage}
+          onSpeakMessage={handleSpeakMessage}
+          speakingVisibleIndex={speakingVisibleIndex}
           onEditUserMessage={handleEditUserMessage}
           noMessages={noMessages}
           isTemporaryMode={isTemporaryMode}
@@ -2386,9 +2636,12 @@ export default function ConversationScreen({
           attachItem0Translate={attachItem0Translate}
           attachItem1Opacity={attachItem1Opacity}
           attachItem1Translate={attachItem1Translate}
+          attachItem2Opacity={attachItem2Opacity}
+          attachItem2Translate={attachItem2Translate}
           onDismissAttachMenu={dismissAttachMenu}
           onTakePhoto={takePhoto}
           onChoosePhoto={choosePhoto}
+          onChooseDocument={chooseDocument}
         />
 
 

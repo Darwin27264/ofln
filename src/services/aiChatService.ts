@@ -159,7 +159,12 @@ async function _runStream(
       );
       if (pdfAttachments.length > 0) {
         const pdfTexts = await Promise.all(
-          pdfAttachments.map((a) => extractTextFromAttachment(a)),
+          pdfAttachments.map((a) =>
+            extractTextFromAttachment(a, {
+              n_ctx: settings.n_ctx,
+              n_predict: settings.n_predict,
+            }),
+          ),
         );
         const pdfContext = pdfTexts.filter(Boolean).join('\n\n---\n\n');
         if (pdfContext) {
@@ -172,7 +177,12 @@ async function _runStream(
     } else {
       // Text-only model: extract text from all attachments
       const allTexts = await Promise.all(
-        (sendOptions!.attachments || []).map((a) => extractTextFromAttachment(a)),
+        (sendOptions!.attachments || []).map((a) =>
+          extractTextFromAttachment(a, {
+            n_ctx: settings.n_ctx,
+            n_predict: settings.n_predict,
+          }),
+        ),
       );
       const attachmentContext = allTexts.filter(Boolean).join('\n\n---\n\n');
       if (attachmentContext) {

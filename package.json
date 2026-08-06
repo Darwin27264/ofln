@@ -45,6 +45,7 @@
     "react-native-markdown-display": "^7.0.2",
     "react-native-safe-area-context": "^5.8.0",
     "react-native-svg": "^15.15.5",
+    "react-native-tts": "^4.1.1",
     "react-native-vector-icons": "^10.2.0",
     "react-syntax-highlighter": "^15.6.1",
     "uuid": "^11.1.1"

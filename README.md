@@ -10,12 +10,15 @@ That file defines themes, colors, page transitions, animation timings, alerts/ov
 
 **Keep it current:** if you make a **significant design change** (tokens, motion, overlays, navigation chrome, typography, spacing language, or shared component look), update [`DESIGN.md`](./DESIGN.md) in the same change so the next agent inherits an accurate spec.
 
+**Keep backup current:** if you add **user-durable data** (new AsyncStorage keys, SQLite tables/columns, DocumentDirectory JSON, downloadable assets users expect to keep across devices), update **export + import** per [Backup & restore](#backup--restore) in the same change. Silence is a bug for reinstalls/migrations.
+
 ## Table of Contents
 
 - [Design system](#design-system)
 - [Architecture](#architecture)
 - [Project Structure](#project-structure)
 - [Key Features](#key-features)
+- [Backup & restore](#backup--restore)
 - [Data Flow](#data-flow)
 - [Installation & Setup](#installation--setup)
 - [Development Commands](#development-commands)
@@ -55,9 +58,9 @@ UI patches + optional <think> blocks + AsyncStorage chat save + usage_log.json
 
 Layering:
 
-- **Screens**: ModelSelection, Conversation, Settings, Stages, Personas, Diagnostics
+- **Screens**: ModelSelection, Conversation, Settings, Storage (backup), Stages, Personas, Diagnostics
 - **Providers**: `llamaProvider` — active `@react-native-ai/llama` load/unload for chat
-- **Services**: download, settings, chat history, acceleration gating, vision/OCR, usage
+- **Services**: download, settings, chat history, **backup/restore**, acceleration gating, vision/OCR, usage
 - **Hooks**: `useAIChat` (chat + streaming), HuggingFace browse, filters
 - **Native**: Custom app code is UI/shell only; inference natives ship inside `llama.rn`
 
@@ -78,10 +81,12 @@ Unload on back-to-models: `releaseAllLlama()` + `llamaProvider.unloadModel()`. A
 - **llama.rn (0.12.6)**: Native llama.cpp bindings (GGUF inference; Gemma 4 / MTP support)
 - **@react-native-ai/llama**: Language-model provider used by `llamaProvider`
 - **ai (Vercel AI SDK)**: `streamText` orchestration available alongside native completion
-- **AsyncStorage**: Chat history, model settings, personas, local-import metadata
+- **AsyncStorage / op-sqlite**: Chat history (SQLite when linked), model settings, personas, model download catalog, local-import metadata
 - **react-native-fs (RNFS)**: Model download/storage under DocumentDirectory
+- **@react-native-documents/picker**: GGUF import, backup save/open (system folder picker)
 - **Axios**: HuggingFace catalog/metadata requests
 - **@react-native-ml-kit/text-recognition**: On-device OCR for image attachments (vision fallback)
+- **react-native-keychain**: HF token (and future secrets) — **never** included in backups
 
 ### State Management
 
@@ -90,7 +95,7 @@ The application uses a combination of:
 - **React Context API**: Theme and global alert management (ThemeContext, CustomAlertProvider)
 - **Local State**: Component-level state with `useState` for UI state
 - **Refs**: Values that don't trigger re-renders (animation state, scroll tracking, generation buffers)
-- **AsyncStorage**: Persistent data (chat history, model settings, local models metadata)
+- **AsyncStorage / SQLite**: Durable user data (chat history backend, model settings, personas, model catalog, etc.); portable via [Backup & restore](#backup--restore)
 - **Provider singleton**: `llamaProvider` holds ready/loading status + native context handle for chat
 
 ### Design Principles
@@ -145,19 +150,24 @@ src/
 │   ├── PersonaEditorScreen.tsx
 │   ├── PersonasLibraryScreen.tsx
 │   ├── SettingsScreen.tsx
+│   ├── StorageScreen.tsx           # Models sizes, clear chats, backup/restore (S32)
 │   └── StagesScreen.tsx
 ├── services/
 │   ├── accelerationCapabilityService.ts  # OpenCL / Hexagon detection (Android)
 │   ├── aiChatService.ts            # streamChat + nativeCompletion orchestration
-│   ├── chatHistoryService.ts
+│   ├── backupService.ts            # Export/import orchestration (S32)
+│   ├── chatHistoryService.ts       # SQLite (+ AsyncStorage fallback); importChats
 │   ├── deviceEnv.ts                # Emulator heuristic
 │   ├── documentParsingService.ts   # Attachments / PDF text extraction
 │   ├── inferencePerfParams.ts          # Shared flash_attn / n_batch / KV cache knobs
 │   ├── llamaService.ts             # checkFileExists (+ unused legacy stop/completion helpers)
 │   ├── localModelService.ts
 │   ├── mediaNormalizeService.ts        # Image pick resize, content:// copy, OCR caps
+│   ├── modelCatalogService.ts      # Persistent download URLs for backup rehydrate
+│   ├── modelDownloadQueue.ts       # Capped parallel re-downloads after import
 │   ├── modelInfoService.ts         # Quant detect + Android accel allowlist
-│   ├── modelSettingsService.ts
+│   ├── modelSettingsService.ts     # + exportAllModelSettings / importModelSettingsMap
+│   ├── modelStorageService.ts      # List/delete on-device GGUFs
 │   ├── ocrService.ts               # ML Kit OCR
 │   ├── personaService.ts
 │   ├── performanceTracking.ts      # Unified usage metrics / tok/s / Performance screen data
@@ -169,9 +179,11 @@ src/
 │   └── ai.ts                       # Shared chat / provider types
 └── utils/
     ├── animationConfig.ts
+    ├── backupSchema.ts             # Format magic, schema v1, parse/validate pure helpers
     ├── errorLogger.ts
     ├── modelUtils.ts
-    └── systemBars.ts
+    ├── systemBars.ts
+    └── zipStore.ts                 # Minimal ZIP STORE (create/extract, CRC)
 ```
 
 ## Key Features
@@ -186,7 +198,7 @@ src/
 
 ### Chat Interface
 
-- **Persistent History**: Chat history saved to AsyncStorage
+- **Persistent History**: Chat history via `chatHistoryService` (SQLite when linked); exportable in full/chat backups
 - **Multiple Conversations**: Manage multiple chat sessions
 - **Pin/Unpin**: Pin important conversations for quick access
 - **Custom Titles**: Rename conversations with custom titles
@@ -210,13 +222,136 @@ src/
 - **Persistent Preference**: Theme choice saved across app restarts
 - **Smooth Transitions**: Animated theme transitions
 
+### Backup & restore (device transfer)
+
+- **Entry point:** Settings → **Storage** → **Backup & restore**
+- **Chats only:** versioned JSON file (`ofln-chats-*.json`)
+- **Full backup:** versioned ZIP (`ofln-backup-*.zip`) of chats, personas, settings, model catalog, Stages usage log
+- **Models:** GGUF binaries are **not** packed (phone size limits); catalog URLs re-download on import (smallest first, max 2 parallel)
+- **Secrets:** HF token stays in Keychain and is **never** exported
+- **User picks location:** system Save / Open dialogs (scoped storage–safe)
+
+See [Backup & restore](#backup--restore) for the format, current payload map, and **required checklist when you add new durable app data**.
+
+## Backup & restore
+
+Portable, offline device transfer (chat continuity + optional full profile). Designed like ChatGPT-style exports: versioned JSON, optional ZIP of JSON parts, no multi‑GB model blobs.
+
+### User surface
+
+| Action | Behavior |
+|--------|----------|
+| Export chat history | Writes `ofln-chats-YYYYMMDD-HHMMSS.json`; system Save dialog |
+| Export full backup (ZIP) | Writes `ofln-backup-*.zip`; same Save dialog |
+| Import — merge | Upserts by id (import wins on collision); keeps local-only rows |
+| Import — replace | Clears replaced domains (chats/personas for full), then loads backup |
+
+Import validates magic + schema, then applies data; full backups queue missing models for re-download.
+
+### File format (schema v1)
+
+Magic fields (every payload):
+
+```json
+{
+  "format": "ofln-backup",
+  "schemaVersion": 1,
+  "kind": "chats" | "full",
+  "exportedAt": 0,
+  "appVersion": "0.1.1"
+}
+```
+
+| Kind | Container | Contents |
+|------|-----------|----------|
+| `chats` | Single `.json` | `chats[]` plus magic fields |
+| `full` | `.zip` (STORE/no compression) | `manifest.json`, `chats.json`, `personas.json`, `settings.json`, `models.json`, `stages.json` |
+
+Rules:
+
+- Importers accept `schemaVersion` **≤** `BACKUP_SCHEMA_VERSION` in `src/utils/backupSchema.ts`.
+- Higher future versions must fail with a clear “update the app” message (already implemented).
+- Prefer additive optional fields over renames so older apps keep working.
+- Bump `BACKUP_SCHEMA_VERSION` only for **breaking** shape changes; update pure tests in `__tests__/backupSchema.test.ts`.
+
+### What is included today (full backup)
+
+| Domain | Source | ZIP / field | Restore notes |
+|--------|--------|-------------|---------------|
+| Chats | `chatHistoryService` (SQLite / AsyncStorage fallback) | `chats.json` | `importChats(mode)`; message **attachment URIs stripped** (local paths don’t transfer) |
+| Personas | `@personas` via `personaService` | `personas.json` | `replaceAllPersonas` / `mergePersonasImport` |
+| Theme | `@app_theme_mode` | `settings.json` → `themeMode` | AsyncStorage + `ThemeContext.setThemeMode` |
+| Onboarding flag | `@has_completed_onboarding` | `settings.json` → `onboardingComplete` | Restored as completed when true |
+| Per-model settings | `@model_settings_{fileName}` | `settings.json` → `modelSettings` | `exportAllModelSettings` / `importModelSettingsMap` |
+| Model catalog | `@model_catalog_v1` + on-device GGUF names/sizes | `models.json` | URLs re-download; names without URLs listed as manual |
+| Stages metrics | `DocumentDirectory/usage_log.json` | `stages.json` | Replace or append by mode |
+
+### Explicitly **not** backed up
+
+| Item | Why |
+|------|-----|
+| HF / API tokens (Keychain) | Secrets must not leave secure storage in a shareable file |
+| GGUF model **binaries** | Multi‑GB; re-download via catalog instead |
+| `*.gguf.partial` / resume meta | Transient download state |
+| In-memory only state | Model loaded in RAM, open draft composer text, UI panels |
+| Chat image/PDF **files** | Attachment paths are device-local; text content still exports |
+
+### Code map (extend here, not elsewhere)
+
+| Concern | File(s) |
+|---------|---------|
+| Orchestration (export/import I/O) | `src/services/backupService.ts` |
+| Schema, parse, merge pure helpers | `src/utils/backupSchema.ts` |
+| ZIP encode/decode | `src/utils/zipStore.ts` |
+| Download URL registry | `src/services/modelCatalogService.ts` (register after successful download in `src/api/model.ts`) |
+| Re-download queue | `src/services/modelDownloadQueue.ts` (cap **2**, smallest-first) |
+| UI | `src/screens/StorageScreen.tsx` |
+| Unit tests | `__tests__/backupSchema.test.ts` |
+
+Product agents: short S32 note also in [`docs/AGENT_IMPLEMENTATION_GUIDE.md`](./docs/AGENT_IMPLEMENTATION_GUIDE.md).
+
+### Agents: checklist when adding durable data
+
+**If you add anything the user would miss after a phone reinstall or migrate, you must wire backup in the same PR (or an immediately following PR). Do not leave silent gaps.**
+
+1. **Decide: user data vs secret vs ephemeral**
+   - **User data** (chats, personas, preferences, bookmarks, notes) → include in full backup (and chats-only if it is chat-related).
+   - **Secret** (tokens, keys, passwords) → Keychain / secure store only; **never** export; document under “not backed up”.
+   - **Ephemeral** (download partials, caches, RAM model state) → leave out.
+
+2. **Add export reader** in `backupService` (`buildFullPayload` / `collectSettings` / dedicated collector). Prefer a service function (`exportFoo()`) rather than raw AsyncStorage keys scattered in the UI.
+
+3. **Add import writer** with **merge** and **replace** behavior (same modes as chats). Reuse existing patterns: chats → `chatHistoryService.importChats`, personas → `replaceAllPersonas` / `mergePersonasImport`.
+
+4. **Schema**
+   - Prefer a new optional field under existing JSON parts (`settings.json`, etc.) without bumping schema.
+   - New top-level ZIP member (e.g. `bookmarks.json`): add to zip creation **and** `zipBytesToPayload` / `manifest.files`.
+   - Breaking change: increment `BACKUP_SCHEMA_VERSION`; keep old readers where practical; extend pure tests.
+
+5. **Sanitize** device-local paths, `content://` URIs, and anything that cannot work on another device. Strip or rewrite on export (see `sanitizeChatForBackup`).
+
+6. **Large binaries** (models, media libraries): store **metadata + re-fetch URLs** (or user prompt to re-add). Register sources like `registerModelSource` when the user first obtains the asset.
+
+7. **Tests**: pure parse/merge/round-trip for new fields in `__tests__/backupSchema.test.ts` (or a sibling test that stays free of native modules).
+
+8. **Docs**: update **this table** and the “not backed up” list in the same change. If the design language changes, still update `DESIGN.md` separately.
+
+9. **Smoke**: Settings → Storage → full export → import merge on a clean install path if you can; at least unit tests for the schema helpers.
+
+**Anti-patterns**
+
+- Writing only to AsyncStorage/Keychain/SQLite without backup hooks.
+- Packing multi‑GB files into the ZIP “because it’s simpler”.
+- Exporting tokens “for convenience”.
+- Bumping schema for cosmetic renames without a compatibility plan.
+
 ## Data Flow
 
 ### Model Download Flow
 
 1. User selects a curated or HuggingFace search result in ModelSelectionScreen
 2. App builds `https://huggingface.co/{repoId}/resolve/main/{file}` and downloads via `src/api/model.ts` (`react-native-blob-util` when `USE_RESUMABLE_DOWNLOADS` is true; legacy `RNFS.downloadFile` otherwise)
-3. Destination: `{RNFS.DocumentDirectoryPath}/{fileName}.gguf` (in-progress files are `*.gguf.partial` — never loaded as models)
+3. Destination: `{RNFS.DocumentDirectoryPath}/{fileName}.gguf` (in-progress files are `*.gguf.partial` — never loaded as models). On successful activate, `registerModelSource` records the URL in `@model_catalog_v1` so full backups can re-download the file on another device.
 4. Progress updates the UI; pause keeps the partial for resume; discard deletes partial + meta. Optional size verify before rename/activate
 5. On success, downloaded models are discovered by listing final `*.gguf` only in DocumentDirectory
 6. Local imports copy a picked GGUF into DocumentDirectory; metadata lives in AsyncStorage (`@local_models`)
@@ -249,7 +384,7 @@ Defaults (see `modelSettingsService`): `n_ctx` 2048, `n_gpu_layers` 1, `temperat
 4. Native `context.completion` streams tokens; UI updates via throttled patches
 5. Thinking/reasoning content is split out for supported reasoning models; Qwen may set `enable_thinking` only for “complex” prompts
 6. Stop uses AbortController and/or `ctx.stopCompletion()`
-7. Chat is persisted via `chatHistoryService` → AsyncStorage (`@chat_history`, max 100)
+7. Chat is persisted via `chatHistoryService` (SQLite `ofln_chats.sqlite` when linked; AsyncStorage fallback), max 100 chats. Device transfer: Settings → Storage → Backup.
 8. Metrics recorded via `recordCompletionUsage` → `usage_log.json`
 
 **Alternate path**: `streamChat` → Vercel `streamText({ model: llamaProvider.getLanguageModel() })` — available for AI SDK DX, not the default Conversation setting.
@@ -501,11 +636,11 @@ The application uses a hybrid state management approach:
    - Scroll position tracking
    - Non-reactive state (e.g., animation phase tracking)
 
-4. **Persistent State** (AsyncStorage):
-   - Chat history
-   - Model settings
-   - Persona definitions
-   - Usage metrics
+4. **Persistent State**:
+   - Chat history (op-sqlite `ofln_chats.sqlite` when native is linked; AsyncStorage fallback)
+   - Model settings, personas, theme, model download catalog (`@model_catalog_v1`)
+   - Usage metrics (`usage_log.json`)
+   - **Portable** via Settings → Storage backup (see [Backup & restore](#backup--restore)); secrets stay in Keychain
 
 ### Error Handling Architecture
 
@@ -789,3 +924,4 @@ npm run android:uninstall
 - Prefer focused PRs; match existing TypeScript / React Native patterns.
 - For visual or interaction work, follow [`DESIGN.md`](./DESIGN.md).
 - **Agents:** after any significant design change (themes/tokens, page transitions, animation durations, popups/overlays, shared layout chrome, typography, or spacing language), update [`DESIGN.md`](./DESIGN.md) in the same change so future agents keep a correct design source of truth.
+- **Agents:** after any new **user-durable** data (AsyncStorage key, SQLite table, DocumentDirectory JSON, downloadable asset the user expects to keep), update **export + import** in [`src/services/backupService.ts`](./src/services/backupService.ts) (and schema/tests/docs as needed). Follow the [Backup & restore](#backup--restore) checklist — do not ship persistence without a restore path.

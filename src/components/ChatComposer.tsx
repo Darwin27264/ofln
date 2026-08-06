@@ -1,5 +1,5 @@
 /**
- * Chat composer: attach menu, pending image preview, input, send/stop.
+ * Chat composer: attach menu, pending image/PDF preview, input, send/stop.
  * Presentational — ConversationScreen owns handlers and keyboard padding (S04b).
  */
 
@@ -26,7 +26,10 @@ import { createStyles } from '../styles/styles';
 export type ComposerPendingAttachment = {
   uri: string;
   fileName?: string;
+  /** MIME hint from pickers (e.g. image/jpeg, application/pdf). */
   type?: string;
+  /** Product attachment kind — image (OCR) vs pdf (text extract). */
+  kind?: 'image' | 'pdf';
   width?: number;
   height?: number;
 };
@@ -63,9 +66,12 @@ export type ChatComposerProps = {
   attachItem0Translate: Animated.Value;
   attachItem1Opacity: Animated.Value;
   attachItem1Translate: Animated.Value;
+  attachItem2Opacity: Animated.Value;
+  attachItem2Translate: Animated.Value;
   onDismissAttachMenu: (onComplete?: () => void) => void;
   onTakePhoto: () => void;
   onChoosePhoto: () => void;
+  onChooseDocument: () => void;
 };
 
 export function ChatComposer({
@@ -95,13 +101,21 @@ export function ChatComposer({
   attachItem0Translate,
   attachItem1Opacity,
   attachItem1Translate,
+  attachItem2Opacity,
+  attachItem2Translate,
   onDismissAttachMenu,
   onTakePhoto,
   onChoosePhoto,
+  onChooseDocument,
 }: ChatComposerProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
   const screenWidth = Dimensions.get('window').width;
+
+  const isPendingPdf =
+    pendingAttachment?.kind === 'pdf' ||
+    pendingAttachment?.type === 'application/pdf' ||
+    !!pendingAttachment?.fileName?.toLowerCase().endsWith('.pdf');
 
   const attachItemStyle = {
     backgroundColor: 'transparent' as const,
@@ -150,7 +164,7 @@ export function ChatComposer({
                     screenWidth - 196,
                   ),
                 ),
-                top: Math.max(8, attachMenuAnchor.y - 116),
+                top: Math.max(8, attachMenuAnchor.y - 172),
                 minWidth: 180,
                 opacity: attachMenuOpacity,
                 transform: [{ scale: attachMenuScale }],
@@ -187,6 +201,7 @@ export function ChatComposer({
                 style={{
                   opacity: attachItem1Opacity,
                   transform: [{ translateY: attachItem1Translate }],
+                  marginBottom: 8,
                 }}
               >
                 <TouchableOpacity
@@ -205,6 +220,31 @@ export function ChatComposer({
                     }}
                   >
                     Gallery (OCR text)
+                  </Text>
+                </TouchableOpacity>
+              </Animated.View>
+              <Animated.View
+                style={{
+                  opacity: attachItem2Opacity,
+                  transform: [{ translateY: attachItem2Translate }],
+                }}
+              >
+                <TouchableOpacity
+                  onPress={() => onDismissAttachMenu(onChooseDocument)}
+                  style={attachItemStyle}
+                  activeOpacity={0.85}
+                >
+                  <FrostedGlass style={StyleSheet.absoluteFillObject} />
+                  <Ionicons name="document-outline" size={18} color={theme.colors.text} />
+                  <Text
+                    style={{
+                      color: theme.colors.text,
+                      marginLeft: 10,
+                      fontSize: 14,
+                      fontFamily: 'Poppins',
+                    }}
+                  >
+                    File (PDF)
                   </Text>
                 </TouchableOpacity>
               </Animated.View>
@@ -256,14 +296,34 @@ export function ChatComposer({
           {pendingAttachment && (
             <View style={styles.attachmentPreviewRow}>
               <FrostedGlass style={StyleSheet.absoluteFillObject} />
-              <Image
-                source={{ uri: pendingAttachment.uri }}
-                style={styles.attachmentThumb}
-                resizeMode="cover"
-              />
+              {isPendingPdf ? (
+                <View
+                  style={[
+                    styles.attachmentThumb,
+                    {
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: theme.colors.surface,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="document-text-outline"
+                    size={22}
+                    color={theme.colors.textSecondary}
+                  />
+                </View>
+              ) : (
+                <Image
+                  source={{ uri: pendingAttachment.uri }}
+                  style={styles.attachmentThumb}
+                  resizeMode="cover"
+                />
+              )}
               <View style={{ flex: 1 }}>
                 <Text style={styles.attachmentLabel} numberOfLines={1}>
-                  {pendingAttachment.fileName || 'Image ready'}
+                  {pendingAttachment.fileName ||
+                    (isPendingPdf ? 'PDF ready' : 'Image ready')}
                 </Text>
                 {isOcrRunning && (
                   <View
@@ -282,7 +342,9 @@ export function ChatComposer({
                 )}
                 {!isOcrRunning && (
                   <Text style={[styles.attachmentLabel, { fontSize: 12, marginTop: 2 }]}>
-                    Text will be read with OCR when you send
+                    {isPendingPdf
+                      ? 'Text will be extracted when you send'
+                      : 'Text will be read with OCR when you send'}
                   </Text>
                 )}
               </View>
