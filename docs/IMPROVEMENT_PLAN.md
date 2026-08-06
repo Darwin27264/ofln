@@ -1,6 +1,6 @@
 # OFLN Product Roadmap
 
-**Status:** living plan — final safety pass 2026-07-30  
+**Status:** living plan — last track update **2026-08-05** (S26 done; S24 deferred; S25 removed; **next = S27**)  
 **Audience:** builders / AI agents shipping OFLN  
 **Stack:** RN 0.78.1 · New Arch · `llama.rn` 0.12.6 · styles via `createStyles` + [`DESIGN.md`](../DESIGN.md)
 
@@ -8,11 +8,11 @@
 
 The app is **working**. Do **one atomic step** at a time (see §6). Never implement a whole phase in one session.
 
-1. Read this file + [`AGENT_IMPLEMENTATION_GUIDE.md`](./AGENT_IMPLEMENTATION_GUIDE.md).  
+1. Read this file + [`AGENT_IMPLEMENTATION_GUIDE.md`](./AGENT_IMPLEMENTATION_GUIDE.md) **Handoff** (next step is unchecked **S27**).  
 2. Re-explore/trace live code for that step’s symbols.  
 3. Implement **only** that step; match existing StyleSheet / `DESIGN.md`.  
 4. Smoke-test (§ guide 0.3). Stop if chat/load/download regresses.  
-5. Mark the step done; open a new session for the next step.
+5. Mark the step done in **both** plan docs; open a new session for the next step.
 
 ---
 
@@ -95,7 +95,7 @@ Legend: **S** = safe/simple · **M** = medium, careful · **H** = hard / race-pr
 | 2.5 Flush on background | **S** | AppState → persist |
 | 2.6 Unload on background | **D→H** | **Deferred** (races with completion). Keep-awake-while-generating only (2.6a) |
 | 2.7 Export | **S** | Markdown share |
-| 2.8 Storage manager | **S–M** | Confirm + unload if deleting active model |
+| 2.8 Storage manager | **S–M** | Confirm + unload if deleting active model; also clear-all chat history (separate UI section) |
 | Stretch summary memory | **D** | Defer — easy to hurt quality |
 | 3.1 Thinking mode setting | **S–M** | Wire to existing heuristics; don’t rewrite parser |
 | 3.2 Family “recommended” copy | **S** | **Done (S19p/S23)** — `policyRecommendedBlurb` |
@@ -104,7 +104,7 @@ Legend: **S** = safe/simple · **M** = medium, careful · **H** = hard / race-pr
 | 3.5 Accel chip | **S** | Read `getAccelerationStatusSnapshot` |
 | 3.6 Thermal/battery | **D** | Defer — noisy UX; optional later thin toast |
 | 3.7 Persona memory notes | **S** | Extend `buildPersonaSystemPrompt` |
-| 3.8a Temp chat polish | **S** | Path exists — finish UX |
+| 3.8a Temp chat polish | **—** | **Removed** — existing temp UI is sufficient (toggle contrast fix only if needed) |
 | 3.8b Biometric lock | **D** | After core trust; separate step later |
 | 4.1 mmproj vision | **H** | Isolated; OCR remains default; verify llama.rn 0.12.6 API first |
 | 4.2 Docs harden | **S–M** | Caps + honest errors; no vector DB |
@@ -170,7 +170,7 @@ Each **Sxx** = one agent session / one PR. Do not batch.
 | **S06** | Resume downloads | `blob-util` partial + rename; flag; pause≠discard | Mid-fail resume works; `.partial` never loaded — **DONE 2026-07-31** |
 | **S07** | Size verify on complete | Compare Content-Length / expected size | Mismatch → don’t activate — **DONE 2026-07-31** |
 | **S08** | HF token | Keychain + Models→HF token page + Bearer on HF only | Gated 401 → Add token CTA — **DONE 2026-07-31** (UI on Models, not Settings) |
-| **S09** | RAM fit chips | `device-info` + local tiers; dot + expanded tag | Fits/Tight/Won’t fit; tap explains — **DONE 2026-08-01** |
+| **S09** | RAM fit chips | `device-info` + local tiers; dot (left of size) + expanded tag | Fits/Tight/Won’t fit; tap explains; memo includes `ramFit` — **DONE 2026-08-01** |
 | **S10** | Load failure CTAs | Wire S03 strings + retry / models / lower ctx | OOM path actionable — **DONE 2026-08-01** |
 | **S11** | Onboarding 4 steps | New page type; reuse download/load | Skip works; returning users skip — **DONE 2026-08-01** (device smoke pending) |
 
@@ -185,7 +185,7 @@ Each **Sxx** = one agent session / one PR. Do not batch.
 | **S16** | AppState flush save | Persist on background | **DONE 2026-08-03** |
 | **S17** | Keep-awake while generating | Only during completion | **DONE 2026-08-03** |
 | **S18** | Export chat Markdown | Share sheet | **DONE 2026-08-03** |
-| **S19** | Storage manager | List/delete GGUF with confirm | **DONE 2026-08-04** |
+| **S19** | Storage manager | List/delete GGUF with confirm; clear-all chat history section | **DONE 2026-08-04** (+ chat clear 2026-08-05) |
 
 ### Side work (quality — not a Phase 3 product chrome item)
 
@@ -198,17 +198,16 @@ Each **Sxx** = one agent session / one PR. Do not batch.
 | Step | Goal | Max scope | Done when |
 |------|------|-----------|-----------|
 | **S20** | Thinking Auto/On/Off | Setting → existing enable_thinking path | Default Auto = today’s behavior — **DONE 2026-08-04** |
-| **S21** | Accel status chip | Chat chrome; tap → reason | Uses existing accel snapshot |
-| **S22** | Stages trends from usage_log | Simple charts/lists; no new backend | Personal tok/s history |
+| **S21** | Accel status (log + quick-panel tag) | After load → View Logs INFO; selected row label | **DONE 2026-08-04** (no top-chrome chip) |
+| **S22** | Stages trends from usage_log | Recent runs (bottom, 5 + expand); no new backend | **DONE 2026-08-04** |
 | **S23** | Family recommended blurb | Model Settings help from policy | Copy only — **DONE 2026-08-04** (via `policyRecommendedBlurb` on Model Settings) |
-| **S24** | Persona memory notes | Field + `buildPersonaSystemPrompt` | Empty = identical to before |
-| **S25** | Temp chat polish | Clear UX for non-saved mode | Persistence still off |
+| **S24** | Persona memory notes | **Deferred** — wider memory system needs planning | (not in immediate queue) |
 
 ### Phase 4 (only after S01–S19 solid)
 
 | Step | Goal | Max scope | Done when |
 |------|------|-----------|-----------|
-| **S26** | Edit user → regenerate | UI + existing `regenerate` | Earlier turns kept |
+| **S26** | Edit user → regenerate | UI + existing `regenerate` path | Earlier turns kept — **DONE 2026-08-05** |
 | **S27** | Harden documents | Size caps + honest PDF errors | No RAG |
 | **S28** | mmproj vision (optional) | One curated pair; OCR fallback remains | Device smoke; isolated PR |
 | **S29** | System TTS | OS TTS; strip think; play button | No ONNX |
@@ -217,7 +216,7 @@ Each **Sxx** = one agent session / one PR. Do not batch.
 
 ### Explicitly not in this queue
 
-Background unload · biometric lock · tool/agent loop · summary memory · neural TTS · context reload sheet · thermal nag · PalsHub.
+Background unload · biometric lock · tool/agent loop · summary memory · neural TTS · context reload sheet · thermal nag · PalsHub · **S25 temp polish (removed)** · **S24 persona memory (deferred until designed)**.
 
 ---
 
@@ -240,8 +239,15 @@ SQLite (same API), drawer search, context banner (new chat only), trim notice, f
 Productize existing reasoning/accel/Stages/personas — settings and UI, not new engines.  
 **S19p (2026-08-04):** GGUF-first **ModelRuntimePolicy** landed — see §8a.  
 **S20 (2026-08-04):** Thinking Auto/On/Off per-model via `thinkingMode` + `resolveThinkingModeForTurn` (jinja_enable only).  
+**S21 (2026-08-04):** Accel INFO log after load; selected-row tag in model quick panel (no top-chrome chip).  
+**S22 (2026-08-04):** Stages **Recent runs** at bottom (preview 5 + View more) + trend from `usage_log`.  
+**Quick selector polish (2026-08-05):** Sticky **Browse models** / **Clear persona** footers; tab bar fixed; shared chrome padding.  
+**Storage / Models / Personas polish (2026-08-05):** Storage **Clear all** chats; Models section **Local**; no card “Downloaded” badge; Personas bottom **Add** pill; S09 dot left of size + memo fix for async RAM.  
 **S23** blurbs: already on Model Settings via `policyRecommendedBlurb` (do not re-add a second help system).  
-**Next:** **S21** Accel status chip.
+**S24** Persona memory notes: **deferred** — needs wider memory-system planning (not next).  
+**S25** Temp chat polish: **removed** — current temp UI is good; active toggle contrast fix only (2026-08-05).  
+**S26 (2026-08-05):** Edit user message → truncate later turns → regenerate (`editUserAndRegenerate` + inline bubble edit).  
+**Next:** **S27** Harden documents.
 
 ### Phase 4 — Selective capability
 Edit, docs, optional vision, OS voice, optional remote — **serial**, never parallel native adds.
@@ -275,9 +281,13 @@ Copy into issues; check off **S01…** only when smoke passes.
 - [x] **S19p** (ModelRuntimePolicy — system prompts + family template stubs) — **code + Jest done 2026-08-04**  
 - [x] **S23** (family recommended blurb on Model Settings) — **done with S19p**  
 - [x] **S20** (Thinking mode Auto/On/Off) — **code + Jest done 2026-08-04**  
-- [ ] **S21** (Accel status chip) ← next implementation step  
-- [ ] S22, S24, S25 (rest of Phase 3)  
-- [ ] S26 … S31 (Phase 4, as needed)  
+- [x] **S21** (Accel status → app logs + quick-panel tag) — **code + Jest done 2026-08-04**  
+- [x] **S22** (Stages trends — Recent runs bottom / 5 + View more) — **code + Jest done 2026-08-04**  
+- [ ] **S24** (Persona memory notes) — **deferred** (wider memory system; plan before implement)  
+- [x] ~~S25~~ (Temp chat polish) — **removed** (current UI kept; toggle contrast fixed 2026-08-05)  
+- [x] **S26** (Edit user → regenerate) — **code + Jest done 2026-08-05**  
+- [ ] **S27** (Harden documents) ← **next implementation step**  
+- [ ] S28 … S31 (rest of Phase 4, as needed)  
 
 Update [`AGENT_IMPLEMENTATION_GUIDE.md`](./AGENT_IMPLEMENTATION_GUIDE.md) if symbols/libs change. See guide **Handoff** for rebuild + smoke checklist.
 

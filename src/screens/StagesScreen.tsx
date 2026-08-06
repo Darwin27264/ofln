@@ -28,6 +28,8 @@ import {
   clearUsageRecordsForModel,
   computeUsageAverages,
   computeModelPerformanceStats,
+  buildUsageHistory,
+  computeUsageTrend,
   filterRecordsForModel,
   isValidUsageRecord,
   normalizeModelName,
@@ -110,6 +112,26 @@ const stripFileExtension = (modelName: string): string => {
   return modelName.replace(/\.(gguf|bin|safetensors|pt|pth|onnx|h5)$/i, '').trim();
 };
 
+/** Calm relative time for recent-run list (local-only usage log). */
+const formatRelativeTime = (timestamp: number, now = Date.now()): string => {
+  const sec = Math.max(0, Math.floor((now - timestamp) / 1000));
+  if (sec < 60) return 'just now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 48) return `${hr}h ago`;
+  const days = Math.floor(hr / 24);
+  if (days < 14) return `${days}d ago`;
+  try {
+    return new Date(timestamp).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return '';
+  }
+};
+
 const useChartAnimations = (data: number[] | undefined) => {
   const anim = useRef(new Animated.Value(0)).current;
 
@@ -138,6 +160,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [modalVisible, setModalVisible] = useState(false);
   const [graphType, setGraphType] = useState<'tps' | 'inf' | null>(null);
+  const [recentRunsExpanded, setRecentRunsExpanded] = useState(false);
   const userTouchedRef = useRef(false);
   const [accelStatus, setAccelStatus] = useState<AccelerationStatusSnapshot | null>(null);
 
@@ -539,6 +562,31 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
     return computeUsageAverages(filterRecordsForModel(usageRecords, selectedModel));
   }, [usageRecords, selectedModel]);
 
+  // S22: personal tok/s history + half-vs-half trend (from usage_log only).
+  // Cap high enough for "view all"; UI previews first 5.
+  const recentHistory = useMemo(
+    () => buildUsageHistory(usageRecords, selectedModel, 200),
+    [usageRecords, selectedModel],
+  );
+  const visibleRecentHistory = useMemo(() => {
+    if (recentRunsExpanded) return recentHistory;
+    return recentHistory.slice(0, 5);
+  }, [recentHistory, recentRunsExpanded]);
+  const canExpandRecentRuns = recentHistory.length > 5;
+
+  useEffect(() => {
+    setRecentRunsExpanded(false);
+  }, [selectedModel]);
+
+  const usageTrend = useMemo(() => {
+    // Prefer full series from stats when available (all valid runs).
+    if (stats?.tpsData?.length) {
+      return computeUsageTrend(stats.tpsData);
+    }
+    const chrono = [...recentHistory].reverse().map((h) => h.tokensPerSecond);
+    return computeUsageTrend(chrono);
+  }, [stats?.tpsData, recentHistory]);
+
   // Animations
   const tpsAnim = useChartAnimations(stats?.tpsData);
   const infAnim = useChartAnimations(stats?.timeData);
@@ -926,6 +974,123 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
             <Text key={i} style={[stylesLocalWithTheme.suggestionText, { color: theme.colors.textSecondary }]}>{msg}</Text>
           ))}
         </View>
+
+        {/* S22 — Personal tok/s history (bottom); preview 5, expand for all */}
+        {selectedModel && recentHistory.length > 0 && (
+          <View style={[stylesLocalWithTheme.statusCard, { backgroundColor: theme.colors.glass }]}>
+            <View style={stylesLocalWithTheme.statusHeader}>
+              <Ionicons name="time-outline" size={20} color={theme.colors.text} />
+              <Text style={[stylesLocalWithTheme.statusTitle, { color: theme.colors.text }]}>
+                Recent runs
+              </Text>
+            </View>
+            {usageTrend.sampleCount >= 4 && usageTrend.deltaPct != null && (
+              <Text
+                style={[
+                  stylesLocalWithTheme.statusHint,
+                  { color: theme.colors.textSecondary, marginBottom: 10 },
+                ]}
+              >
+                {usageTrend.direction === 'up'
+                  ? `Trending up · +${Math.abs(usageTrend.deltaPct)}% vs earlier runs`
+                  : usageTrend.direction === 'down'
+                    ? `Trending down · −${Math.abs(usageTrend.deltaPct)}% vs earlier runs`
+                    : `Steady · ~${Math.abs(usageTrend.deltaPct)}% change across last ${usageTrend.sampleCount} runs`}
+              </Text>
+            )}
+            {visibleRecentHistory.map((entry, i) => (
+              <View
+                key={`${entry.timestamp}-${i}`}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingVertical: 8,
+                  borderTopWidth: i === 0 ? StyleSheet.hairlineWidth : 0,
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderColor: theme.colors.border,
+                }}
+              >
+                <Text
+                  style={{
+                    flex: 1,
+                    fontFamily: 'Poppins',
+                    fontSize: 14,
+                    color: theme.colors.text,
+                  }}
+                  numberOfLines={1}
+                >
+                  {entry.tokensPerSecond.toFixed(1)} tok/s
+                  <Text style={{ color: theme.colors.textSecondary }}>
+                    {' · '}
+                    {entry.tokenCount} tok
+                    {entry.accelOn === true
+                      ? ' · Accel'
+                      : entry.accelOn === false
+                        ? ' · CPU'
+                        : ''}
+                  </Text>
+                </Text>
+                <Text
+                  style={{
+                    fontFamily: 'Poppins',
+                    fontSize: 12,
+                    color: theme.colors.textTertiary,
+                    marginLeft: 8,
+                  }}
+                >
+                  {formatRelativeTime(entry.timestamp)}
+                </Text>
+              </View>
+            ))}
+            {canExpandRecentRuns && (
+              <TouchableOpacity
+                onPress={() => setRecentRunsExpanded((v) => !v)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: recentRunsExpanded }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingVertical: 12,
+                  marginTop: 4,
+                }}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={{
+                    fontFamily: 'Poppins',
+                    fontSize: 14,
+                    fontWeight: '500',
+                    color: theme.colors.textSecondary,
+                    marginRight: 4,
+                  }}
+                >
+                  {recentRunsExpanded
+                    ? 'Show less'
+                    : `View more (${recentHistory.length - 5} more)`}
+                </Text>
+                <Ionicons
+                  name={recentRunsExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={theme.colors.textSecondary}
+                />
+              </TouchableOpacity>
+            )}
+            <Text
+              style={[
+                stylesLocalWithTheme.statusFootnote,
+                {
+                  color: theme.colors.textSecondary,
+                  marginTop: canExpandRecentRuns ? 0 : 10,
+                },
+              ]}
+            >
+              {recentRunsExpanded
+                ? `${recentHistory.length} completion(s) for this model from on-device usage log.`
+                : `Showing ${Math.min(5, recentHistory.length)} of ${recentHistory.length} completion(s) from on-device usage log.`}
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
       {/* Model selector - centered frosted pill with swipe and arrow buttons */}

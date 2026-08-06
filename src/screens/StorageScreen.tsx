@@ -1,6 +1,7 @@
 /**
  * Storage manager (S19) — list on-device GGUF sizes; delete with confirm.
  * Active model is unloaded by the parent before unlink when needed.
+ * Also clears all saved chat history (separate section).
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -24,6 +25,7 @@ import {
   type StoredModelFile,
 } from '../services/modelStorageService';
 import { sumStoredModelBytes } from '../utils/modelStorageHelpers';
+import { chatHistoryService } from '../services/chatHistoryService';
 
 export type StorageScreenProps = {
   onBack: () => void;
@@ -36,6 +38,8 @@ export type StorageScreenProps = {
   onUnloadIfActive: (fileName: string) => Promise<void>;
   /** Refresh App / Models downloaded list after a successful delete. */
   onModelsChanged?: () => void | Promise<void>;
+  /** Reset in-memory conversation after all chats were deleted. */
+  onChatHistoryCleared?: () => void;
 };
 
 export default function StorageScreen({
@@ -43,6 +47,7 @@ export default function StorageScreen({
   activeModelFileName,
   onUnloadIfActive,
   onModelsChanged,
+  onChatHistoryCleared,
 }: StorageScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
@@ -52,6 +57,20 @@ export default function StorageScreen({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busyFile, setBusyFile] = useState<string | null>(null);
+  const [chatCount, setChatCount] = useState(0);
+  const [chatCountLoading, setChatCountLoading] = useState(true);
+  const [clearingChats, setClearingChats] = useState(false);
+
+  const loadChatStats = useCallback(async () => {
+    try {
+      const chats = await chatHistoryService.getAllChats();
+      setChatCount(chats.length);
+    } catch {
+      setChatCount(0);
+    } finally {
+      setChatCountLoading(false);
+    }
+  }, []);
 
   const load = useCallback(async (opts?: { soft?: boolean }) => {
     if (!opts?.soft) setLoading(true);
@@ -73,7 +92,8 @@ export default function StorageScreen({
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+    await loadChatStats();
+  }, [loadChatStats]);
 
   useEffect(() => {
     void load();
@@ -120,7 +140,47 @@ export default function StorageScreen({
     [activeModelFileName, load, onModelsChanged, onUnloadIfActive],
   );
 
+  const confirmClearChatHistory = useCallback(() => {
+    if (chatCount === 0 || clearingChats) return;
+
+    const countLabel =
+      chatCount === 1 ? '1 saved conversation' : `${chatCount} saved conversations`;
+
+    showAlert(
+      'Clear all chat history?',
+      `Permanently delete ${countLabel} from this device. The current chat will also be reset. This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear all',
+          style: 'destructive',
+          onPress: async () => {
+            setClearingChats(true);
+            try {
+              const ok = await chatHistoryService.clearAllChats();
+              if (!ok) {
+                throw new Error('clearAllChats returned false');
+              }
+              setChatCount(0);
+              onChatHistoryCleared?.();
+            } catch {
+              showAlert(
+                'Clear failed',
+                'Chat history could not be cleared. Try again.',
+                [{ text: 'OK' }],
+              );
+            } finally {
+              setClearingChats(false);
+            }
+          },
+        },
+      ],
+      { textAlign: 'left' },
+    );
+  }, [chatCount, clearingChats, onChatHistoryCleared]);
+
   const totalBytes = sumStoredModelBytes(models);
+  const canClearChats = chatCount > 0 && !clearingChats && !chatCountLoading;
 
   return (
     <View
@@ -139,173 +199,252 @@ export default function StorageScreen({
           lineHeight: 20,
         }}
       >
-        Models stored on this device. Deleting frees space; downloads stay on Models.
+        Manage models and chat data on this device.
       </Text>
 
-      <View
-        style={{
-          paddingVertical: 12,
-          paddingHorizontal: 14,
-          borderRadius: 14,
-          borderWidth: 1,
-          borderColor: theme.colors.border,
-          backgroundColor: theme.colors.surface,
-          marginBottom: 16,
-        }}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              void load({ soft: true });
+            }}
+            tintColor={theme.colors.text}
+            colors={[theme.colors.text]}
+          />
+        }
       >
-        <Text
+        <View
           style={{
-            fontFamily: 'Poppins',
-            fontSize: 12,
-            fontWeight: '600',
-            letterSpacing: 0.6,
-            color: theme.colors.textSecondary,
-            textTransform: 'uppercase',
-            marginBottom: 6,
+            paddingVertical: 12,
+            paddingHorizontal: 14,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            backgroundColor: theme.colors.surface,
+            marginBottom: 16,
           }}
         >
-          Models on device
-        </Text>
-        <Text
+          <Text
+            style={{
+              fontFamily: 'Poppins',
+              fontSize: 12,
+              fontWeight: '600',
+              letterSpacing: 0.6,
+              color: theme.colors.textSecondary,
+              textTransform: 'uppercase',
+              marginBottom: 6,
+            }}
+          >
+            Models on device
+          </Text>
+          <Text
+            style={{
+              fontFamily: 'Poppins',
+              fontSize: 16,
+              color: theme.colors.text,
+            }}
+          >
+            {loading ? '…' : formatBytesShort(totalBytes)}
+            {!loading && models.length > 0
+              ? ` · ${models.length} file${models.length === 1 ? '' : 's'}`
+              : null}
+          </Text>
+          {freeBytes != null && (
+            <Text
+              style={{
+                fontFamily: 'Poppins',
+                fontSize: 13,
+                color: theme.colors.textTertiary,
+                marginTop: 4,
+              }}
+            >
+              {formatBytesShort(freeBytes)} free
+            </Text>
+          )}
+        </View>
+
+        {loading ? (
+          <View style={{ paddingVertical: 32, alignItems: 'center' }}>
+            <ActivityIndicator color={theme.colors.text} />
+          </View>
+        ) : models.length === 0 ? (
+          <Text
+            style={{
+              fontFamily: 'Poppins',
+              fontSize: 14,
+              color: theme.colors.textSecondary,
+              marginBottom: 8,
+            }}
+          >
+            No model files yet. Download one from Models.
+          </Text>
+        ) : (
+          models.map((file) => {
+            const isActive = activeModelFileName === file.fileName;
+            const busy = busyFile === file.fileName;
+            return (
+              <View
+                key={file.fileName}
+                style={{
+                  paddingVertical: 14,
+                  paddingHorizontal: 14,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                  backgroundColor: theme.colors.card,
+                  marginBottom: 10,
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'flex-start',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <View style={{ flex: 1, paddingRight: 12 }}>
+                    <Text
+                      style={{
+                        fontFamily: 'Poppins',
+                        fontSize: 15,
+                        fontWeight: '600',
+                        color: theme.colors.text,
+                      }}
+                      numberOfLines={2}
+                    >
+                      {file.fileName}
+                    </Text>
+                    <Text
+                      style={{
+                        fontFamily: 'Poppins',
+                        fontSize: 13,
+                        color: theme.colors.textSecondary,
+                        marginTop: 4,
+                      }}
+                    >
+                      {formatBytesShort(file.sizeBytes)}
+                      {isActive ? ' · Loaded' : ''}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => confirmDelete(file)}
+                    disabled={busy}
+                    accessibilityLabel={`Delete ${file.fileName}`}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={{
+                      paddingVertical: 8,
+                      paddingHorizontal: 12,
+                      borderRadius: 12,
+                      backgroundColor: theme.colors.error + '18',
+                      opacity: busy ? 0.5 : 1,
+                    }}
+                  >
+                    {busy ? (
+                      <ActivityIndicator size="small" color={theme.colors.error} />
+                    ) : (
+                      <Text
+                        style={{
+                          fontFamily: 'Poppins',
+                          fontSize: 14,
+                          fontWeight: '600',
+                          color: theme.colors.error,
+                        }}
+                      >
+                        Delete
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })
+        )}
+
+        {/* Chat history — separate from model files */}
+        <View
           style={{
-            fontFamily: 'Poppins',
-            fontSize: 16,
-            color: theme.colors.text,
+            marginTop: 24,
+            paddingVertical: 14,
+            paddingHorizontal: 14,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            backgroundColor: theme.colors.surface,
           }}
         >
-          {loading ? '…' : formatBytesShort(totalBytes)}
-          {!loading && models.length > 0
-            ? ` · ${models.length} file${models.length === 1 ? '' : 's'}`
-            : null}
-        </Text>
-        {freeBytes != null && (
+          <Text
+            style={{
+              fontFamily: 'Poppins',
+              fontSize: 12,
+              fontWeight: '600',
+              letterSpacing: 0.6,
+              color: theme.colors.textSecondary,
+              textTransform: 'uppercase',
+              marginBottom: 6,
+            }}
+          >
+            Chat history
+          </Text>
+          <Text
+            style={{
+              fontFamily: 'Poppins',
+              fontSize: 16,
+              color: theme.colors.text,
+              marginBottom: 4,
+            }}
+          >
+            {chatCountLoading
+              ? '…'
+              : chatCount === 0
+                ? 'No saved conversations'
+                : `${chatCount} conversation${chatCount === 1 ? '' : 's'}`}
+          </Text>
           <Text
             style={{
               fontFamily: 'Poppins',
               fontSize: 13,
               color: theme.colors.textTertiary,
-              marginTop: 4,
+              lineHeight: 18,
+              marginBottom: 14,
             }}
           >
-            {formatBytesShort(freeBytes)} free
+            Saved chats stay on this device only. Clearing removes every conversation
+            permanently.
           </Text>
-        )}
-      </View>
-
-      {loading ? (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator color={theme.colors.text} />
+          <TouchableOpacity
+            onPress={confirmClearChatHistory}
+            disabled={!canClearChats}
+            accessibilityLabel="Clear all chat history"
+            style={{
+              alignSelf: 'flex-end',
+              paddingVertical: 8,
+              paddingHorizontal: 12,
+              borderRadius: 12,
+              backgroundColor: theme.colors.error + '18',
+              opacity: canClearChats ? 1 : 0.45,
+            }}
+          >
+            {clearingChats ? (
+              <ActivityIndicator size="small" color={theme.colors.error} />
+            ) : (
+              <Text
+                style={{
+                  fontFamily: 'Poppins',
+                  fontSize: 14,
+                  fontWeight: '600',
+                  color: theme.colors.error,
+                }}
+              >
+                Clear all
+              </Text>
+            )}
+          </TouchableOpacity>
         </View>
-      ) : (
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 100 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => {
-                setRefreshing(true);
-                void load({ soft: true });
-              }}
-              tintColor={theme.colors.text}
-              colors={[theme.colors.text]}
-            />
-          }
-        >
-          {models.length === 0 ? (
-            <Text
-              style={{
-                fontFamily: 'Poppins',
-                fontSize: 14,
-                color: theme.colors.textSecondary,
-                marginTop: 12,
-              }}
-            >
-              No model files yet. Download one from Models.
-            </Text>
-          ) : (
-            models.map((file) => {
-              const isActive = activeModelFileName === file.fileName;
-              const busy = busyFile === file.fileName;
-              return (
-                <View
-                  key={file.fileName}
-                  style={{
-                    paddingVertical: 14,
-                    paddingHorizontal: 14,
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.card,
-                    marginBottom: 10,
-                  }}
-                >
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'flex-start',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <View style={{ flex: 1, paddingRight: 12 }}>
-                      <Text
-                        style={{
-                          fontFamily: 'Poppins',
-                          fontSize: 15,
-                          fontWeight: '600',
-                          color: theme.colors.text,
-                        }}
-                        numberOfLines={2}
-                      >
-                        {file.fileName}
-                      </Text>
-                      <Text
-                        style={{
-                          fontFamily: 'Poppins',
-                          fontSize: 13,
-                          color: theme.colors.textSecondary,
-                          marginTop: 4,
-                        }}
-                      >
-                        {formatBytesShort(file.sizeBytes)}
-                        {isActive ? ' · Loaded' : ''}
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={() => confirmDelete(file)}
-                      disabled={busy}
-                      accessibilityLabel={`Delete ${file.fileName}`}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      style={{
-                        paddingVertical: 8,
-                        paddingHorizontal: 12,
-                        borderRadius: 12,
-                        backgroundColor: theme.colors.error + '18',
-                        opacity: busy ? 0.5 : 1,
-                      }}
-                    >
-                      {busy ? (
-                        <ActivityIndicator size="small" color={theme.colors.error} />
-                      ) : (
-                        <Text
-                          style={{
-                            fontFamily: 'Poppins',
-                            fontSize: 14,
-                            fontWeight: '600',
-                            color: theme.colors.error,
-                          }}
-                        >
-                          Delete
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              );
-            })
-          )}
-        </ScrollView>
-      )}
+      </ScrollView>
 
       <View
         style={{

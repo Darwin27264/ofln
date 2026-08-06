@@ -19,12 +19,17 @@ import type { LanguageModelV1 } from 'ai';
 import RNFS from 'react-native-fs';
 
 import { getModelSettings, DEFAULT_SETTINGS } from '../services/modelSettingsService';
-import { getAccelerationConfig, setRuntimeAccelerationState } from '../services/accelerationCapabilityService';
+import {
+  getAccelerationConfig,
+  setRuntimeAccelerationState,
+  getAccelerationStatusSnapshot,
+} from '../services/accelerationCapabilityService';
 import { isAndroidEmulator } from '../services/deviceEnv';
 import { getModelInfo, detectQuantFromFilename, isQuantAllowedForAndroidAccel } from '../services/modelInfoService';
 import { getInferencePerfParams, formatLoadError } from '../services/inferencePerfParams';
 import { ensureGgufSafeForAndroidLoad } from '../services/ggufSanitizeService';
 import { resolveModelPolicy } from '../services/inference/modelPolicy';
+import { formatAccelLogDisplay } from '../utils/accelChipDisplay';
 import { logError } from '../utils/errorLogger';
 import type { LlamaProviderConfig, ModelReadyState, ModelStatus } from '../types/ai';
 type StatusListener = (status: ModelStatus) => void;
@@ -419,7 +424,7 @@ class LlamaProviderService {
   }
 
   /**
-   * Snapshot GPU/NPU state once after load for Performance UI.
+   * Snapshot GPU/NPU state once after load (Stages + app logs).
    * Does not run during inference.
    */
   private captureRuntimeAcceleration(modelName: string, nGpuLayers: number): void {
@@ -456,6 +461,34 @@ class LlamaProviderService {
         nGpuLayers: 0,
         modelName,
       });
+    }
+
+    // S21: log accel status to error_log (View Logs) — no chat-chrome chip.
+    void this.logRuntimeAcceleration(modelName, nGpuLayers);
+  }
+
+  private async logRuntimeAcceleration(
+    modelName: string,
+    nGpuLayers: number,
+  ): Promise<void> {
+    try {
+      const snap = await getAccelerationStatusSnapshot(true);
+      const display = formatAccelLogDisplay(snap);
+      await logError(
+        'Acceleration',
+        `[${display.shortLabel}] ${display.message}`,
+        undefined,
+        {
+          modelName,
+          nGpuLayers,
+          ...display.context,
+        },
+        'INFO',
+      );
+    } catch (err) {
+      if (__DEV__) {
+        console.warn('[LlamaProvider] Failed to log acceleration status:', err);
+      }
     }
   }
 

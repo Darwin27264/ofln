@@ -27,6 +27,7 @@ import {
   deactivateGeneratingKeepAwake,
 } from '../services/keepAwakeService';
 import { logError } from '../utils/errorLogger';
+import { buildMessagesAfterUserEdit } from '../utils/chatEditHelpers';
 
 import type {
   ChatMessage,
@@ -67,6 +68,12 @@ export interface UseAIChatReturn {
    *   Defaults to the last assistant message.
    */
   regenerate: (assistantIndex?: number) => Promise<void>;
+  /**
+   * Edit a user message, drop all later turns, and run a new completion
+   * (S26). Does not touch the composer.
+   * @param userIndex Absolute index into `messages` (incl. system).
+   */
+  editUserAndRegenerate: (userIndex: number, newContent: string) => Promise<void>;
   /** Alias for regenerating the latest assistant reply. */
   reload: () => Promise<void>;
   newChat: () => void;
@@ -717,6 +724,51 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     [modelName, beginGeneration, commitMessages, scrollToEnd, runCompletion],
   );
 
+  /**
+   * Edit a user turn (S26): replace content, truncate after it, regenerate.
+   * Earlier turns stay; later assistant/user turns are dropped.
+   */
+  const editUserAndRegenerate = useCallback(
+    async (userIndex: number, newContent: string) => {
+      if (isGeneratingRef.current) return;
+
+      const noModelSelected = !modelName || modelName === 'unknown';
+      if (!llamaProvider.isReady() || noModelSelected) {
+        onModelNotReadyRef.current?.();
+        setError(new Error('Model not loaded'));
+        return;
+      }
+
+      const kept = buildMessagesAfterUserEdit(
+        messagesRef.current,
+        userIndex,
+        newContent,
+      );
+      if (!kept) return;
+
+      const userTurn = kept[kept.length - 1];
+      const assistantPlaceholder: ChatMessage = {
+        role: 'assistant',
+        content: '',
+        thought: undefined,
+        showThought: false,
+        createdAt: new Date(),
+      };
+
+      const generationId = beginGeneration();
+      commitMessages([...kept, assistantPlaceholder]);
+      scrollToEnd();
+
+      await runCompletion(generationId, {
+        streamUserInput: userTurn.content,
+        sendOptions: userTurn.attachments?.length
+          ? { attachments: userTurn.attachments, text: userTurn.content }
+          : { text: userTurn.content },
+      });
+    },
+    [modelName, beginGeneration, commitMessages, scrollToEnd, runCompletion],
+  );
+
   const reload = useCallback(async () => {
     await regenerate();
   }, [regenerate]);
@@ -803,6 +855,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     handleSubmit,
     stop,
     regenerate,
+    editUserAndRegenerate,
     reload,
     newChat,
     isLoading,

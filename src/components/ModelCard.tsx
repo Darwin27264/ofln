@@ -425,6 +425,25 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
               </Text>
             )}
             <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+              {ramFit && ramFitColor && (
+                <TouchableOpacity
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    showRamFitDetails();
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`RAM fit: ${RAM_FIT_LABELS[ramFit.tier]}. Tap for details.`}
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: 5,
+                    backgroundColor: ramFitColor,
+                    borderWidth: 1,
+                    borderColor: theme.colors.border,
+                  }}
+                />
+              )}
               {model.size && (
                 <View
                   style={{
@@ -470,49 +489,6 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                     }}
                   >
                     {model.availableQuants.length} quants
-                  </Text>
-                </View>
-              )}
-              {ramFit && ramFitColor && (
-                <TouchableOpacity
-                  onPress={(e) => {
-                    e.stopPropagation?.();
-                    showRamFitDetails();
-                  }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`RAM fit: ${RAM_FIT_LABELS[ramFit.tier]}. Tap for details.`}
-                  style={{
-                    width: 14,
-                    height: 14,
-                    borderRadius: 7,
-                    backgroundColor: ramFitColor,
-                    borderWidth: 1,
-                    borderColor: theme.colors.border,
-                  }}
-                />
-              )}
-              {isDownloaded && (
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    backgroundColor: hexToRgba(theme.colors.success, 0.12),
-                    paddingHorizontal: 6,
-                    paddingVertical: 2,
-                    borderRadius: 4,
-                  }}
-                >
-                  <Icon name="check-circle" size={12} color={theme.colors.success} />
-                  <Text
-                    style={{
-                      fontSize: 10,
-                      color: theme.colors.success,
-                      fontFamily: "Poppins",
-                      marginLeft: 4,
-                    }}
-                  >
-                    Downloaded
                   </Text>
                 </View>
               )}
@@ -936,16 +912,22 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
 }, (prevProps, nextProps) => {
   // Custom comparison function for better memoization
   // Only re-render if props actually changed
+  // Include ramFit: totalMemoryBytes is loaded async after first paint.
   return (
     prevProps.model.id === nextProps.model.id &&
     prevProps.model.fileName === nextProps.model.fileName &&
+    prevProps.model.size === nextProps.model.size &&
     prevProps.isDownloaded === nextProps.isDownloaded &&
     prevProps.isDownloading === nextProps.isDownloading &&
+    prevProps.isPaused === nextProps.isPaused &&
     prevProps.progress === nextProps.progress &&
     prevProps.isLoading === nextProps.isLoading &&
     prevProps.isExpanded === nextProps.isExpanded &&
     prevProps.index === nextProps.index &&
-    prevProps.isInitialAnimationPhase === nextProps.isInitialAnimationPhase
+    prevProps.isInitialAnimationPhase === nextProps.isInitialAnimationPhase &&
+    prevProps.ramFit?.tier === nextProps.ramFit?.tier &&
+    prevProps.ramFit?.fileBytes === nextProps.ramFit?.fileBytes &&
+    prevProps.ramFit?.totalMemoryBytes === nextProps.ramFit?.totalMemoryBytes
   );
 });
 

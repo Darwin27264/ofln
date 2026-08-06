@@ -610,6 +610,7 @@ function AppContent(): React.JSX.Element {
             activeModelFileName={selectedGGUF}
             onUnloadIfActive={handleUnloadIfActiveModel}
             onModelsChanged={checkDownloadedModels}
+            onChatHistoryCleared={handleNewChat}
           />
         </PageFadeIn>
       )}

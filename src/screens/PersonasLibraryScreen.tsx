@@ -361,38 +361,6 @@ export default function PersonasLibraryScreen({
     [expandedPersonaId, handleEditPersona, handleDuplicatePersona, handleDeletePersona, handleToggleExpand, onUsePersona]
   );
 
-  const headerStyle = {
-    position: "absolute" as const,
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: theme.colors.background,
-    zIndex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 12,
-    flexDirection: "row" as const,
-    justifyContent: "space-between" as const,
-    alignItems: "center" as const,
-  };
-
-  const addButtonStyle = {
-    backgroundColor: theme.colors.primary,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-  };
-
-  const addButtonTextStyle = {
-    color: theme.colors.primaryText,
-    fontSize: 16,
-    fontWeight: "600" as const,
-    fontFamily: "Poppins",
-    marginLeft: 6,
-  };
-
   const searchContainerStyle = {
     flexDirection: "row" as const,
     alignItems: "center" as const,
@@ -451,23 +419,23 @@ export default function PersonasLibraryScreen({
     fontFamily: "Poppins",
   };
 
-  const backButtonStyle = {
+  const fixedBtnStyle = {
     position: "absolute" as const,
     bottom: 20,
-    left: 15,
     backgroundColor: "transparent" as const,
   };
 
-  const backButtonContainerStyle = {
+  const pillButtonStyle = {
     flexDirection: "row" as const,
     alignItems: "center" as const,
+    justifyContent: "center" as const,
     backgroundColor: theme.colors.primary,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 24,
   };
 
-  const backButtonTextStyle = {
+  const pillButtonTextStyle = {
     color: theme.colors.primaryText,
     fontSize: 20,
     fontFamily: "Poppins",
@@ -477,21 +445,12 @@ export default function PersonasLibraryScreen({
 
   return (
       <View style={[styles.container, { padding: 20, flex: 1, backgroundColor: theme.colors.background }]}>
-      <View style={headerStyle}>
-        <Text style={styles.settingsTitle}>Personas</Text>
-        <TouchableOpacity onPress={handleAddPersona} style={addButtonStyle}>
-          <Icon name="add" size={20} color={theme.colors.primaryText} />
-          <Text style={addButtonTextStyle}>Add</Text>
-        </TouchableOpacity>
-      </View>
+      <Text style={styles.settingsTitle}>Personas</Text>
 
       <ScrollView
-        style={{
-          marginTop: 55,
-          flex: 1,
-        }}
+        style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 60 }}
+        contentContainerStyle={{ paddingBottom: 100 }}
       >
         {personas.length > 0 && (
           <View style={{ marginBottom: 16 }}>
@@ -539,10 +498,16 @@ export default function PersonasLibraryScreen({
         )}
       </ScrollView>
 
-      <View style={backButtonStyle}>
-        <TouchableOpacity onPress={onBack} style={backButtonContainerStyle}>
+      <View style={[fixedBtnStyle, { left: 15 }]}>
+        <TouchableOpacity onPress={onBack} style={pillButtonStyle}>
           <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
-          <Text style={backButtonTextStyle}>Back</Text>
+          <Text style={pillButtonTextStyle}>Back</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={[fixedBtnStyle, { right: 15 }]}>
+        <TouchableOpacity onPress={handleAddPersona} style={pillButtonStyle}>
+          <Text style={[pillButtonTextStyle, { marginLeft: 0 }]}>Add</Text>
         </TouchableOpacity>
       </View>
     </View>

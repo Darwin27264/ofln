@@ -105,6 +105,8 @@ import {
   isExportableMessage,
 } from "../utils/chatMarkdownExport";
 import { logError } from "../utils/errorLogger";
+import { getAccelerationStatusSnapshot } from "../services/accelerationCapabilityService";
+import { formatAccelLogDisplay } from "../utils/accelChipDisplay";
 
 type MessageAttachment = {
   type: "image";
@@ -246,6 +248,37 @@ export default function ConversationScreen({
       outline: dark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.1)',
     };
   }, [theme.mode]);
+  /** Shared chrome metrics so tab bar + sticky footers align (same padding all around). */
+  const selectorChromeOuter = useMemo(
+    () => ({
+      borderRadius: 12,
+      padding: 4,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: selectorFrost.rowBorder,
+      backgroundColor: selectorFrost.chrome,
+    }),
+    [selectorFrost.rowBorder, selectorFrost.chrome],
+  );
+  const selectorChromeInner = useMemo(
+    () => ({
+      paddingVertical: 10,
+      borderRadius: 8,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+    }),
+    [],
+  );
+  const selectorChromeLabel = useMemo(
+    () => ({
+      fontSize: 16,
+      lineHeight: 22,
+      fontWeight: "600" as const,
+      fontFamily: "Poppins",
+    }),
+    [],
+  );
+  /** Gap between list and tab/footer chrome (symmetric top/bottom of the list). */
+  const SELECTOR_LIST_GAP = 16;
   const { keyboardHeight: keyboardPadding, syncKeyboardState } = useKeyboardPadding();
   // Layout measurements live in refs (not state) because they're read inside the
   // keyboard-padding animated listener on every frame of the keyboard animation.
@@ -401,6 +434,9 @@ export default function ConversationScreen({
   const [loadingModelFile, setLoadingModelFile] = useState<string | null>(null);
   const [selectorTab, setSelectorTab] = useState<"models" | "personas">("models");
   const [availablePersonas, setAvailablePersonas] = useState<Persona[]>([]);
+  /** Short accel tag (CPU/GPU/NPU) for selected model in the quick panel. */
+  const [selectedAccelLabel, setSelectedAccelLabel] = useState<string | null>(null);
+  const [selectedAccelDetail, setSelectedAccelDetail] = useState<string | null>(null);
 
   const warnModelNotLoaded = useCallback(() => {
     showAlert(
@@ -1512,6 +1548,49 @@ export default function ConversationScreen({
     }
   }, []);
 
+  // Refresh accel status for the selected row when the quick panel is open.
+  useEffect(() => {
+    if (!isModelSelectorVisible || !selectedGGUF) {
+      setSelectedAccelLabel(null);
+      setSelectedAccelDetail(null);
+      return;
+    }
+    let cancelled = false;
+    const modelLoaded = Boolean(context) || llamaProvider.isReady();
+    (async () => {
+      try {
+        const snap = await getAccelerationStatusSnapshot(modelLoaded);
+        if (cancelled) return;
+        const display = formatAccelLogDisplay(snap);
+        if (display.shortLabel === "none") {
+          setSelectedAccelLabel(null);
+          setSelectedAccelDetail(display.message);
+          return;
+        }
+        setSelectedAccelLabel(display.shortLabel);
+        setSelectedAccelDetail(display.message);
+      } catch {
+        if (!cancelled) {
+          setSelectedAccelLabel(null);
+          setSelectedAccelDetail(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isModelSelectorVisible, selectedGGUF, context, isLoadingModel]);
+
+  const showSelectedAccelInfo = useCallback(() => {
+    if (!selectedAccelDetail) return;
+    showAlert(
+      "Acceleration",
+      selectedAccelDetail,
+      [{ text: "OK" }],
+      { textAlign: "left" },
+    );
+  }, [selectedAccelDetail]);
+
   /** Dismiss the attach image popup with animation; optional onComplete runs after close */
   const dismissAttachMenu = useCallback((onComplete?: () => void) => {
     Animated.parallel([
@@ -1779,6 +1858,37 @@ export default function ConversationScreen({
     warnModelNotLoaded,
     showToast,
   ]);
+
+  /** Edit user turn (S26): truncate after it and regenerate. */
+  const handleEditUserMessage = useCallback(
+    async (messageIndex: number, newContent: string) => {
+      if (!llamaProvider.isReady() || !selectedGGUF) {
+        warnModelNotLoaded();
+        return;
+      }
+
+      if (isGenerating) {
+        showToast("Generation is already in progress.");
+        return;
+      }
+
+      const absoluteIndex = messageIndex + 1;
+      if (conversation[absoluteIndex]?.role !== "user") {
+        showToast("Could not find the message to edit.");
+        return;
+      }
+
+      await aiChat.editUserAndRegenerate(absoluteIndex, newContent);
+    },
+    [
+      conversation,
+      isGenerating,
+      aiChat.editUserAndRegenerate,
+      selectedGGUF,
+      warnModelNotLoaded,
+      showToast,
+    ],
+  );
 
   const sendButtonDisabled = !userInput.trim() && !pendingAttachment;
 
@@ -2107,14 +2217,21 @@ export default function ConversationScreen({
               onPress={toggleTemporaryMode}
               activeOpacity={0.85}
             >
-              <FrostedGlass style={StyleSheet.absoluteFillObject} inverted={isTemporaryMode} />
+              {isTemporaryMode ? (
+                <View
+                  pointerEvents="none"
+                  style={[
+                    StyleSheet.absoluteFillObject,
+                    { backgroundColor: theme.colors.primary, borderRadius: 999 },
+                  ]}
+                />
+              ) : (
+                <FrostedGlass style={StyleSheet.absoluteFillObject} />
+              )}
               <Ionicons 
                 name={isTemporaryMode ? "flash" : "flash-outline"} 
                 size={23} 
-                color={isTemporaryMode 
-                  ? (theme.mode === 'dark' ? theme.colors.primaryText : theme.colors.primaryText)
-                  : (theme.mode === 'dark' ? theme.colors.text : theme.colors.text)
-                } 
+                color={isTemporaryMode ? theme.colors.primaryText : theme.colors.text} 
               />
             </TouchableOpacity>
           ) : (
@@ -2216,6 +2333,7 @@ export default function ConversationScreen({
           onToggleThought={toggleThought}
           onCopyMessage={handleCopyMessage}
           onRegenerateMessage={handleRegenerateMessage}
+          onEditUserMessage={handleEditUserMessage}
           noMessages={noMessages}
           isTemporaryMode={isTemporaryMode}
           greetingLine={greetingLine}
@@ -2280,358 +2398,379 @@ export default function ConversationScreen({
           onClose={closeModelSelector}
           onCloseComplete={handleModelSelectorCloseComplete}
           height={0.55}
-          headerRight={
-            selectorTab === "personas" && selectedPersona ? (
+        >
+          <View style={{ flex: 1 }}>
+            {/* Tab bar — fixed at top; padding matches sticky footers */}
+            <View style={[
+              selectorChromeOuter,
+              {
+                flexDirection: "row",
+                marginBottom: SELECTOR_LIST_GAP,
+                flexShrink: 0,
+              },
+            ]}>
+              <TouchableOpacity
+                onPress={() => setSelectorTab("models")}
+                style={[
+                  selectorChromeInner,
+                  {
+                    flex: 1,
+                    backgroundColor: selectorTab === "models" ? theme.colors.primary : "transparent",
+                  },
+                ]}
+              >
+                <Text style={[
+                  selectorChromeLabel,
+                  {
+                    color: selectorTab === "models" ? theme.colors.primaryText : theme.colors.text,
+                  },
+                ]}>
+                  Models
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setSelectorTab("personas")}
+                style={[
+                  selectorChromeInner,
+                  {
+                    flex: 1,
+                    backgroundColor: selectorTab === "personas" ? theme.colors.primary : "transparent",
+                  },
+                ]}
+              >
+                <Text style={[
+                  selectorChromeLabel,
+                  {
+                    color: selectorTab === "personas" ? theme.colors.primaryText : theme.colors.text,
+                  },
+                ]}>
+                  Personas
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingBottom: 0 }}
+            >
+              {selectorTab === "models" ? (
+                downloadedModels.length === 0 ? (
+                  <View style={{
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    paddingVertical: 40,
+                  }}>
+                    <Text style={{
+                      fontSize: 16,
+                      fontFamily: 'Poppins',
+                      color: theme.colors.textSecondary,
+                      textAlign: 'center',
+                    }}>
+                      No models downloaded
+                    </Text>
+                  </View>
+                ) : (
+                  downloadedModels.map((model, index) => {
+                    const isSelected = selectedGGUF === model;
+                    const isCurrentlyLoading = isLoadingModel && loadingModelFile === model;
+                    return (
+                      <StaggerFadeIn
+                        key={`${model}-${index}`}
+                        index={index}
+                        active={isModelSelectorVisible && selectorTab === "models"}
+                        offset={6}
+                        staggerMs={16}
+                        maxDelay={140}
+                      >
+                        <TouchableOpacity
+                          onPress={() => {
+                            if (isSelected) {
+                              showSelectedAccelInfo();
+                              return;
+                            }
+                            handleModelSwitch(model);
+                          }}
+                          disabled={isLoadingModel}
+                          style={[
+                            styles.modelButton,
+                            {
+                              marginVertical: 5,
+                              borderRadius: 12,
+                              backgroundColor: isSelected
+                                ? theme.colors.primary
+                                : selectorFrost.row,
+                              borderColor: isSelected
+                                ? theme.colors.primary
+                                : selectorFrost.rowBorder,
+                              opacity: isLoadingModel && !isSelected && !isCurrentlyLoading ? 0.5 : 1,
+                            },
+                          ]}
+                        >
+                          <View style={styles.modelButtonContent}>
+                            <Text style={[
+                              styles.buttonText,
+                              isSelected && styles.selectedButtonText,
+                              {
+                                flex: 1,
+                                minWidth: 0,
+                                marginRight: 12,
+                                textAlign: 'left',
+                              },
+                            ]}
+                            numberOfLines={1}
+                            ellipsizeMode="tail"
+                            >
+                              {prettifyModelName(model)}
+                            </Text>
+                            {/* Accel tag (selected only) + checkmark / spinner */}
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                flexShrink: 0,
+                              }}
+                            >
+                              {isSelected &&
+                                !isCurrentlyLoading &&
+                                selectedAccelLabel != null && (
+                                  <Text
+                                    style={{
+                                      fontSize: 11,
+                                      fontFamily: "Poppins",
+                                      fontWeight: "500",
+                                      color: theme.colors.primaryText,
+                                      opacity: 0.8,
+                                      letterSpacing: 0.3,
+                                      marginRight: 6,
+                                    }}
+                                    accessibilityLabel={`Acceleration ${selectedAccelLabel}`}
+                                  >
+                                    {selectedAccelLabel}
+                                  </Text>
+                                )}
+                              <View
+                                style={{
+                                  width: 32,
+                                  height: 24,
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  position: "relative",
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {isCurrentlyLoading && (
+                                  <View
+                                    style={{
+                                      position: "absolute",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                    }}
+                                  >
+                                    <ActivityIndicator
+                                      size="small"
+                                      color={
+                                        isSelected
+                                          ? theme.colors.primaryText
+                                          : theme.colors.text
+                                      }
+                                    />
+                                  </View>
+                                )}
+                                <AnimatedCheckmark
+                                  visible={isSelected && !isCurrentlyLoading}
+                                  size={20}
+                                  color={theme.colors.primaryText}
+                                />
+                              </View>
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                      </StaggerFadeIn>
+                    );
+                  })
+                )
+              ) : (
+                // Personas tab list only
+                availablePersonas.length === 0 ? (
+                  <View style={{
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    paddingVertical: 40,
+                  }}>
+                    <Text style={{
+                      fontSize: 16,
+                      fontFamily: 'Poppins',
+                      color: theme.colors.textSecondary,
+                      textAlign: 'center',
+                      marginBottom: 20,
+                    }}>
+                      No personas created
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        closeModelSelector();
+                        onOpenSettings();
+                      }}
+                      style={{
+                        backgroundColor: theme.colors.primary,
+                        paddingVertical: 12,
+                        paddingHorizontal: 24,
+                        borderRadius: 12,
+                      }}
+                    >
+                      <Text style={{
+                        fontSize: 16,
+                        fontFamily: 'Poppins',
+                        color: theme.colors.primaryText,
+                        fontWeight: '600',
+                      }}>
+                        Go to Personas
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  availablePersonas.map((persona, index) => {
+                    const isSelected = selectedPersona?.id === persona.id;
+                    return (
+                      <StaggerFadeIn
+                        key={persona.id}
+                        index={index}
+                        active={isModelSelectorVisible && selectorTab === "personas"}
+                        offset={6}
+                        staggerMs={16}
+                        maxDelay={140}
+                      >
+                        <TouchableOpacity
+                          onPress={() => {
+                            setSelectedPersona(persona);
+                            showToast(`Persona "${persona.name}" selected`);
+                          }}
+                          disabled={isSelected}
+                          style={[
+                            styles.modelButton,
+                            {
+                              marginVertical: 5,
+                              borderRadius: 12,
+                              backgroundColor: isSelected
+                                ? theme.colors.primary
+                                : selectorFrost.row,
+                              borderColor: isSelected
+                                ? theme.colors.primary
+                                : selectorFrost.rowBorder,
+                            },
+                          ]}
+                        >
+                          <View style={styles.modelButtonContent}>
+                            <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
+                              <Text style={[
+                                styles.buttonText,
+                                isSelected && styles.selectedButtonText,
+                                { textAlign: 'left' },
+                              ]}
+                              numberOfLines={1}
+                              ellipsizeMode="tail"
+                              >
+                                {persona.name}
+                              </Text>
+                              {persona.tagline && (
+                                <Text style={{
+                                  fontSize: 12,
+                                  fontFamily: 'Poppins',
+                                  color: isSelected ? theme.colors.primaryText : theme.colors.textSecondary,
+                                  marginTop: 4,
+                                  textAlign: 'left',
+                                }}
+                                numberOfLines={1}
+                                ellipsizeMode="tail"
+                                >
+                                  {persona.tagline}
+                                </Text>
+                              )}
+                            </View>
+                            <View style={{
+                              width: 32,
+                              height: 24,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              position: 'relative',
+                              flexShrink: 0,
+                            }}>
+                              <AnimatedCheckmark
+                                visible={isSelected}
+                                size={20}
+                                color={theme.colors.primaryText}
+                              />
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                      </StaggerFadeIn>
+                    );
+                  })
+                )
+              )}
+            </ScrollView>
+
+            {/* Sticky footers — same outer/inner padding as Models/Personas bar */}
+            {selectorTab === "models" ? (
+              <TouchableOpacity
+                onPress={() => {
+                  closeModelSelector();
+                  onGoToModelSelection();
+                }}
+                disabled={isLoadingModel}
+                style={[
+                  selectorChromeOuter,
+                  {
+                    flexShrink: 0,
+                    marginTop: SELECTOR_LIST_GAP,
+                    opacity: isLoadingModel ? 0.5 : 1,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Browse models"
+              >
+                <View style={[selectorChromeInner, { flexDirection: "row" }]}>
+                  <Ionicons
+                    name="cube-outline"
+                    size={18}
+                    color={theme.colors.text}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={[selectorChromeLabel, { color: theme.colors.text }]}>
+                    Browse models
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ) : selectedPersona ? (
               <TouchableOpacity
                 onPress={() => {
                   setSelectedPersona(null);
                   showToast('Persona cleared');
                 }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                style={[
+                  selectorChromeOuter,
+                  {
+                    flexShrink: 0,
+                    marginTop: SELECTOR_LIST_GAP,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Clear selected persona"
               >
-                <Text style={{
-                  fontSize: 14,
-                  fontFamily: 'Poppins',
-                  color: theme.colors.textSecondary,
-                  fontWeight: '400',
-                }}>
-                  Clear
-                </Text>
-              </TouchableOpacity>
-            ) : undefined
-          }
-        >
-          {/* Tab Selector */}
-          <View style={{
-            flexDirection: "row",
-            marginBottom: 16,
-            backgroundColor: selectorFrost.chrome,
-            borderRadius: 12,
-            padding: 4,
-            borderWidth: StyleSheet.hairlineWidth,
-            borderColor: selectorFrost.rowBorder,
-          }}>
-            <TouchableOpacity
-              onPress={() => setSelectorTab("models")}
-              style={{
-                flex: 1,
-                backgroundColor: selectorTab === "models" ? theme.colors.primary : "transparent",
-                paddingVertical: 10,
-                borderRadius: 8,
-                alignItems: "center",
-              }}
-            >
-              <Text style={{
-                fontSize: 16,
-                fontWeight: "600",
-                fontFamily: "Poppins",
-                color: selectorTab === "models" ? theme.colors.primaryText : theme.colors.text,
-              }}>
-                Models
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setSelectorTab("personas")}
-              style={{
-                flex: 1,
-                backgroundColor: selectorTab === "personas" ? theme.colors.primary : "transparent",
-                paddingVertical: 10,
-                borderRadius: 8,
-                alignItems: "center",
-              }}
-            >
-              <Text style={{
-                fontSize: 16,
-                fontWeight: "600",
-                fontFamily: "Poppins",
-                color: selectorTab === "personas" ? theme.colors.primaryText : theme.colors.text,
-              }}>
-                Personas
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView 
-            style={{ flex: 1 }} 
-            contentContainerStyle={{ paddingBottom: 32 }}
-          >
-            {selectorTab === "models" ? (
-              downloadedModels.length === 0 ? (
-                <View style={{
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  paddingVertical: 40,
-                }}>
-                  <Text style={{
-                    fontSize: 16,
-                    fontFamily: 'Poppins',
-                    color: theme.colors.textSecondary,
-                    textAlign: 'center',
-                    marginBottom: 20,
-                  }}>
-                    No models downloaded
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      closeModelSelector();
-                      onGoToModelSelection();
-                    }}
-                    style={{
-                      backgroundColor: theme.colors.primary,
-                      paddingVertical: 12,
-                      paddingHorizontal: 24,
-                      borderRadius: 12,
-                    }}
-                  >
-                    <Text style={{
-                      fontSize: 16,
-                      fontFamily: 'Poppins',
-                      color: theme.colors.primaryText,
-                      fontWeight: '600',
-                    }}>
-                      Go to Model Selection
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <>
-                {downloadedModels.map((model, index) => {
-                  const isSelected = selectedGGUF === model;
-                  const isCurrentlyLoading = isLoadingModel && loadingModelFile === model;
-                  return (
-                    <StaggerFadeIn
-                      key={`${model}-${index}`}
-                      index={index}
-                      active={isModelSelectorVisible && selectorTab === "models"}
-                      offset={6}
-                      staggerMs={16}
-                      maxDelay={140}
-                    >
-                      <TouchableOpacity
-                        onPress={() => handleModelSwitch(model)}
-                        disabled={isLoadingModel || isSelected}
-                        style={[
-                          styles.modelButton,
-                          {
-                            marginVertical: 5,
-                            borderRadius: 12,
-                            backgroundColor: isSelected
-                              ? theme.colors.primary
-                              : selectorFrost.row,
-                            borderColor: isSelected
-                              ? theme.colors.primary
-                              : selectorFrost.rowBorder,
-                            opacity: isLoadingModel && !isSelected && !isCurrentlyLoading ? 0.5 : 1,
-                          },
-                        ]}
-                      >
-                        <View style={styles.modelButtonContent}>
-                          <Text style={[
-                            styles.buttonText,
-                            isSelected && styles.selectedButtonText,
-                            {
-                              flex: 1,
-                              minWidth: 0,
-                              marginRight: 12,
-                              textAlign: 'left',
-                            },
-                          ]}
-                          numberOfLines={1}
-                          ellipsizeMode="tail"
-                          >
-                            {prettifyModelName(model)}
-                          </Text>
-                          {/* Fixed-width container for checkmark so name truncates before it */}
-                          <View style={{ 
-                            width: 32, 
-                            height: 24, 
-                            alignItems: 'center', 
-                            justifyContent: 'center',
-                            position: 'relative',
-                            flexShrink: 0,
-                          }}>
-                            {isCurrentlyLoading && (
-                              <View style={{
-                                position: 'absolute',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}>
-                                <ActivityIndicator 
-                                  size="small" 
-                                  color={isSelected ? theme.colors.primaryText : theme.colors.text}
-                                />
-                              </View>
-                            )}
-                            <AnimatedCheckmark
-                              visible={isSelected && !isCurrentlyLoading}
-                              size={20}
-                              color={theme.colors.primaryText}
-                            />
-                          </View>
-                        </View>
-                      </TouchableOpacity>
-                    </StaggerFadeIn>
-                  );
-                })}
-                <TouchableOpacity
-                  onPress={() => {
-                    closeModelSelector();
-                    onGoToModelSelection();
-                  }}
-                  disabled={isLoadingModel}
-                  style={{
-                    marginTop: 16,
-                    marginHorizontal: 4,
-                    paddingVertical: 14,
-                    paddingHorizontal: 16,
-                    borderRadius: 12,
-                    borderWidth: StyleSheet.hairlineWidth,
-                    borderColor: selectorFrost.outline,
-                    backgroundColor: selectorFrost.chrome,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexDirection: 'row',
-                    opacity: isLoadingModel ? 0.5 : 1,
-                  }}
-                >
+                <View style={[selectorChromeInner, { flexDirection: "row" }]}>
                   <Ionicons
-                    name="cube-outline"
-                    size={20}
-                    color={theme.colors.text}
+                    name="person"
+                    size={18}
+                    color={theme.colors.error}
                     style={{ marginRight: 8 }}
                   />
-                  <Text style={{
-                    fontSize: 15,
-                    fontFamily: 'Poppins',
-                    color: theme.colors.text,
-                    fontWeight: '500',
-                  }}>
-                    Browse models
+                  <Text style={[selectorChromeLabel, { color: theme.colors.text }]}>
+                    Clear persona
                   </Text>
-                </TouchableOpacity>
-                </>
-              )
-            ) : (
-              // Personas tab
-              availablePersonas.length === 0 ? (
-                <View style={{
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  paddingVertical: 40,
-                }}>
-                  <Text style={{
-                    fontSize: 16,
-                    fontFamily: 'Poppins',
-                    color: theme.colors.textSecondary,
-                    textAlign: 'center',
-                    marginBottom: 20,
-                  }}>
-                    No personas created
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      closeModelSelector();
-                      onOpenSettings();
-                    }}
-                    style={{
-                      backgroundColor: theme.colors.primary,
-                      paddingVertical: 12,
-                      paddingHorizontal: 24,
-                      borderRadius: 12,
-                    }}
-                  >
-                    <Text style={{
-                      fontSize: 16,
-                      fontFamily: 'Poppins',
-                      color: theme.colors.primaryText,
-                      fontWeight: '600',
-                    }}>
-                      Go to Personas
-                    </Text>
-                  </TouchableOpacity>
                 </View>
-              ) : (
-                availablePersonas.map((persona, index) => {
-                  const isSelected = selectedPersona?.id === persona.id;
-                  return (
-                    <StaggerFadeIn
-                      key={persona.id}
-                      index={index}
-                      active={isModelSelectorVisible && selectorTab === "personas"}
-                      offset={6}
-                      staggerMs={16}
-                      maxDelay={140}
-                    >
-                      <TouchableOpacity
-                        onPress={() => {
-                          setSelectedPersona(persona);
-                          showToast(`Persona "${persona.name}" selected`);
-                        }}
-                        disabled={isSelected}
-                        style={[
-                          styles.modelButton,
-                          {
-                            marginVertical: 5,
-                            borderRadius: 12,
-                            backgroundColor: isSelected
-                              ? theme.colors.primary
-                              : selectorFrost.row,
-                            borderColor: isSelected
-                              ? theme.colors.primary
-                              : selectorFrost.rowBorder,
-                          },
-                        ]}
-                      >
-                        <View style={styles.modelButtonContent}>
-                          <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-                            <Text style={[
-                              styles.buttonText,
-                              isSelected && styles.selectedButtonText,
-                              { textAlign: 'left' },
-                            ]}
-                            numberOfLines={1}
-                            ellipsizeMode="tail"
-                            >
-                              {persona.name}
-                            </Text>
-                            {persona.tagline && (
-                              <Text style={{
-                                fontSize: 12,
-                                fontFamily: 'Poppins',
-                                color: isSelected ? theme.colors.primaryText : theme.colors.textSecondary,
-                                marginTop: 4,
-                                textAlign: 'left',
-                              }}
-                              numberOfLines={1}
-                              ellipsizeMode="tail"
-                              >
-                                {persona.tagline}
-                              </Text>
-                            )}
-                          </View>
-                          {/* Fixed-width container for checkmark so name truncates before it */}
-                          <View style={{ 
-                            width: 32, 
-                            height: 24, 
-                            alignItems: 'center', 
-                            justifyContent: 'center',
-                            position: 'relative',
-                            flexShrink: 0,
-                          }}>
-                            <AnimatedCheckmark
-                              visible={isSelected}
-                              size={20}
-                              color={theme.colors.primaryText}
-                            />
-                          </View>
-                        </View>
-                      </TouchableOpacity>
-                    </StaggerFadeIn>
-                  );
-                })
-              )
-            )}
-          </ScrollView>
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </BottomSheet>
 
         {/* Toast notification */}

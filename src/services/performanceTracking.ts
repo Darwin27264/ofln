@@ -400,7 +400,10 @@ export function computeModelPerformanceStats(
   const averages = computeUsageAverages(filtered);
   if (!averages) return null;
 
-  const validRows = filtered.filter(isValidUsageRecord);
+  // Chronological for chart sparklines (oldest → newest).
+  const validRows = filtered
+    .filter(isValidUsageRecord)
+    .sort((a, b) => a.timestamp - b.timestamp);
   return {
     total: averages.totalInferences,
     valid: averages.validInferences,
@@ -413,6 +416,96 @@ export function computeModelPerformanceStats(
     tpsData: validRows.map((r) => r.tokensPerSecond),
     timeData: validRows.map((r) => r.inferenceTime),
     accelOnShare: averages.accelOnShare,
+  };
+}
+
+/** One completed run for personal history lists (Stages S22). */
+export type UsageHistoryEntry = {
+  timestamp: number;
+  tokensPerSecond: number;
+  tokenCount: number;
+  inferenceTime: number;
+  performanceLevel: PerformanceLevel;
+  accelOn?: boolean;
+};
+
+/**
+ * Recent valid runs for a model, newest first (personal tok/s history).
+ * Pure — does not touch disk.
+ */
+export function buildUsageHistory(
+  records: UsageMetrics[],
+  model: string | null | undefined,
+  limit = 12,
+): UsageHistoryEntry[] {
+  if (!model || limit <= 0) return [];
+  const rows = filterRecordsForModel(records, model)
+    .filter(isValidUsageRecord)
+    .sort((a, b) => a.timestamp - b.timestamp);
+  const take = rows.slice(-limit).reverse();
+  return take.map((r) => ({
+    timestamp: r.timestamp,
+    tokensPerSecond: r.tokensPerSecond,
+    tokenCount: r.tokenCount,
+    inferenceTime: r.inferenceTime,
+    performanceLevel: r.performanceLevel,
+    accelOn: r.accelOn,
+  }));
+}
+
+export type UsageTrendDirection = "up" | "down" | "flat";
+
+export type UsageTrend = {
+  direction: UsageTrendDirection;
+  /** Percent change of recent half vs older half of the series. */
+  deltaPct: number | null;
+  sampleCount: number;
+  olderAvg: number | null;
+  recentAvg: number | null;
+};
+
+/**
+ * Simple half-vs-half trend on a chronological tok/s series (oldest first).
+ * Flat when under minSamples or change is within ±flatPct.
+ */
+export function computeUsageTrend(
+  tpsSeriesChronological: number[],
+  opts?: { minSamples?: number; flatPct?: number },
+): UsageTrend {
+  const minSamples = opts?.minSamples ?? 4;
+  const flatPct = opts?.flatPct ?? 5;
+  const series = tpsSeriesChronological.filter(
+    (n) => typeof n === "number" && Number.isFinite(n) && n > 0,
+  );
+  if (series.length < minSamples) {
+    return {
+      direction: "flat",
+      deltaPct: null,
+      sampleCount: series.length,
+      olderAvg: null,
+      recentAvg: null,
+    };
+  }
+
+  const mid = Math.floor(series.length / 2);
+  const older = series.slice(0, mid);
+  const recent = series.slice(mid);
+  const olderAvg = older.reduce((s, n) => s + n, 0) / older.length;
+  const recentAvg = recent.reduce((s, n) => s + n, 0) / recent.length;
+  const deltaPct =
+    olderAvg > 0 ? ((recentAvg - olderAvg) / olderAvg) * 100 : null;
+
+  let direction: UsageTrendDirection = "flat";
+  if (deltaPct != null && Math.abs(deltaPct) >= flatPct) {
+    direction = deltaPct > 0 ? "up" : "down";
+  }
+
+  return {
+    direction,
+    deltaPct: deltaPct != null ? parseFloat(deltaPct.toFixed(1)) : null,
+    sampleCount: series.length,
+    olderAvg: parseFloat(olderAvg.toFixed(2)),
+    recentAvg: parseFloat(recentAvg.toFixed(2)),
   };
 }
 

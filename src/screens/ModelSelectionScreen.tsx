@@ -1942,7 +1942,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                 marginBottom: 12,
               }}
             >
-              Available
+              Local
             </Text>
             {downloadedModelsInfo.map((model, index) => (
               <View key={`${model.id}:${model.fileName}:${index}`}>

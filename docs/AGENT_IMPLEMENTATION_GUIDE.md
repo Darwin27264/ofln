@@ -1,14 +1,14 @@
 # OFLN Agent Implementation Guide
 
 **Companion to:** [`IMPROVEMENT_PLAN.md`](./IMPROVEMENT_PLAN.md) (atomic steps **S01–S31** + **S19p**)  
-**Code map date:** 2026-08-04 · **Last handoff:** 2026-08-04 (S20 Thinking mode)  
+**Code map date:** 2026-08-05 · **Last handoff:** 2026-08-05 (S26 edit→regenerate; next = S27)  
 **Stack:** RN **0.78.1**, New Architecture (bridgeless), `llama.rn` **0.12.6**
 
 The app is **working**. Prefer surgical, clean code. **One Sxx step per session** (small adjacent steps may merge if the user asks).
 
 ---
 
-## Handoff — session status (2026-08-04)
+## Handoff — session status (2026-08-05)
 
 ### Completed (code in working tree — **not committed**)
 
@@ -17,7 +17,7 @@ The app is **working**. Prefer surgical, clean code. **One Sxx step per session*
 | **S01–S05** | Unified load path; inference unit tests; user-facing errors; HistoryDrawer / ChatComposer / MessageList extracts; disk preflight |
 | **S06–S07** | Resumable downloads (`.gguf.partial` + `.chunk`, pause≠discard, `USE_RESUMABLE_DOWNLOADS`); size verify before activate |
 | **S08** | HF token in Keychain; UI on **Models → HF token** (`HfTokenScreen`), not Settings; Bearer only for `huggingface.co` |
-| **S09** | RAM fit: green/amber/red **dot** (collapsed) + color **tag** (expanded); tap → explanation |
+| **S09** | RAM fit: green/amber/red **dot** (collapsed, left of size) + color **tag** (expanded); tap → explanation; ModelCard memo must re-render when `ramFit` arrives |
 | **S10** | Load-failure CTAs: Retry / Models / Lower context (auto step-down `n_ctx` then retry) |
 | **S11** | First-run onboarding; 4 steps; `@has_completed_onboarding`; Skip / optional Download; About → **Review onboarding** |
 | **S12** | Chat history → **op-sqlite** (`ofln_chats.sqlite`, WAL); same API; migrate + `@chat_history_async_backup` |
@@ -27,26 +27,40 @@ The app is **working**. Prefer surgical, clean code. **One Sxx step per session*
 | **S16** | AppState flush on leave-`active`; serialized `persistMessages` (no duplicate chat rows); `logError` on save fail |
 | **S17** | Keep-awake while generating: `@sayem314/react-native-keep-awake@1`; activate start / clear stop·end·abort |
 | **S18** | Export Markdown: history long-press **Export** → `buildChatMarkdown` + system `Share` sheet |
-| **S19** | Storage manager: Settings → **Storage**; list GGUF sizes; delete+confirm; dual-unload if active |
+| **S19** | Storage manager: Settings → **Storage**; list GGUF sizes; delete+confirm; dual-unload if active; **Clear all chat history** section |
 | **S19p** | **ModelRuntimePolicy**: GGUF-first templates; family stubs (Qwen/Gemma/Phi); size-tier system prompts; `systemPromptSource`; Settings policy blurb (**S23**) |
 | **S20** | **Thinking mode** Auto/On/Off per-model (`thinkingMode`); `resolveThinkingModeForTurn` → `buildCompletionParams`; Model Settings segmented control |
+| **S21** | **Accel status** — INFO log after load; selected-row CPU/GPU/NPU tag in quick panel; **no** top-chrome chip |
+| **S22** | **Stages trends** — history + trend helpers; Recent runs **bottom**, preview **5** + View more; chronological sparklines |
 | **S23** | Family recommended blurb — done with S19p via `policyRecommendedBlurb` on Model Settings |
+| **S26** | **Edit → regenerate** — pencil on user bubble; save truncates later turns + `editUserAndRegenerate` |
 
-**Phase 2 (S12–S19) is code-complete.** **S19p** + **S20** landed. Next product step is **S21**.
+**Phase 2 (S12–S19) is code-complete.** Phase 3 product steps **S19p + S20–S23** code-complete.  
+**S24 deferred** (wider persona memory). **S25 removed** (temp UI kept). **S26 done.**  
+**Next unchecked step is S27.**
 
-**Side fix (not an Sxx):** Brief background remount could wipe `selectedGGUF` while `llamaProvider` still held RAM — `App.tsx` + Conversation rehydrate from provider when ready (`modelSelectionRehydrate.ts`). No load/unload on resume.
+**Side polish (not formal Sxx — keep):**
+- Quick selector: fixed Models/Personas tab bar; sticky footers — **Browse models** (Models) + **Clear persona** (Personas when selected; red `person` icon); shared `selectorChrome*` padding.
+- Rehydrate: `modelSelectionRehydrate.ts` + App/Conversation (no full reload on brief background).
+- **Personas library:** bottom-right **Add** pill matches Back (same size/placement as Performance **Clear**).
+- **Models list:** section title **Local** (on-device files; not “Available”); no per-card “Downloaded” badge.
+- **S09 UI polish:** fit **dot left of size** label; smaller collapsed dot (10px); `React.memo` compares `ramFit` so dots appear after async `getTotalMemoryBytes` without needing expand.
+- **Temp toggle:** active state solid `theme.colors.primary` fill + `primaryText` icon.
 
-**Next unchecked step:** **S21 — Accel status chip** (alone; do not start S22). Read existing accel snapshot — do not invent a parallel GPU detector.
+**Next unchecked step:** **S27 — Harden documents** (alone; do not start S28). Do **not** implement S24 unless user reopens memory design.
 
-### Robustness notes (landed with S15–S20 + S19p)
+### Robustness notes (landed with S15–S22 + S19p)
 
 - **Live chat path** uses `useNativeCompletion: true` → `aiChatService.nativeCompletion` (not dead `llamaService` completion helpers).
 - **S15 gap fixed:** `nativeCompletion` now calls `applyConversationTrim` (streamChat already did). UI notice is session-sticky after first drop; clears on new chat / history switch.
 - **S16:** Flush once on `active` → `inactive|background`; serialize saves so parallel first-saves cannot create two chat IDs; completion errors also persist partial/error text.
 - **S17:** Quiet no-op until native rebuild (`TurboModuleRegistry.get`, never import package’s `getEnforcing` path in product JS).
-- **S19:** Final `.gguf` only; basename-safe delete; unload uses `releaseAllLlama()` + `llamaProvider.unloadModel()`.
+- **S19:** Final `.gguf` only; basename-safe delete; unload uses `releaseAllLlama()` + `llamaProvider.unloadModel()`. Separate **Chat history** section: `clearAllChats` + confirm; App resets live conversation via `onChatHistoryCleared` → `handleNewChat`.
+- **S09 memo:** Custom `ModelCard` comparator must include `ramFit` (and `isPaused` / size) — otherwise async total-RAM never paints until expand changes `isExpanded`.
 - **S19p:** Prefer GGUF Jinja; Android sanitize pad **v5** is family-aware (`__ofln_f='…'`); missing metadata → `resolveModelPolicy(file).template.familyStub`; settings seed via `getDefaultSettingsForModel`; no prompt DB.
-- **S20:** `settings.thinkingMode` (`auto`|`on`|`off`, default **auto**) applied only for `policy.thinking.strategy === 'jinja_enable'`; Auto = `resolveEnableThinking` unchanged; always_on/none omit `enable_thinking` (On/Off no-ops vs Auto for those).
+- **S20:** `settings.thinkingMode` (`auto`|`on`|`off`, default **auto**) applied only for `policy.thinking.strategy === 'jinja_enable'`; Auto = `resolveEnableThinking` unchanged; always_on/none omit `enable_thinking`.
+- **S21:** INFO Acceleration in View Logs after load; optional quick-panel row label; quant allowlist unchanged.
+- **S22:** Personal history from existing `usage_log.json` only; no new telemetry SDK or network.
 
 ### Native rebuild required before device smoke
 
@@ -65,12 +79,12 @@ Until rebuild: HF token may show “secure storage isn’t linked”; RAM dots m
 
 ### Device smoke still owed (user pending rebuild)
 
-Treat **S06–S20 + S19p** as **code-complete / Jest-green**, not fully device-signed-off until:
+Treat **S06–S22 + S19p** as **code-complete / Jest-green**, not fully device-signed-off until:
 
 1. Pause → resume → complete download; Discard removes partial  
 2. `.partial` / `.chunk` never appear as loadable models  
 3. Save HF token → gated download works; Clear removes it  
-4. RAM dots + expanded tag; tap explains rating  
+4. RAM dots (left of size on collapsed card) + expanded tag; appear without expanding; tap explains rating  
 5. Force OOM / load fail → Lower context / Retry / Models  
 6. **S11:** Clear `@has_completed_onboarding` → 4 steps; Skip → don’t show again; About → Review  
 7. **S12:** Existing chats survive migrate; save/load/delete/pin/rename; kill/reopen  
@@ -80,10 +94,13 @@ Treat **S06–S20 + S19p** as **code-complete / Jest-green**, not fully device-s
 11. **S16:** Mid-reply → home/kill → reopen → user turn (+ partial assistant if any) still in history  
 12. **S17:** During generation screen stays awake; after Stop / reply ends, screen can sleep again  
 13. **S18:** History long-press → Export → share sheet with Markdown (user/assistant; thoughts included)  
-14. **S19:** Settings → Storage → sizes; delete inactive; delete loaded model unloads first then removes file  
+14. **S19:** Settings → Storage → sizes; delete inactive; delete loaded model unloads first then removes file; **Clear all** chat history wipes history + empty active chat  
 15. **Rehydrate:** Load model → home briefly → return → pill still shows model (no full reload)  
 16. **S19p:** Qwen 0.8B short default prompt; Gemma/Phi coherent if force-sanitize path runs; custom system prompt persists; Reset restores policy defaults; Settings shows family blurb  
-17. **S20:** Qwen Auto — short “hi” no forced CoT; complex “solve step by step…” may think; On forces thinking on short asks; Off suppresses on complex; non-Qwen (e.g. Gemma/Phi) still loads/chats  
+17. **S20:** Qwen Auto — short “hi” no forced CoT; complex may think; On/Off force; non-Qwen still chats  
+18. **S21:** Load model → View Logs INFO Acceleration; quick panel selected row shows CPU/GPU/NPU  
+19. **S22:** Stages → Recent runs bottom (5 + View more); trend when ≥4 runs  
+20. **Quick selector:** Tab bar fixed; sticky Browse models; sticky Clear persona with red person icon  
 
 Also run `IMPROVEMENT_PLAN.md` §7 core smoke after rebuild.
 
@@ -93,10 +110,10 @@ Also run `IMPROVEMENT_PLAN.md` §7 core smoke after rebuild.
 |------|--------|
 | Download | `src/api/model.ts` |
 | HF auth | `src/services/hfTokenService.ts`, `src/screens/HfTokenScreen.tsx` |
-| RAM fit | `src/services/ramFitService.ts`, `ModelCard` props `ramFit` |
+| RAM fit | `src/services/ramFitService.ts`, `ModelCard` props `ramFit` (+ memo compare `ramFit`) |
 | Load CTAs | `src/utils/loadFailureAlert.ts`, `userFacingErrors.ts` |
 | Disk | `src/utils/diskPreflight.ts` |
-| Storage (S19) | `src/utils/modelStorageHelpers.ts`, `src/services/modelStorageService.ts`, `src/screens/StorageScreen.tsx`, Settings tile, App page `storage` |
+| Storage (S19) | `src/utils/modelStorageHelpers.ts`, `src/services/modelStorageService.ts`, `src/screens/StorageScreen.tsx` (models + clear chats), Settings tile, App page `storage` + `onChatHistoryCleared` |
 | Onboarding | `src/services/onboardingService.ts`, `src/screens/OnboardingScreen.tsx`, `App.tsx` gate |
 | Chat history | `src/services/chatHistoryService.ts`, `chatHistoryHelpers.ts`; search in `HistoryDrawer` |
 | Context UI | `src/utils/contextFullness.ts`, `ContextFullnessBanner.tsx`, `ContextFullnessRing.tsx` |
@@ -108,25 +125,29 @@ Also run `IMPROVEMENT_PLAN.md` §7 core smoke after rebuild.
 | Chat extract | `HistoryDrawer.tsx`, `ChatComposer.tsx`, `MessageList.tsx`, `StaggerFadeIn.tsx` |
 | **Policy (S19p)** | `modelPolicy.ts`, `modelFamily.ts`, `familyTemplates.ts`, `promptDefaults.ts`, `modelSettingsService.ts`, `ggufSanitizeService.ts` (v5), `llamaProvider.ts`, `aiChatService.ts`, `completionParams.ts`, `ModelSettingsScreen.tsx` |
 | **Thinking (S20)** | `modelSettingsService.thinkingMode`, `promptHeuristics.resolveThinkingModeForTurn`, `completionParams.buildCompletionParams`, `ModelSettingsScreen` segment |
-| Tests | `__tests__/inference/*` (incl. `completionParams`, `modelPolicy`), downloadHelpers, … |
+| **Accel (S21)** | `utils/accelChipDisplay.ts`, `llamaProvider` log after load, Conversation quick-panel selected-row label |
+| **Stages trends (S22)** | `performanceTracking` (`buildUsageHistory`, `computeUsageTrend`), StagesScreen Recent runs |
+| **Quick selector polish** | ConversationScreen BottomSheet: `selectorChrome*`, sticky Browse models / Clear persona |
+| **Edit (S26)** | `chatEditHelpers.buildMessagesAfterUserEdit`, `useAIChat.editUserAndRegenerate`, MessageList pencil / TextInput |
+| **S27 entry** | `documentParsingService` |
+| **S24 (deferred)** | `personaService.ts` / `PersonaEditorScreen` — do not implement yet |  
+| Tests | `__tests__/inference/*`, `chatEditHelpers`, `accelChipDisplay`, `performanceTracking`, … |
 
-`npm test` → **20 suites / 114 tests** green (2026-08-04, after S20).
+`npm test` → **23 suites / 130 tests** green after S26 (2026-08-05).
 
 ### Git / commit state
 
-- **Not committed** — large working tree of uncommitted Sxx work (plus prior uncommitted S01–S14 if still dirty).
+- **Not committed** — large working tree of uncommitted Sxx work.
 - Do **not** commit unless the user asks.
 - New dep: `@sayem314/react-native-keep-awake` in `package.json` / lockfiles.
 
-### Do **not** for S21
+### Do **not** for S27
 
-- Don’t invent a second acceleration detector — read existing runtime accel snapshot / load metadata  
-- Don’t add GPU vendor branding chrome or colorful “NPU” marketing UI  
-- Don’t combine with S22 (Stages trends) or reopen S20 thinking parser  
-- Don’t change load path / quant allowlist as part of the chip  
-- Keep chat chrome monochrome; tap → short alert with reason  
+- Don’t start S28 mmproj vision or S24 persona memory  
+- Don’t add vector RAG or embedding stores  
+- Honest errors for scanned/unsupported PDFs; size caps only  
 - Keep `useNativeCompletion: true`; don’t touch Conversation `selectedGGUF` effect deps  
-- Dual unload still: `releaseAllLlama()` + `llamaProvider.unloadModel()` when leaving to models / deleting active GGUF  
+- Dual unload still: `releaseAllLlama()` + `llamaProvider.unloadModel()`  
 
 ---
 
@@ -169,6 +190,7 @@ shouldFlushChatPersist|keepAwake|activateGeneratingKeepAwake
 buildChatMarkdown|listStoredGgufModels|StorageScreen
 resolveEnableThinking|buildCompletionParams|enable_thinking|ModelSettings
 shouldRehydrateSelectionFromProvider|modelSelectionRehydrate
+Persona|buildPersonaSystemPrompt|@personas|PersonaEditorScreen
 createStyles|DESIGN
 ```
 
@@ -290,8 +312,10 @@ Add **at most one native module per Sxx**. Rebuild + smoke.
 
 ### S09 — RAM fit chips (safe–medium) ✅
 
-**Done:** `react-native-device-info` + `src/services/ramFitService.ts` (local device-RAM buckets → Fits / Tight / Won’t fit); collapsed **color dot**; expanded **color tag** (dot + label); tap either → `explainRamFit` alert.  
-**UI:** Theme `success` / `warning` / `error`; no text chip on collapsed row. **Requires full native rebuild.**
+**Done:** `react-native-device-info` + `src/services/ramFitService.ts` (local device-RAM buckets → Fits / Tight / Won’t fit); collapsed **color dot** (left of size chip, ~10px); expanded **color tag** (dot + label); tap either → `explainRamFit` alert.  
+**UI:** Theme `success` / `warning` / `error`; no text chip on collapsed row.  
+**Memo:** `ModelCard` custom `React.memo` compare **must** include `ramFit` fields — total RAM loads async after first paint.  
+**Requires full native rebuild.**
 
 ### S10 — Load failure CTAs (safe) ✅
 
@@ -345,48 +369,45 @@ Add **at most one native module per Sxx**. Rebuild + smoke.
 ### S19 — Storage manager (safe–medium) ✅
 
 **Done:** `modelStorageHelpers` + `modelStorageService` (final `.gguf` only); Settings → **Storage** tile → `StorageScreen` (sizes, free space, delete with confirm/`error` CTA); active model dual-unloads before unlink.  
-**Don’t (still):** Silent delete; load `.partial`.
+**Chat data:** separate **Chat history** section — conversation count + **Clear all** (confirm); `chatHistoryService.clearAllChats()`; App `onChatHistoryCleared={handleNewChat}` so in-memory open chat resets.  
+**Don’t (still):** Silent delete; load `.partial`; don’t clear models when clearing chats (or vice versa).
 
 ### S20 — Thinking mode (safe–medium) — **DONE 2026-08-04**
 
 **Done:** Per-model `thinkingMode: 'auto'|'on'|'off'` (default auto) in `modelSettingsService`; pure `resolveThinkingModeForTurn` applies only for `jinja_enable`; `buildCompletionParams` wires it; Model Settings segmented Auto/On/Off; Jest Auto identity + On/Off overrides.  
 **Don’t reopen:** thinkStreamParser; dual family tables; S21.
 
-### S21 — Accel chip (safe) — **NEXT**
+### S21 — Accel status (safe) — **DONE 2026-08-04** (+ UI polish)
 
-**Do:** Read runtime accel snapshot; tap → short alert with reason.  
-**UI:** Small frosted/top pill style consistent with existing top pills; monochrome.  
-**Don’t:** New GPU detector; Stages trends (S22); change quant allowlist.
+**Done:** After model load, INFO log via `formatAccelLogDisplay` + `logError('Acceleration', …, 'INFO')` into View Logs. Selected model row in chat quick panel shows monochrome CPU/GPU/NPU (tap selected row → detail). **No** top-chrome accel chip (user preference).  
+**Don’t reopen:** quant allowlist, second GPU detector.
 
-### S22 — Stages trends (medium, thin)
+### S22 — Stages trends (medium, thin) — **DONE 2026-08-04** (+ UI polish)
 
-**Do:** Aggregate existing `usage_log` / performanceTracking; simple list/chart with `react-native-chart-kit` already in app.  
-**Don’t:** Network upload; new analytics SDK.  
-**UI:** Stages already exists — extend calmly; one section job.
+**Done:** `buildUsageHistory` + `computeUsageTrend` on existing usage log; Stages **Recent runs** at **bottom** of scroll; default **5** rows + **View more** expand; chronological sparklines.  
+**Don’t reopen:** new analytics SDK; network upload.
 
 ### S23 — Family blurb (safe) — **DONE with S19p**
 
 **Done:** `policyRecommendedBlurb(resolveModelPolicy(fileName))` under System Prompt on Model Settings.  
 **Don’t:** Duplicate a second recommended-copy system.
 
-### S24 — Persona memory notes (safe)
+### S24 — Persona memory notes (safe) — **DEFERRED**
 
-**Do:** `memoryNotes: string[]` on persona; inject in `buildPersonaSystemPrompt`.  
-**UI:** PersonaEditor — multiline field; section label uppercase small.
+**Status:** Wider memory system needs planning. **Do not implement** until user reopens.  
+**Trace (when unblocked):** `Persona` / `buildPersonaSystemPrompt` / `PersonaEditorScreen`.  
+**Likely constraints later:** empty notes must leave prompt identical; no RAG/cloud-by-default without design.
 
-### S25 — Temp chat polish (safe)
+### S25 — Temp chat polish — **REMOVED**
 
-**Trace:** `isTemporaryMode`, `disablePersistence`.  
-**Do:** Clear labeling when temp on.  
-**UI:** Subtle chip; no color noise.
+**Removed 2026-08-05:** existing temp-mode UX is sufficient. Toggle active state fixed to solid `primary` (white in dark) + `primaryText` icon. Do not re-add a polish step.
 
-### S26 — Edit → regenerate (safe)
+### S26 — Edit → regenerate (safe) — **DONE 2026-08-05**
 
-**Trace:** `useAIChat.regenerate`.  
-**Do:** Edit user content → truncate → regenerate.  
-**UI:** Inline edit matching bubble styles.
+**Done:** `buildMessagesAfterUserEdit` pure helper; `editUserAndRegenerate` on `useAIChat`; MessageList pencil → inline `TextInput` in user bubble (save/cancel); earlier turns kept, later turns dropped, completion re-runs. Composer untouched.  
+**Don’t reopen:** S24, composer-staging the edited text, S27.
 
-### S27 — Harden documents (safe–medium)
+### S27 — Harden documents (safe–medium) — **NEXT**
 
 **Trace:** `documentParsingService`.  
 **Do:** Caps; scanned PDF honest refusal; budget inject.  
