@@ -5,11 +5,16 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Platform STT (S30) — OS speech recognition. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- Android 11+ package visibility for OS TTS engines (S29). -->
+    <!-- Android 11+ package visibility for OS TTS / STT engines (S29 / S30). -->
     <queries>
       <intent>
         <action android:name="android.intent.action.TTS_SERVICE" />
+      </intent>
+      <intent>
+        <action android:name="android.speech.RecognitionService" />
       </intent>
     </queries>
 

@@ -242,6 +242,13 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     maxHeight: 140,
     fontFamily: "Poppins",
   },
+  micButton: {
+    width: 36,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 2,
+  },
   sendIconButton: {
     width: 44,
     height: 44,

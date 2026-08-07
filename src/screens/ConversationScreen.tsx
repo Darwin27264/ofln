@@ -119,6 +119,14 @@ import {
   stopSpeaking,
   setSpeechStatusListener,
 } from "../services/ttsService";
+import {
+  startListening,
+  stopListening,
+  destroyListening,
+  setTranscriptListener,
+  setListeningStatusListener,
+  isListening as isSttListening,
+} from "../services/sttService";
 
 type MessageAttachment = {
   type: "image" | "pdf";
@@ -318,6 +326,12 @@ export default function ConversationScreen({
     },
     [scrollViewRef],
   );
+
+  // After history load / remount, stick to newest by default (MessageList
+  // snaps once on layout — no animated multi-retry scroll here).
+  useEffect(() => {
+    setAutoScrollEnabled(true);
+  }, [currentChatId, setAutoScrollEnabled]);
   
   // Detect Samsung devices for keyboard padding adjustments
   // Samsung devices often have different keyboard behavior that requires extra padding
@@ -400,6 +414,8 @@ export default function ConversationScreen({
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
+  /** User bubble edit in MessageList — suppress keyboard scroll-to-end. */
+  const [isEditingMessage, setIsEditingMessage] = useState(false);
 
   // Multiselect state
   const [isMultiselectMode, setIsMultiselectMode] = useState(false);
@@ -921,11 +937,15 @@ export default function ConversationScreen({
     });
   }, [panelAnim, panelWidth, backdropOpacity, isMultiselectMode, exitMultiselectMode]);
 
-  // Handle chat selection
-  const handleChatSelect = useCallback(async (chat: ChatConversation) => {
-    onLoadChat(chat.id, chat.messages);
-    togglePanel();
-  }, [onLoadChat, togglePanel]);
+  // Handle chat selection — re-enable stick-to-newest for the loaded thread.
+  const handleChatSelect = useCallback(
+    async (chat: ChatConversation) => {
+      setAutoScrollEnabled(true);
+      onLoadChat(chat.id, chat.messages);
+      togglePanel();
+    },
+    [onLoadChat, togglePanel, setAutoScrollEnabled],
+  );
 
   // Helper function to format month/year
   const formatMonthYear = (timestamp: number): string => {
@@ -1383,6 +1403,9 @@ export default function ConversationScreen({
       return;
     }
 
+    // Freeze dictation before snapshoting / clearing the composer (S30).
+    void stopListening();
+
     const displayContent = userInput.trim();
     // Snapshot — UI may clear while the send animation runs.
     const attachment = pendingAttachment;
@@ -1639,6 +1662,7 @@ export default function ConversationScreen({
   }, [showToast]);
 
   const [speakingVisibleIndex, setSpeakingVisibleIndex] = useState<number | null>(null);
+  const [isListening, setIsListening] = useState(false);
 
   useEffect(() => {
     setSpeechStatusListener((status) => {
@@ -1652,9 +1676,50 @@ export default function ConversationScreen({
     };
   }, []);
 
+  useEffect(() => {
+    setTranscriptListener((text) => {
+      setUserInput(text);
+    });
+    setListeningStatusListener((status) => {
+      setIsListening(status.listening);
+      if (!status.listening && status.reason === 'error' && status.message) {
+        showToast('Could not capture speech. Try again.');
+      }
+    });
+    return () => {
+      setTranscriptListener(null);
+      setListeningStatusListener(null);
+      void destroyListening();
+    };
+  }, [showToast]);
+
+  /** Toggle platform STT into the composer (S30). */
+  const handleMicPress = useCallback(async () => {
+    if (isGenerating || isLoading || isOcrRunning) return;
+    if (isListening || isSttListening()) {
+      await stopListening();
+      return;
+    }
+    // Snapshot composer at press time; partials append to this base.
+    const result = await startListening(userInput);
+    if (!result.ok) {
+      setIsListening(false);
+      if (result.reason === 'unavailable') {
+        showToast(
+          'Speech input not available. Rebuild the app if you just installed, or enable a speech recognition service on this device.',
+        );
+      } else if (result.reason === 'permission') {
+        showToast('Microphone permission is required to dictate.');
+      } else {
+        showToast('Could not start speech recognition.');
+      }
+    }
+  }, [isGenerating, isLoading, isOcrRunning, isListening, userInput, showToast]);
+
   /** Play / stop OS TTS for an assistant bubble (S29). */
   const handleSpeakMessage = useCallback(
     async (content: string, visibleIndex: number) => {
+      void stopListening();
       if (speakingVisibleIndex === visibleIndex) {
         await stopSpeaking();
         setSpeakingVisibleIndex(null);
@@ -2292,12 +2357,19 @@ export default function ConversationScreen({
   }, [keyboardPadding, composerBottomPadding, animatedBottomPadding]);
 
   // Keep the latest turn visible above the rising composer when the keyboard opens.
+  // Skip while editing a user bubble — MessageList keeps that bubble in view instead.
   useEffect(() => {
-    if (keyboardPadding <= 0 || !autoScrollEnabled) return;
+    if (keyboardPadding <= 0 || !autoScrollEnabled || isEditingMessage) return;
     scrollChatToEnd(false);
     const t = setTimeout(() => scrollChatToEnd(false), 280);
     return () => clearTimeout(t);
-  }, [keyboardPadding, autoScrollEnabled, scrollBottomPadding, scrollChatToEnd]);
+  }, [
+    keyboardPadding,
+    autoScrollEnabled,
+    isEditingMessage,
+    scrollBottomPadding,
+    scrollChatToEnd,
+  ]);
 
   // Hero lift: native translateY only. Midpoint `top` stays frozen at full-window
   // layout so Android's early resize cannot nudge it before this runs.
@@ -2584,6 +2656,8 @@ export default function ConversationScreen({
           onSpeakMessage={handleSpeakMessage}
           speakingVisibleIndex={speakingVisibleIndex}
           onEditUserMessage={handleEditUserMessage}
+          onEditingChange={setIsEditingMessage}
+          threadKey={currentChatId}
           noMessages={noMessages}
           isTemporaryMode={isTemporaryMode}
           greetingLine={greetingLine}
@@ -2626,6 +2700,8 @@ export default function ConversationScreen({
           sendDisabled={sendButtonDisabled}
           onSend={handleSendMessage}
           onStop={aiChat.stop}
+          isListening={isListening}
+          onMicPress={handleMicPress}
           addButtonRef={addButtonRef}
           onOpenAttachMenu={openAttachMenu}
           attachMenuVisible={attachMenuVisible}

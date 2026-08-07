@@ -27,6 +27,7 @@ import {
   deactivateGeneratingKeepAwake,
 } from '../services/keepAwakeService';
 import { stopSpeaking } from '../services/ttsService';
+import { stopListening } from '../services/sttService';
 import { logError } from '../utils/errorLogger';
 import { buildMessagesAfterUserEdit } from '../utils/chatEditHelpers';
 
@@ -590,8 +591,9 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
       cancelAnimationFrame(flushRafRef.current);
       flushRafRef.current = null;
     }
-    // New inference always stops OS speech (S29).
+    // New inference always stops OS speech (S29) and dictation (S30).
     void stopSpeaking();
+    void stopListening();
     setError(null);
     isGeneratingRef.current = true;
     setIsLoading(true);
@@ -790,8 +792,9 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     // Invalidate in-flight generation first so late tokens/thoughts are ignored.
     generationIdRef.current += 1;
 
-    // Also halt OS speech if the user hits Stop while listening (S29).
+    // Also halt OS speech / dictation if the user hits Stop while either is active.
     void stopSpeaking();
+    void stopListening();
 
     try {
       abortRef.current?.();

@@ -1069,6 +1069,13 @@
   resolved "https://registry.npmjs.org/@bcoe/v8-coverage/-/v8-coverage-0.2.3.tgz"
   integrity sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==
 
+"@dev-amirzubair/react-native-voice@^1.0.4":
+  version "1.0.4"
+  resolved "https://registry.npmjs.org/@dev-amirzubair/react-native-voice/-/react-native-voice-1.0.4.tgz"
+  integrity sha512-/JTxJbs9oc/tvtwiM8mcrnXktL645yeT5YXHNCqon80m6SD7JuMCtu+j8QY0Y50M0wa9Ion33ntY0lQp1KRVsQ==
+  dependencies:
+    invariant "^2.2.4"
+
 "@egjs/hammerjs@^2.0.17":
   version "2.0.17"
   resolved "https://registry.npmjs.org/@egjs/hammerjs/-/hammerjs-2.0.17.tgz"

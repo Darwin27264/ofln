@@ -1,6 +1,6 @@
 # OFLN Product Roadmap
 
-**Status:** living plan — last track update **2026-08-06** (**PAUSED** — S29 TTS + S27b docs complete; next = S28 optional or S30 STT)  
+**Status:** living plan — last track update **2026-08-06** (**S30 Platform STT done**; next = S28 optional vision or S31 remote)  
 **Audience:** builders / AI agents shipping OFLN  
 **Stack:** RN 0.78.1 · New Arch · `llama.rn` 0.12.6 · styles via `createStyles` + [`DESIGN.md`](../DESIGN.md)
 
@@ -8,25 +8,25 @@
 
 The app is **working**. Do **one atomic step** at a time (see §5 tables). Never implement a whole phase in one session.
 
-1. Read this file + [`AGENT_IMPLEMENTATION_GUIDE.md`](./AGENT_IMPLEMENTATION_GUIDE.md) **Handoff — PAUSED** (full truth).  
+1. Read this file + [`AGENT_IMPLEMENTATION_GUIDE.md`](./AGENT_IMPLEMENTATION_GUIDE.md) **Handoff** (full truth).  
 2. Re-explore/trace live code for that step’s symbols.  
 3. Implement **only** that step; match existing StyleSheet / `DESIGN.md`.  
-4. Smoke-test (§7 + TTS/PDF when relevant). Stop if chat/load/download regresses.  
+4. Smoke-test (§7 + TTS/STT/PDF when relevant). Stop if chat/load/download regresses.  
 5. Mark the step done in **both** plan docs; open a new session for the next step.  
 6. **Do not commit** unless the user asks.
 
-### Agent pass-off prompt (2026-08-06)
+### Agent pass-off prompt (2026-08-06, post-S30)
 
 Paste the following as the next agent’s user message (or attach this file + the guide Handoff):
 
 ```
-You are continuing OFLN (React Native offline LLM app). Deliberate session pause 2026-08-06 after S27b + S29.
+You are continuing OFLN (React Native offline LLM app). Session updated 2026-08-06 after S30 Platform STT.
 
 # Role
 One atomic step only. Prefer extend over rewrite. Match StyleSheet / createStyles + DESIGN.md. Do not commit unless asked.
 
 # Read first (required order)
-1. docs/AGENT_IMPLEMENTATION_GUIDE.md — full **Handoff — session status (2026-08-06) — PAUSED**
+1. docs/AGENT_IMPLEMENTATION_GUIDE.md — full **Handoff — session status (2026-08-06) — S30 done**
 2. docs/IMPROVEMENT_PLAN.md — status line, Phase 4 table, §8 tracking, this pass-off block
 3. Trace live code before coding — docs can drift; source of truth is the repo
 
@@ -40,44 +40,41 @@ One atomic step only. Prefer extend over rewrite. Match StyleSheet / createStyle
 
 # Already done (do not re-litigate)
 ## Phase 0–3 + policy
-- S01–S23 as prior arc (load, downloads, HF token, RAM, onboarding, sqlite, history search, context UI, trim, flush, keep-awake, export, storage, ModelRuntimePolicy, thinking, accel, Stages, policy blurb)
-- S24 deferred (persona memory); S25 removed
+- S01–S23 as prior arc; S24 deferred; S25 removed
 - S26 edit→regenerate; S32 backup/restore
 
 ## S27 + S27b DONE
-- Pipeline: documentHelpers budgets/refusals; documentParsingService 4MB PDF; image OCR budget inject
-- Chat attach: Camera + Gallery + File (PDF); pending PDF preview; on send extractTextFromAttachment → buildAttachmentTextForPrompt → textForPrompt
-- Hardened: sendPrepareRef, isOcrRunning blocks, sanitizeChatDocumentFileName, isLikelyPdfMeta, keepLocalCopy, delayed pending clear, preferredExt pdf for content://
+- Document pipeline + chat PDF attach hardened (see prior handoff)
 
 ## S29 DONE — System TTS
-- react-native-tts@4.1.1 + patches/react-native-tts+4.1.1.patch
-- ttsService uses NativeModules.TextToSpeech ONLY (never import package default — crashes unlinked)
-- prepareSpeechText = stripThinkBlocks + light markdown + 4000 char cap
-- MessageList assistant actions: Copy · Regenerate · tokens/s | flex spacer ≥24 | Speak (rightmost)
-- stopSpeaking on beginGeneration + Stop; Conversation speakingVisibleIndex
-- Android Manifest TTS_SERVICE queries
-- Quality note: poppy/robotic on VM is expected; OS TTS is by design; neural/Piper deferred (RAM vs GGUF)
+- react-native-tts + patches; NativeModules.TextToSpeech only; Speak rightmost; stop on gen
+- Neural TTS deferred
+
+## S30 DONE — Platform STT
+- Official @react-native-voice/voice archived / New Arch broken → @dev-amirzubair/react-native-voice@1.0.4
+- sttService: TurboModuleRegistry/NativeModules presence + lazy require
+- joinComposerSpeech; mic in ChatComposer (left of send); Listening… placeholder
+- stopListening on beginGeneration, Stop, send, Speak, unmount
+- Android RECORD_AUDIO + RecognitionService queries; iOS mic + speech plists
 
 # Tests
-npm test → 27 suites / 161 tests green after S29
+npm test → 29 suites / 167 tests green after S30
 
-# Recommended next (pick ONE with user if ambiguous)
-1. S30 — Platform STT (natural continuance after TTS)
-   - Mic → composer text; permissions; one native lib; monochrome mic on ChatComposer
-   - Research New Arch viability of @react-native-voice/voice vs alternatives before installing
-2. S28 — mmproj vision (optional, hard, device-only)
+# Recommended next (pick ONE)
+1. S28 — mmproj vision (optional, hard, device-only)
    - Must read llama.rn 0.12.6 mmproj API first
    - One curated GGUF+mmproj pair; wire projectorPath load
-   - Live path today ALWAYS OCR+textForPrompt — vision requires real path changes + device smoke
+   - Live path today ALWAYS OCR+textForPrompt — vision needs real path changes + device smoke
    - OCR fallback always remains
+2. S31 — Remote OpenAI client (opt-in base URL + keychain key; privacy banner)
 
 # Hard constraints
 - Surgical diffs; one step
 - Keep useNativeCompletion: true
 - No Conversation selectedGGUF effect dep changes
 - Dual unload preserved
-- Do not implement S24, neural TTS, RAG, S28+S30 together
-- Native rebuild still owed for keychain/device-info/sqlite/keep-awake/tts
+- Do not implement S24, neural TTS/STT, RAG, or stack S28 with other work
+- Native rebuild still owed for keychain/device-info/sqlite/keep-awake/tts/voice
 - Do not commit unless asked
 
 # If finishing current step
@@ -85,7 +82,7 @@ npm test → 27 suites / 161 tests green after S29
 - Short summary: files, smoke, test count
 
 # Explicitly out of queue
-Persona memory (S24), neural TTS catalogs, RAG, tool agent loop, biometric lock, committing without ask
+Persona memory (S24), neural TTS/STT, RAG, tool agent loop, biometric lock, committing without ask
 ```
 
 ---
@@ -286,7 +283,7 @@ Each **Sxx** = one agent session / one PR. Do not batch.
 | **S27b** | **Chat document attach** | Attach menu → document picker → extract on send | User can attach a PDF; S27 parser used end-to-end — **DONE 2026-08-05** |
 | **S28** | mmproj vision (optional) | One curated pair; OCR fallback remains | Device smoke; isolated PR |
 | **S29** | System TTS | OS TTS; strip think; play button | No ONNX — **DONE 2026-08-06** |
-| **S30** | Platform STT | Mic → composer | Separate from S29 |
+| **S30** | Platform STT | Mic → composer | Separate from S29 — **DONE 2026-08-06** |
 | **S31** | Remote OpenAI client | Opt-in; privacy banner | Local still default |
 | **S32** | Device backup / restore | Chats JSON + full ZIP; model catalog re-download (parallel cap 2, smallest first); system Save/Open pickers | Storage → Backup; merge/replace; schema v1 — **DONE 2026-08-05** |
 
@@ -326,8 +323,8 @@ Productize existing reasoning/accel/Stages/personas — settings and UI, not new
 **S27 (2026-08-05):** Document **pipeline** harden — 4MB PDF cap, encrypted/scanned honest refusals, `documentInjectCharBudget` for OCR and extract.  
 **S27b (2026-08-05, harden 08-06):** Chat File (PDF) attach + extract on send; re-entrancy and filename safety.  
 **S29 (2026-08-06):** OS TTS — Speak rightmost on assistant row; strip think; stop on gen; patch-package for AGP. Neural deferred.  
-**Session pause 2026-08-06:** docs + pass-off prompt.  
-**Recommended next:** **S30** (STT) or **S28** (optional vision). One only.
+**S30 (2026-08-06):** Platform STT — New Arch Voice fork (`@dev-amirzubair/react-native-voice`); monochrome mic → composer; stop on gen/Stop/send/Speak.  
+**Recommended next:** **S28** (optional vision) or **S31** (remote). One only.
 
 ### Phase 4 — Selective capability
 Edit, docs, optional vision, OS voice, optional remote — **serial**, never parallel native adds.
@@ -370,7 +367,7 @@ Copy into issues; check off **S01…** only when smoke passes.
 - [x] **S27b** (Chat document attach) — **code + harden + Jest 2026-08-05/06**
 - [ ] **S28** (mmproj vision, optional) — hard; device-only
 - [x] **S29** (System TTS) — **code + Jest 2026-08-06** (Speak rightmost; OS only)
-- [ ] **S30** (Platform STT) ← **recommended next** if continuing voice
+- [x] **S30** (Platform STT) — **code + Jest 2026-08-06** (mic → composer; New Arch Voice fork)
 - [ ] S31 (remote client, as needed)
 
 Update [`AGENT_IMPLEMENTATION_GUIDE.md`](./AGENT_IMPLEMENTATION_GUIDE.md) if symbols/libs change. See guide **Handoff — PAUSED** for rebuild + smoke + full pass-off.

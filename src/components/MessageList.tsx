@@ -3,7 +3,7 @@
  * Presentational — ConversationScreen owns scroll/send/regenerate handlers (S04c).
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import {
   Image,
   TextInput,
   StyleSheet,
+  Platform,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
@@ -24,6 +25,13 @@ import { FrostedGlass } from './FrostedGlass';
 import { useTheme } from '../context/ThemeContext';
 import { createStyles } from '../styles/styles';
 import { ANIMATION_DURATIONS, EASING } from '../utils/animationConfig';
+
+/** Match MessageMarkdown defaults so enter/exit edit does not change type size. */
+const USER_MSG_FONT_SIZE = 16;
+const USER_MSG_LINE_HEIGHT = 24;
+const USER_MSG_FONT_FAMILY = 'Poppins';
+/** messageBubble maxWidth share of scroll content width. */
+const BUBBLE_MAX_WIDTH_RATIO = 0.8;
 
 export type MessageListAttachment = {
   type: 'image' | 'pdf';
@@ -129,6 +137,14 @@ export type MessageListProps = {
   speakingVisibleIndex?: number | null;
   /** Edit user turn → truncate later turns → regenerate (visible = slice(1) index). */
   onEditUserMessage: (visibleIndex: number, newContent: string) => void;
+  /** True while a user bubble is being edited (suppress keyboard scroll-to-end). */
+  onEditingChange?: (isEditing: boolean) => void;
+  /**
+   * Open thread identity (`chatId` or null for a blank new chat).
+   * When this changes (history load / new chat), the list sticks to the
+   * newest messages until the user scrolls away.
+   */
+  threadKey?: string | null;
 
   noMessages: boolean;
   isTemporaryMode: boolean;
@@ -145,6 +161,24 @@ export type MessageListProps = {
   /** Calm one-liner when context trim dropped older turns (S15). */
   showTrimNotice?: boolean;
 };
+
+/** Instant (non-animated) viewport pin to newest messages. */
+function snapScrollToBottom(
+  scrollRef: React.RefObject<ScrollView | null>,
+  contentHeight: number,
+  viewportHeight: number,
+) {
+  const node = scrollRef.current;
+  if (!node) return;
+  if (contentHeight > 0 && viewportHeight > 0) {
+    node.scrollTo({
+      y: Math.max(0, contentHeight - viewportHeight),
+      animated: false,
+    });
+    return;
+  }
+  node.scrollToEnd({ animated: false });
+}
 
 export function MessageList({
   conversation,
@@ -163,6 +197,8 @@ export function MessageList({
   onSpeakMessage,
   speakingVisibleIndex = null,
   onEditUserMessage,
+  onEditingChange,
+  threadKey = null,
   noMessages,
   isTemporaryMode,
   greetingLine,
@@ -182,6 +218,123 @@ export function MessageList({
   const visible = conversation.slice(1);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState('');
+  /** Content Y of each visible message wrapper (for scroll-into-view on edit). */
+  const messageOffsetsRef = useRef<Record<number, number>>({});
+
+  /**
+   * Stick-to-newest after open/switch/load.
+   *
+   * Thread seed is async (useAIChat commits history after `chatId` updates),
+   * so we cannot pin only on the id change when `visible` is still empty.
+   * Instead: arm on thread change; snap whenever content lays out while armed;
+   * disarm when the user scrolls away from the bottom.
+   */
+  const threadId = threadKey ?? 'new';
+  const activeThreadRef = useRef(threadId);
+  const stickToNewestRef = useRef(true);
+  const contentHeightRef = useRef(0);
+  const viewportHeightRef = useRef(0);
+
+  if (activeThreadRef.current !== threadId) {
+    activeThreadRef.current = threadId;
+    stickToNewestRef.current = true;
+  }
+
+  const snapToNewest = useCallback(() => {
+    const run = () =>
+      snapScrollToBottom(
+        scrollViewRef,
+        contentHeightRef.current,
+        viewportHeightRef.current,
+      );
+    // Apply immediately and once after the native layout commit.
+    run();
+    requestAnimationFrame(run);
+  }, [scrollViewRef]);
+
+  // Messages often arrive one commit after `threadKey` (history seed). Snap then.
+  // Also re-run when the open thread changes even if count is unchanged.
+  useEffect(() => {
+    if (!stickToNewestRef.current) return;
+    if (visible.length === 0) return;
+    snapToNewest();
+  }, [threadId, visible.length, snapToNewest]);
+
+  const handleListScroll = useCallback(
+    (event: any) => {
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      contentHeightRef.current = contentSize.height;
+      viewportHeightRef.current = layoutMeasurement.height;
+      const distanceFromBottom =
+        contentSize.height - layoutMeasurement.height - contentOffset.y;
+      // User left the newest edge — stop force-sticking this thread open.
+      if (distanceFromBottom > 80) {
+        stickToNewestRef.current = false;
+      }
+      onScroll(event);
+    },
+    [onScroll],
+  );
+
+  const handleContentSizeChange = useCallback(
+    (_w: number, h: number) => {
+      contentHeightRef.current = h;
+      if (editingIndex !== null) return;
+
+      // While sticking (open/load), keep the end of the thread in view through
+      // reflows — animated:false so this is a set-offset, not a scroll animation.
+      if (stickToNewestRef.current && visible.length > 0) {
+        snapToNewest();
+        return;
+      }
+
+      if (autoScrollEnabled && (isGenerating || keyboardPadding > 0)) {
+        onScrollChatToEnd(false);
+      }
+    },
+    [
+      editingIndex,
+      visible.length,
+      snapToNewest,
+      autoScrollEnabled,
+      isGenerating,
+      keyboardPadding,
+      onScrollChatToEnd,
+    ],
+  );
+
+  const handleScrollViewLayout = useCallback(
+    (e: { nativeEvent: { layout: { height: number } } }) => {
+      viewportHeightRef.current = e.nativeEvent.layout.height;
+      if (stickToNewestRef.current && visible.length > 0) {
+        snapToNewest();
+      }
+    },
+    [snapToNewest, visible.length],
+  );
+
+  const userBubbleMaxWidth = useMemo(() => {
+    const windowWidth = Dimensions.get('window').width;
+    const contentPad = Math.max(16, windowWidth * 0.04);
+    return (windowWidth - contentPad * 2) * BUBBLE_MAX_WIDTH_RATIO;
+  }, []);
+
+  const editInputStyle = useMemo(
+    () => ({
+      width: '100%' as const,
+      maxWidth: '100%' as const,
+      alignSelf: 'stretch' as const,
+      fontSize: USER_MSG_FONT_SIZE,
+      fontFamily: USER_MSG_FONT_FAMILY,
+      lineHeight: USER_MSG_LINE_HEIGHT,
+      color: theme.colors.primaryText,
+      padding: 0,
+      margin: 0,
+      textAlignVertical: 'top' as const,
+      ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
+    }),
+    [theme.colors.primaryText],
+  );
 
   // Long-press user menu (same frosted + stagger pattern as history context menu)
   const rootRef = useRef<View>(null);
@@ -295,17 +448,40 @@ export function MessageList({
     setEditDraft('');
     setUserMenu(null);
     menuOpacity.setValue(0);
-  }, [isGenerating, menuOpacity]);
+    onEditingChange?.(false);
+  }, [isGenerating, menuOpacity, onEditingChange]);
+
+  const scrollEditingIntoView = useCallback(
+    (visibleIndex: number, animated = true) => {
+      const y = messageOffsetsRef.current[visibleIndex];
+      if (y == null || !scrollViewRef.current) return;
+      // Slight top inset so the bubble clears header/pills
+      scrollViewRef.current.scrollTo({
+        y: Math.max(0, y - 24),
+        animated,
+      });
+    },
+    [scrollViewRef],
+  );
 
   const startEdit = (visibleIndex: number, content: string) => {
     if (isGenerating) return;
     setEditingIndex(visibleIndex);
     setEditDraft(content);
+    onEditingChange?.(true);
+    // Keep the edited bubble on screen after layout + keyboard settle
+    // (keyboard open otherwise auto-scrolls the list to the end).
+    requestAnimationFrame(() => {
+      scrollEditingIntoView(visibleIndex, true);
+    });
+    setTimeout(() => scrollEditingIntoView(visibleIndex, true), 80);
+    setTimeout(() => scrollEditingIntoView(visibleIndex, true), 320);
   };
 
   const cancelEdit = () => {
     setEditingIndex(null);
     setEditDraft('');
+    onEditingChange?.(false);
   };
 
   const confirmEdit = (visibleIndex: number, hasAttachments: boolean) => {
@@ -313,8 +489,20 @@ export function MessageList({
     if (!trimmed && !hasAttachments) return;
     setEditingIndex(null);
     setEditDraft('');
+    onEditingChange?.(false);
     onEditUserMessage(visibleIndex, editDraft);
   };
+
+  // Re-focus edited bubble when keyboard/composer height changes mid-edit
+  useEffect(() => {
+    if (editingIndex === null) return;
+    const t1 = setTimeout(() => scrollEditingIntoView(editingIndex, false), 50);
+    const t2 = setTimeout(() => scrollEditingIntoView(editingIndex, true), 300);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [editingIndex, keyboardPadding, scrollBottomPadding, scrollEditingIntoView]);
 
   const menuBlockStyle = {
     backgroundColor: 'transparent' as const,
@@ -350,6 +538,7 @@ export function MessageList({
       }}
     >
       <ScrollView
+        key={threadId}
         style={{ flex: 1 }}
         contentContainerStyle={{
           flexGrow: 1,
@@ -359,13 +548,10 @@ export function MessageList({
           paddingBottom: scrollBottomPadding,
         }}
         ref={scrollViewRef}
-        onScroll={onScroll}
+        onLayout={handleScrollViewLayout}
+        onScroll={handleListScroll}
         scrollEventThrottle={16}
-        onContentSizeChange={() => {
-          if (autoScrollEnabled && (isGenerating || keyboardPadding > 0)) {
-            onScrollChatToEnd(false);
-          }
-        }}
+        onContentSizeChange={handleContentSizeChange}
       >
         {visible.map((msg, index) => {
           const isLastVisible = index === visible.length - 1;
@@ -482,17 +668,8 @@ export function MessageList({
                         onChangeText={setEditDraft}
                         multiline
                         autoFocus
-                        style={{
-                          width: '100%',
-                          minWidth: 120,
-                          fontSize: 18,
-                          fontFamily: 'Poppins',
-                          lineHeight: 28,
-                          color: theme.colors.primaryText,
-                          padding: 0,
-                          margin: 0,
-                          textAlignVertical: 'top',
-                        }}
+                        scrollEnabled={false}
+                        style={editInputStyle}
                         placeholderTextColor={theme.colors.textTertiary}
                         selectionColor={theme.colors.primaryText}
                       />
@@ -500,6 +677,9 @@ export function MessageList({
                       <MessageMarkdown
                         content={msg.content}
                         color={theme.colors.primaryText}
+                        fontSize={USER_MSG_FONT_SIZE}
+                        lineHeight={USER_MSG_LINE_HEIGHT}
+                        fontFamily={USER_MSG_FONT_FAMILY}
                       />
                     )
                   ) : editingIndex === index && msg.role === 'user' ? (
@@ -508,17 +688,8 @@ export function MessageList({
                       onChangeText={setEditDraft}
                       multiline
                       autoFocus
-                      style={{
-                        width: '100%',
-                        minWidth: 120,
-                        fontSize: 18,
-                        fontFamily: 'Poppins',
-                        lineHeight: 28,
-                        color: theme.colors.primaryText,
-                        padding: 0,
-                        margin: 0,
-                        textAlignVertical: 'top',
-                      }}
+                      scrollEnabled={false}
+                      style={editInputStyle}
                       placeholderTextColor={theme.colors.textTertiary}
                       selectionColor={theme.colors.primaryText}
                     />
@@ -526,8 +697,25 @@ export function MessageList({
             </>
           );
 
+          const isEditingThis = msg.role === 'user' && editingIndex === index;
+          // Explicit pixel max width so multiline TextInput wraps inside the bubble
+          // (percentage maxWidth alone is not enough for TextInput intrinsic growth).
+          const editBubbleWidthStyle = isEditingThis
+            ? {
+                maxWidth: userBubbleMaxWidth,
+                width: userBubbleMaxWidth,
+                alignSelf: 'flex-end' as const,
+              }
+            : null;
+
           return (
-            <View key={index} style={styles.messageWrapper}>
+            <View
+              key={index}
+              style={styles.messageWrapper}
+              onLayout={(e) => {
+                messageOffsetsRef.current[index] = e.nativeEvent.layout.y;
+              }}
+            >
               {hasBubbleContent &&
                 (msg.role === 'user' && editingIndex !== index ? (
                   <TouchableOpacity
@@ -544,6 +732,7 @@ export function MessageList({
                     style={[
                       containerStyle,
                       isAssistantDirect ? { maxWidth: '100%' } : {},
+                      editBubbleWidthStyle,
                     ]}
                   >
                     {bubbleBody}

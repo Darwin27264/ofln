@@ -1,14 +1,14 @@
 ﻿# OFLN Agent Implementation Guide
 
 **Companion to:** [`IMPROVEMENT_PLAN.md`](./IMPROVEMENT_PLAN.md) (atomic steps **S01–S32** + **S19p**)  
-**Code map date:** 2026-08-06 · **Last handoff:** 2026-08-06 (**PAUSED** after S29 TTS + S27b; next = S28 optional or S30 STT)  
+**Code map date:** 2026-08-06 · **Last handoff:** 2026-08-06 (**S30 STT done**; next = S28 optional or S31 remote)  
 **Stack:** RN **0.78.1**, New Architecture (bridgeless), `llama.rn` **0.12.6**
 
 The app is **working**. Prefer surgical, clean code. **One Sxx step per session**.
 
 ---
 
-## Handoff — session status (2026-08-06) — PAUSED
+## Handoff — session status (2026-08-06) — S30 done
 
 ### Completed (code in working tree — **not committed**)
 
@@ -28,9 +28,10 @@ The app is **working**. Prefer surgical, clean code. **One Sxx step per session*
 | **S27** | Document/OCR **pipeline** harden |
 | **S27b** | Chat **PDF attach** + send extract + robustness |
 | **S29** | **System TTS** (OS); Speak at trailing right of action row |
+| **S30** | **Platform STT** (OS); monochrome mic → composer |
 | **S32** | Backup/restore |
 
-**S24 deferred** · **S25 removed** · **S28 optional open** · **S30/S31 open**.
+**S24 deferred** · **S25 removed** · **S28 optional open** · **S31 open**.
 
 ### This session arc (2026-08-05 → 2026-08-06)
 
@@ -39,7 +40,7 @@ The app is **working**. Prefer surgical, clean code. **One Sxx step per session*
 3. **S29 TTS** shipped **before optional S28** (live path still OCR-only; mmproj needs deeper work + device).  
 4. Speak UI: full-width row; **Copy · Regenerate · tokens/s** left; flex spacer min **24**; **Speak** far right.  
 5. User notes: VM TTS pops/robotic **expected**; neural TTS still deferred.  
-6. **Paused** for docs + next-agent prompt.
+6. **S30 STT:** New Arch–capable Voice fork; mic in composer; stop on gen/Stop/Speak.  
 
 ### Critical honesty — documents (S27+S27b)
 
@@ -65,6 +66,20 @@ Symbols: `chooseDocument`, `pendingAttachment.kind`, `extractTextFromAttachment`
 
 **Do not** add Piper/ONNX neural default (RAM vs GGUF). Optional future only.
 
+### Critical honesty — STT (S30)
+
+| Claim | Reality |
+|-------|---------|
+| OS STT only | **Yes** — no neural / cloud proprietary stack of our own |
+| Lib | Official `@react-native-voice/voice` **archived / broken on New Arch** → use `@dev-amirzubair/react-native-voice@1.0.4` (TurboModule + bridgeless events) |
+| Safe if unlinked | **Yes** — presence check then lazy `require`; no crash on metro-only reload |
+| Mic → composer | Partial + final results via `joinComposerSpeech` |
+| Perms | Android `RECORD_AUDIO` (+ queries for RecognitionService); iOS mic + speech plists |
+| Stop | `stopListening` on beginGeneration / Stop / send / Speak / unmount |
+| UI | Monochrome mic inside input bar (left of send); listening = filled mic + “Listening…” placeholder |
+
+**Do not** add neural STT; do not combine with S28.
+
 ### Why not S28 yet
 
 Live chat: `useNativeCompletion: true` → always OCR inject for images. True vision needs mmproj download + `projectorPath` load + multimodal completion + curated pair + **device smoke**. OCR must remain fallback.
@@ -72,12 +87,11 @@ Live chat: `useNativeCompletion: true` → always OCR inject for images. True vi
 ### Next step (exactly one)
 
 1. **S28** — mmproj vision (hard, optional, device-only)  
-2. **S30** — Platform STT (medium; recommended if continuing voice)  
-3. **S31** — Remote client (later)
+2. **S31** — Remote client (later)
 
 ### Side polish (keep)
 
-Quick selector sticky footers; rehydrate; Personas Add; Models Local; temp solid primary; user long-press Copy/Edit; **assistant: Copy · Regen · tps | … | Speak**.
+Quick selector sticky footers; rehydrate; Personas Add; Models Local; temp solid primary; user long-press Copy/Edit; **assistant: Copy · Regen · tps | … | Speak**; **composer mic (STT)**.
 
 ### Native rebuild
 
@@ -85,11 +99,11 @@ Quick selector sticky footers; rehydrate; Personas Add; Models Local; temp solid
 cd android && ./gradlew clean && cd .. && npm run android
 ```
 
-Deps needing rebuild include: keychain, device-info, op-sqlite, keep-awake, **react-native-tts**.
+Deps needing rebuild include: keychain, device-info, op-sqlite, keep-awake, **react-native-tts**, **@dev-amirzubair/react-native-voice**.
 
 ### Tests / git
 
-- `npm test` → **27 suites / 161 tests** green (2026-08-06)  
+- `npm test` → **29 suites / 167 tests** green (2026-08-06, after S30)  
 - **Large uncommitted tree** — do **not** commit unless user asks
 
 ### Hard invariants (quick)
@@ -101,7 +115,7 @@ Deps needing rebuild include: keychain, device-info, op-sqlite, keep-awake, **re
 
 ### Do not reopen / do not do
 
-S24 · neural TTS · RAG · scanned PDF OCR · `import` default react-native-tts · combine S28+S30 · change selectedGGUF effect deps · commit without ask
+S24 · neural TTS/STT · RAG · scanned PDF OCR · `import` default react-native-tts · combine S28 with other steps · change selectedGGUF effect deps · commit without ask
 
 ### Key paths
 
@@ -109,10 +123,10 @@ S24 · neural TTS · RAG · scanned PDF OCR · `import` default react-native-tts
 |------|--------|
 | S27b | `ChatComposer`, `ConversationScreen` (`chooseDocument`), `documentHelpers`, `documentParsingService`, `mediaNormalizeService` |
 | S29 | `ttsService.ts`, `speechText.ts`, `MessageList` action row, `useAIChat`, `AndroidManifest.xml`, `patches/react-native-tts+4.1.1.patch` |
+| S30 | `sttService.ts`, `speechInput.ts`, `ChatComposer` mic, `ConversationScreen` handlers, `useAIChat` stopListening, Manifest + iOS plists, `@dev-amirzubair/react-native-voice` |
 | S28 entry | `visionService`, `llamaProvider` projectorPath |
-| S30 entry | not installed (`@react-native-voice/voice` proposed) |
 
-**Pass-off user prompt:** see also `IMPROVEMENT_PLAN.md` § **Agent pass-off prompt (2026-08-06)**.
+**Pass-off user prompt:** see also `IMPROVEMENT_PLAN.md` § **Agent pass-off prompt**.
 
 ---
 ## 0. Mandatory protocol
@@ -413,11 +427,10 @@ Add **at most one native module per Sxx**. Rebuild + smoke.
 **Done:** OS TTS (`react-native-tts` + patch); product `ttsService`/`NativeModules` only; `prepareSpeechText`; Speak **rightmost** on assistant action row; stop on gen/Stop.  
 **Don't reopen:** neural TTS; import package default.
 
-### S30 — Platform STT (medium) — **recommended next for voice**
+### S30 — Platform STT (medium) — **DONE 2026-08-06**
 
-**Trace:** `ChatComposer`, permissions.  
-**Do:** Verify New Arch fit of `@react-native-voice/voice` (or equivalent) before install; mic text into composer; monochrome mic.  
-**Don't:** Combine with S28; neural STT.
+**Done:** OS STT; researched official Voice package (archived/New Arch break) → `@dev-amirzubair/react-native-voice`; `sttService` + composer mic; stop on gen/Stop/send/Speak.  
+**Don't reopen:** neural STT; Expo Modules stack for speech.
 
 ### S31 — Remote client (medium)
 

@@ -38,6 +38,10 @@
 	<string>Choose a photo or screenshot to read text from in the chat.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo to read text from in the chat.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Use the microphone to dictate text into the chat.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Convert spoken words into chat text on-device where available.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>

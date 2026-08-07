@@ -1,6 +1,6 @@
 /**
- * Chat composer: attach menu, pending image/PDF preview, input, send/stop.
- * Presentational — ConversationScreen owns handlers and keyboard padding (S04b).
+ * Chat composer: attach menu, pending image/PDF preview, input, mic (STT), send/stop.
+ * Presentational — ConversationScreen owns handlers and keyboard padding (S04b / S30).
  */
 
 import React from 'react';
@@ -55,6 +55,10 @@ export type ChatComposerProps = {
   onSend: () => void;
   onStop: () => void;
 
+  /** Platform STT (S30) — monochrome mic inside input bar, left of send. */
+  isListening: boolean;
+  onMicPress: () => void;
+
   addButtonRef: React.RefObject<View | null>;
   onOpenAttachMenu: () => void;
 
@@ -91,6 +95,8 @@ export function ChatComposer({
   sendDisabled,
   onSend,
   onStop,
+  isListening,
+  onMicPress,
   addButtonRef,
   onOpenAttachMenu,
   attachMenuVisible,
@@ -374,26 +380,47 @@ export function ChatComposer({
               <FrostedGlass style={StyleSheet.absoluteFillObject} />
               <TextInput
                 style={styles.input}
-                placeholder="Message..."
+                placeholder={isListening ? 'Listening…' : 'Message...'}
                 placeholderTextColor={theme.colors.textTertiary}
                 value={userInput}
                 onChangeText={onChangeText}
                 multiline
                 onFocus={onInputFocus}
               />
+              {!isGenerating && (
+                <TouchableOpacity
+                  style={styles.micButton}
+                  onPress={onMicPress}
+                  disabled={isLoading || isOcrRunning}
+                  accessibilityLabel={isListening ? 'Stop listening' : 'Dictate with microphone'}
+                  accessibilityState={{ selected: isListening }}
+                  hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name={isListening ? 'mic' : 'mic-outline'}
+                    size={22}
+                    color={
+                      isLoading || isOcrRunning
+                        ? theme.colors.textTertiary
+                        : isListening
+                          ? theme.colors.text
+                          : theme.colors.textSecondary
+                    }
+                  />
+                </TouchableOpacity>
+              )}
               {isGenerating ? (
-                <Animated.View style={{ marginLeft: 'auto' }}>
-                  <TouchableOpacity
-                    style={styles.stopButton}
-                    onPress={onStop}
-                    accessibilityLabel="Stop generation"
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <Ionicons name="stop-circle" size={40} color={theme.colors.error} />
-                  </TouchableOpacity>
-                </Animated.View>
+                <TouchableOpacity
+                  style={styles.stopButton}
+                  onPress={onStop}
+                  accessibilityLabel="Stop generation"
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="stop-circle" size={40} color={theme.colors.error} />
+                </TouchableOpacity>
               ) : (
-                <Animated.View style={{ transform: [{ scale: scaleAnim }], marginLeft: 'auto' }}>
+                <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
                   <TouchableOpacity
                     style={styles.sendIconButton}
                     onPress={onSend}

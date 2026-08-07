@@ -19,6 +19,7 @@
     "android:test-release": "npm run android:build-release && npm run android:install-release"
   },
   "dependencies": {
+    "@dev-amirzubair/react-native-voice": "^1.0.4",
     "@op-engineering/op-sqlite": "^15.2.14",
     "@react-native-ai/llama": "^0.12.0",
     "@react-native-async-storage/async-storage": "^2.2.0",
