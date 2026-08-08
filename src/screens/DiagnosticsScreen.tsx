@@ -17,6 +17,7 @@ import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { getFullLogContent, getErrorLogPath, clearErrorLog } from "../utils/errorLogger";
 import { showAlert } from "../components/CustomAlert";
+import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import { getAccelerationConfig } from "../services/accelerationCapabilityService";
 import { checkFileExists } from "../services/llamaService";
 import { DEFAULT_SETTINGS } from "../services/modelSettingsService";
@@ -49,6 +50,8 @@ function SectionLabel({ label, color }: { label: string; color: string }) {
 export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const backBottom = useFloatingBackBottom();
+  const scrollPadBottom = useScrollPadForFloatingBack();
   const [errorLogVisible, setErrorLogVisible] = useState(false);
   const [errorLogContent, setErrorLogContent] = useState("");
   const [testLogLines, setTestLogLines] = useState<string[]>([
@@ -311,7 +314,7 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: scrollPadBottom }}
         showsVerticalScrollIndicator={false}
       >
         <Text
@@ -568,7 +571,7 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
         </View>
       </ScrollView>
 
-      <View style={{ position: "absolute", bottom: 20, left: 15, backgroundColor: "transparent" }}>
+      <View style={{ position: "absolute", bottom: backBottom, left: 15, backgroundColor: "transparent" }}>
         <TouchableOpacity
           onPress={onBack}
           style={{

@@ -1,6 +1,6 @@
 <resources>
-    <!-- System bar colors -->
-    <color name="app_status_bar">#000000</color>
-    <color name="app_nav_bar">#000000</color>
+    <!-- Transparent system bars — app shell paints edge-to-edge underneath -->
+    <color name="app_status_bar">#00000000</color>
+    <color name="app_nav_bar">#00000000</color>
+    <color name="app_window_background">#FFFFFF</color>
 </resources>
-

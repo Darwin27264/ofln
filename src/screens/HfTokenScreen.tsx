@@ -16,6 +16,7 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
+import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import {
   clearHfToken,
   hasHfToken,
@@ -31,6 +32,8 @@ interface Props {
 export default function HfTokenScreen({ onBack }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const backBottom = useFloatingBackBottom();
+  const scrollPadBottom = useScrollPadForFloatingBack();
 
   const [hfTokenDraft, setHfTokenDraft] = useState("");
   const [hfTokenSaved, setHfTokenSaved] = useState(false);
@@ -109,7 +112,7 @@ export default function HfTokenScreen({ onBack }: Props) {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: scrollPadBottom }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -248,7 +251,7 @@ export default function HfTokenScreen({ onBack }: Props) {
       <View
         style={{
           position: "absolute",
-          bottom: 20,
+          bottom: backBottom,
           left: 15,
           right: 15,
           backgroundColor: "transparent",

@@ -17,6 +17,7 @@ import type { ThemeColors } from '../context/ThemeContext';
 import { FrostedGlass } from './FrostedGlass';
 import { useFadeScalePresence } from '../hooks/useFadeScalePresence';
 import { OVERLAY_MOTION } from '../utils/animationConfig';
+import { useFloatingBackBottom } from '../utils/layoutInsets';
 
 interface BottomSheetProps {
   visible: boolean;
@@ -44,6 +45,8 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   onCloseComplete,
 }) => {
   const { theme } = useTheme();
+  // Same bottom clearance as floating Back — avoids hugging the system nav.
+  const bottomInset = useFloatingBackBottom();
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(OVERLAY_MOTION.FROM_SCALE)).current;
   const mounted = useFadeScalePresence(visible, opacity, scale, onCloseComplete);
@@ -81,7 +84,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
           styles.panel,
           {
             height: panelHeight,
-            bottom: SIDE_INSET,
+            bottom: Math.max(SIDE_INSET, bottomInset),
             opacity,
             transform: [{ scale }],
           },

@@ -10,6 +10,7 @@ const { SystemBars } = NativeModules as {
 
 function isColorLight(hex: string): boolean {
   const c = hex.replace('#', '');
+  if (c.length < 6) return false;
   const r = parseInt(c.substring(0, 2), 16);
   const g = parseInt(c.substring(2, 4), 16);
   const b = parseInt(c.substring(4, 6), 16);
@@ -46,18 +47,21 @@ export function lerpHexColor(from: string, to: string, t: number): string {
   );
 }
 
-/** Apply colors to status + navigation bar. */
+/**
+ * Android system bars: both status + nav stay transparent so the app shell
+ * paints underneath. `statusBarColor` only drives glyph light/dark.
+ */
 export function applySystemBarTheme({
   statusBarColor,
-  navBarColor,
 }: {
   statusBarColor: string;
-  navBarColor: string;
+  /** @deprecated Ignored — bars are always transparent. */
+  navBarColor?: string;
 }) {
   if (Platform.OS !== 'android' || !SystemBars) {
     return;
   }
 
-  const darkIcons = isColorLight(statusBarColor) && isColorLight(navBarColor);
-  SystemBars.setSystemBarColors(statusBarColor, navBarColor, darkIcons);
+  const darkIcons = isColorLight(statusBarColor);
+  SystemBars.setSystemBarColors('transparent', 'transparent', darkIcons);
 }

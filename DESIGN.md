@@ -154,8 +154,8 @@ Category-agnostic structure shared by most screens:
 - **Detail screens**: single scrolling column; important actions visually larger at the top.
 - **Tools / diagnostics-style screens**: group by severity and frequency — everyday actions first, heavy/experimental later; live output below actions that produce it.
 - **Separation**: use section labels + spacing, not dense card nesting.
-- **Back always available**: floating capsule bottom-left: filled `primary`, icon + “Back” in `primaryText`.
-- **Safe areas**: respect top/bottom insets; status bar style tracks theme (`dark-content` on light, `light-content` on dark).
+- **Back always available**: floating capsule bottom-left: filled `primary`, icon + “Back” in `primaryText`. Position = `max(insets.bottom, 28) + 12` on Android when edge-to-edge reports a 0 inset (otherwise GAP-only tweaks look like no change). Scroll pad tracks the same via `useScrollPadForFloatingBack`.
+- **Safe areas / system bars**: full-bleed shell paints under transparent status + navigation. Only **status height** is padding at the app root (no bottom SafeArea pad — that pad was the solid black strip). Floating Back/composer use `insets.bottom + gap`. Status `barStyle` tracks theme.
 
 Adapt content freely (timeline, canvas, clipboard, editor) — keep hierarchy, spacing, and back pattern.
 
@@ -366,11 +366,11 @@ No slide-stack page chrome. No perpetual parent opacity. No solid opaque bars un
 
 - Maintain strong contrast (black/white primary pair).
 - Preserve touch targets ≥ ~44 px.
-- Respect Safe Area / system bars.
+- Respect Safe Area / system bars: Android system bars stay **transparent**; app shell paints edge-to-edge underneath (page-clear under Back). Never pad a separate bottom SafeArea band. Float Back/composer with `insets.bottom + gap`.
 - On Android, treat hardware back as dismiss for overlays first, then navigate.
 - Prefer portable overlay alerts for cross-platform consistency.
 - Frosted blur is a progressive enhancement — `glass` fallback must stay readable without blur.
-- When a frosted side panel is open, match **status bar** and **navigation / home indicator bar** (and Safe Area shell) to the panel’s opaque frost tone — not the darker page `background` — so system chrome does not read as a black strip.
+- When a frosted side panel is open, match **shell canvas** to the panel’s opaque frost tone; system bars stay transparent so frost shell shows through.
 
 ---
 

@@ -19,6 +19,7 @@ import Icon from "react-native-vector-icons/MaterialIcons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
+import { useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import {
   savePersona,
   generatePersonaId,
@@ -38,6 +39,7 @@ export default function PersonaEditorScreen({
 }: PersonaEditorScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const scrollPadBottom = useScrollPadForFloatingBack();
 
   const isEditMode = !!persona;
 
@@ -276,7 +278,7 @@ export default function PersonaEditorScreen({
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
+        contentContainerStyle={{ padding: 20, paddingBottom: scrollPadBottom }}
         showsVerticalScrollIndicator={true}
       >
         {renderSection("Basics", (

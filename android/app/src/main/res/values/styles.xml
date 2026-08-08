@@ -1,22 +1,18 @@
 <resources>
-    <!-- Base application theme. -->
     <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
-        
-        <!-- Contained look (don't draw under system bars) -->
         <item name="android:windowTranslucentStatus">false</item>
         <item name="android:windowTranslucentNavigation">false</item>
         <item name="android:windowIsTranslucent">false</item>
         <item name="android:windowFullscreen">false</item>
-        
-        <!-- System bar colors (light mode defaults) -->
+        <item name="android:windowBackground">@color/app_window_background</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:statusBarColor">@color/app_status_bar</item>
         <item name="android:navigationBarColor">@color/app_nav_bar</item>
-        
-        <!-- Make icons dark on light bars if you switch to light bars later -->
-        <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <!-- API 29+: never force a dark scrim over transparent nav -->
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
     </style>
-
 </resources>

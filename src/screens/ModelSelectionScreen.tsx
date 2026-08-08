@@ -27,6 +27,7 @@ import {
   ScrollView,
   Modal,
   InteractionManager,
+  Platform,
 } from "react-native";
 import RNFS from "react-native-fs";
 import { hfAxiosGet } from "../services/hfTokenService";
@@ -36,6 +37,7 @@ import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
 import { BottomSheet } from "../components/BottomSheet";
+import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import { pick, isErrorWithCode, errorCodes } from "@react-native-documents/picker";
 import { saveLocalModel, removeLocalModel, LocalModelInfo } from "../services/localModelService";
 import { llamaProvider } from "../providers/llamaProvider";
@@ -227,6 +229,8 @@ function parseHuggingFaceUrl(url: string): { repoId: string; fileName?: string }
 export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const backBottom = useFloatingBackBottom();
+  const scrollPadBottom = useScrollPadForFloatingBack();
   
   const {
     downloadedModels,
@@ -488,16 +492,35 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   }, []);
 
 
-  // Android hardware back handling
+  // Android system back: close nested panels/modals before leaving the screen.
   const handleBackPress = useCallback(() => {
-    if (isHFPanelOpen) {
-      closeHFPanel();
+    if (showCustomUrlModal && !isCustomUrlModalExiting) {
+      closeCustomUrlModal();
       return true;
     }
-    return false;
-  }, [isHFPanelOpen]);
+    if (showQuantSelector && !isQuantModalExiting) {
+      setIsQuantModalExiting(true);
+      return true;
+    }
+    if (isHFPanelOpen) {
+      setIsHFPanelOpen(false);
+      return true;
+    }
+    // Leave Models → Settings (same as the Back control).
+    setCurrentPage("settings");
+    return true;
+  }, [
+    showCustomUrlModal,
+    isCustomUrlModalExiting,
+    closeCustomUrlModal,
+    showQuantSelector,
+    isQuantModalExiting,
+    isHFPanelOpen,
+    setCurrentPage,
+  ]);
 
   useEffect(() => {
+    if (Platform.OS !== "android") return;
     const subscription = BackHandler.addEventListener(
       "hardwareBackPress",
       handleBackPress
@@ -1797,7 +1820,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           flex: 1,
         }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 60 }}
+        contentContainerStyle={{ paddingBottom: scrollPadBottom }}
       >
         {/* Local Models Section */}
         {localModels.length > 0 && (
@@ -2088,7 +2111,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       </ScrollView>
 
       {/* Back button */}
-      <View style={{ position: "absolute", bottom: 20, left: 15, backgroundColor: "transparent" }}>
+      <View style={{ position: "absolute", bottom: backBottom, left: 15, backgroundColor: "transparent" }}>
         <TouchableOpacity
           onPress={() => setCurrentPage("settings")}
           style={{

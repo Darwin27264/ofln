@@ -18,6 +18,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { createStyles } from '../styles/styles';
 import { useTheme } from '../context/ThemeContext';
 import { showAlert } from '../components/CustomAlert';
+import { useFloatingBackBottom, useScrollPadForFloatingBack } from '../utils/layoutInsets';
 import { formatBytesShort } from '../utils/diskPreflight';
 import {
   deleteStoredGgufFile,
@@ -123,6 +124,8 @@ export default function StorageScreen({
 }: StorageScreenProps) {
   const { theme, setThemeMode } = useTheme();
   const styles = createStyles(theme.colors);
+  const backBottom = useFloatingBackBottom();
+  const scrollPadBottom = useScrollPadForFloatingBack();
 
   const [models, setModels] = useState<StoredModelFile[]>([]);
   const [freeBytes, setFreeBytes] = useState<number | null>(null);
@@ -415,7 +418,7 @@ export default function StorageScreen({
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: scrollPadBottom }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -742,7 +745,7 @@ export default function StorageScreen({
       <View
         style={{
           position: 'absolute',
-          bottom: 20,
+          bottom: backBottom,
           left: 15,
           backgroundColor: 'transparent',
         }}

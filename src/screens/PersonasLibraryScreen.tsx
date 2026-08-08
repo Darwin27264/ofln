@@ -18,6 +18,7 @@ import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
 import { PersonaCard } from "../components/PersonaCard";
+import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import {
   getPersonas,
   savePersona,
@@ -39,6 +40,8 @@ export default function PersonasLibraryScreen({
 }: PersonasLibraryScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const backBottom = useFloatingBackBottom();
+  const scrollPadBottom = useScrollPadForFloatingBack();
 
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -421,7 +424,7 @@ export default function PersonasLibraryScreen({
 
   const fixedBtnStyle = {
     position: "absolute" as const,
-    bottom: 20,
+    bottom: backBottom,
     backgroundColor: "transparent" as const,
   };
 
@@ -450,7 +453,7 @@ export default function PersonasLibraryScreen({
       <ScrollView
         style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: scrollPadBottom }}
       >
         {personas.length > 0 && (
           <View style={{ marginBottom: 16 }}>

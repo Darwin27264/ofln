@@ -37,6 +37,7 @@ import {
   type HistoryDatePeriod,
 } from '../services/chatHistoryHelpers';
 import { ANIMATION_DURATIONS, EASING } from '../utils/animationConfig';
+import { floatingBackBottom } from '../utils/layoutInsets';
 
 export type GroupedChatHistory = {
   pinnedChats: ChatConversation[];
@@ -486,7 +487,7 @@ export function HistoryDrawer({
   const searchExpand = useRef(new Animated.Value(0)).current;
   const searchScrim = useRef(new Animated.Value(0)).current;
   const searchBottomAnim = useRef(
-    new Animated.Value(Math.max(16, bottomInset) + BACK_ROW_H + 12),
+    new Animated.Value(floatingBackBottom(bottomInset) + BACK_ROW_H + 12),
   ).current;
   /** Invalidates animation completion callbacks after superseding work. */
   const searchAnimEpochRef = useRef(0);
@@ -504,7 +505,8 @@ export function HistoryDrawer({
     })),
   ).current;
 
-  const chromeBottom = Math.max(16, bottomInset);
+  // Match other screens' floating Back (insets.bottom + FLOATING_BACK_GAP).
+  const chromeBottom = floatingBackBottom(bottomInset);
   const dockedSearchBottom = chromeBottom + BACK_ROW_H + 12;
   const searchExpandedWidth = Math.max(
     SEARCH_PILL_COLLAPSED_W,

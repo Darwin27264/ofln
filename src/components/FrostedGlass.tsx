@@ -23,7 +23,8 @@ export const FROSTED_GLASS = {
   panelTintOpacity: 0.55,
   /**
    * Opaque system-bar / shell colors approximating panel frost over the canvas.
-   * (Status / nav bars cannot be translucent on Android.)
+   * Status bar uses this solid; Android navigation bar stays transparent so the
+   * shell canvas shows through under floating Back chrome.
    * Light must be clearly distinct from #FFFFFF or the chrome open fade reads as "no change".
    */
   panelSystemBarLight: "#E8E8E8",

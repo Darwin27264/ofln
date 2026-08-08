@@ -5,6 +5,7 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
+import { useFloatingBackBottom } from "../utils/layoutInsets";
 
 interface Props {
   assistantDisplayMode: "bubble" | "direct";
@@ -31,6 +32,7 @@ export default function SettingsScreen({
 }: Props) {
   const { theme, toggleTheme, isDark, isTransitioning } = useTheme();
   const styles = createStyles(theme.colors);
+  const backBottom = useFloatingBackBottom();
 
   // For Chat Mode, "on" means bubble mode.
   const bubblesMode = assistantDisplayMode === "bubble";
@@ -182,7 +184,7 @@ export default function SettingsScreen({
         </TouchableOpacity>
       </View>
 
-      <View style={{ position: "absolute", bottom: 20, left: 15, right: 15, backgroundColor: "transparent", flexDirection: "row", justifyContent: "space-between" }}>
+      <View style={{ position: "absolute", bottom: backBottom, left: 15, right: 15, backgroundColor: "transparent", flexDirection: "row", justifyContent: "space-between" }}>
         <TouchableOpacity onPress={onBackToConversation} style={{
           flexDirection: "row",
           alignItems: "center",

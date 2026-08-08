@@ -4,6 +4,7 @@ import { View, Text, TouchableOpacity, ScrollView } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
+import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 
 const packageJson = require("../../package.json");
 
@@ -179,6 +180,8 @@ function GuideCard({
 export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
   const { theme, isTransitioning } = useTheme();
   const styles = createStyles(theme.colors);
+  const backBottom = useFloatingBackBottom();
+  const scrollPadBottom = useScrollPadForFloatingBack();
 
   const appName = packageJson.name || "ofln";
   const appVersion = packageJson.version || "0.1.1";
@@ -201,7 +204,7 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: scrollPadBottom }}
         showsVerticalScrollIndicator={false}
       >
         <View
@@ -418,7 +421,7 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
         </View>
       </ScrollView>
 
-      <View style={{ position: "absolute", bottom: 20, left: 15, backgroundColor: "transparent" }}>
+      <View style={{ position: "absolute", bottom: backBottom, left: 15, backgroundColor: "transparent" }}>
         <TouchableOpacity
           onPress={onBack}
           style={{

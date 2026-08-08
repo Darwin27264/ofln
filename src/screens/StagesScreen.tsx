@@ -18,6 +18,7 @@ import { LineChart } from 'react-native-chart-kit';
 import { createStyles } from '../styles/styles';
 import { useTheme } from '../context/ThemeContext';
 import { showAlert } from '../components/CustomAlert';
+import { useFloatingBackBottom, useScrollPadForFloatingBack } from '../utils/layoutInsets';
 import {
   getAccelerationStatusSnapshot,
   type AccelerationStatusSnapshot,
@@ -156,6 +157,8 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   const { theme, isDark } = useTheme();
   const graphLineColor = isDark ? '#FFFFFF' : '#6B7280';
   const shared = createStyles(theme.colors);
+  const backBottom = useFloatingBackBottom();
+  const scrollPadBottom = useScrollPadForFloatingBack();
   const { usageRecords, isLoading, error, clearUsageDataForModel, clearAllUsageData } = useUsageData();
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [modalVisible, setModalVisible] = useState(false);
@@ -753,7 +756,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
 
       <ScrollView
         style={stylesLocalWithTheme.scroll}
-        contentContainerStyle={stylesLocalWithTheme.scrollContent}
+        contentContainerStyle={[stylesLocalWithTheme.scrollContent, { paddingBottom: scrollPadBottom }]}
         showsVerticalScrollIndicator={false}
       >
         {selectedModel && stats && (
@@ -1199,14 +1202,14 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
       </Modal>
 
       {/* Navigation buttons */}
-      <View style={[stylesLocalWithTheme.fixedBtn, { left: 15, bottom: 20, backgroundColor: "transparent" }]}>
+      <View style={[stylesLocalWithTheme.fixedBtn, { left: 15, bottom: backBottom, backgroundColor: "transparent" }]}>
         <TouchableOpacity style={[stylesLocalWithTheme.btn, { backgroundColor: theme.colors.primary }]} onPress={onBack}>
           <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
           <Text style={stylesLocalWithTheme.btnText}>Back</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={[stylesLocalWithTheme.fixedBtn, { right: 15, bottom: 20, backgroundColor: 'transparent' }]}>
+      <View style={[stylesLocalWithTheme.fixedBtn, { right: 15, bottom: backBottom, backgroundColor: 'transparent' }]}>
         <TouchableOpacity
           style={[
             stylesLocalWithTheme.btn,
@@ -1265,7 +1268,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
 /* ───────────────────────────── styles ───────────────────────────── */
 const createStylesLocal = (colors: any) => StyleSheet.create({
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 130 },
+  scrollContent: { paddingBottom: 0 },
   title: { marginBottom: 20 },
   row: { flexDirection: 'row', marginBottom: 10 },
 

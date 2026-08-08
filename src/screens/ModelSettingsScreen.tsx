@@ -15,11 +15,11 @@ import {
   StyleSheet,
 } from "react-native";
 import Slider from "@react-native-community/slider";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
+import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import {
   getModelSettings,
   saveModelSettings,
@@ -229,7 +229,8 @@ export default function ModelSettingsScreen({
 }: ModelSettingsScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
-  const insets = useSafeAreaInsets();
+  const backBottom = useFloatingBackBottom();
+  const scrollPadBottom = useScrollPadForFloatingBack();
 
   const [modelSettings, setModelSettings] = useState<ModelSettings | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -386,7 +387,7 @@ export default function ModelSettingsScreen({
         }}
         showsVerticalScrollIndicator={true}
         contentContainerStyle={{
-          paddingBottom: 48 + insets.bottom,
+          paddingBottom: scrollPadBottom,
         }}
       >
         {/* System Prompt */}
@@ -781,7 +782,7 @@ export default function ModelSettingsScreen({
       </ScrollView>
 
       {/* Back button */}
-      <View style={{ position: "absolute", bottom: 20, left: 15, backgroundColor: "transparent" }}>
+      <View style={{ position: "absolute", bottom: backBottom, left: 15, backgroundColor: "transparent" }}>
         <TouchableOpacity
           onPress={onBack}
           style={{

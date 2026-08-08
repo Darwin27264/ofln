@@ -17,6 +17,7 @@ import { createStyles } from '../styles/styles';
 import { useTheme } from '../context/ThemeContext';
 import { PageFadeIn } from '../components/PageFadeIn';
 import { showAlert } from '../components/CustomAlert';
+import { useFloatingBackBottom, useScrollPadForFloatingBack } from '../utils/layoutInsets';
 import { DownloadCancellationToken } from '../api/model';
 import {
   ONBOARDING_MODEL_CANDIDATES,
@@ -71,6 +72,8 @@ export default function OnboardingScreen({
 }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const backBottom = useFloatingBackBottom();
+  const scrollPadBottom = useScrollPadForFloatingBack();
 
   const [step, setStep] = useState<Step>(0);
   const [totalMemoryBytes, setTotalMemoryBytes] = useState<number | null>(null);
@@ -256,7 +259,10 @@ export default function OnboardingScreen({
 
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: step === 2 ? 220 : 120 }}
+          contentContainerStyle={{
+            // Primary CTA is taller than Back; keep extra room on the pick-model step.
+            paddingBottom: step === 2 ? scrollPadBottom + 100 : scrollPadBottom + 48,
+          }}
           showsVerticalScrollIndicator={false}
         >
           {step === 2 && (
@@ -364,7 +370,7 @@ export default function OnboardingScreen({
         <View
           style={{
             position: 'absolute',
-            bottom: 20,
+            bottom: backBottom,
             left: 20,
             right: 20,
           }}

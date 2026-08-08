@@ -12,8 +12,17 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { ScrollView, StatusBar, Platform, Animated, AppState, type AppStateStatus } from "react-native";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import {
+  View,
+  ScrollView,
+  StatusBar,
+  Platform,
+  Animated,
+  AppState,
+  BackHandler,
+  type AppStateStatus,
+} from "react-native";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { createStyles } from "./src/styles/styles";
@@ -70,6 +79,7 @@ type Message = {
 function AppContent(): React.JSX.Element {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const insets = useSafeAreaInsets();
 
   // DEV-only: log New Architecture status at startup (Fabric + TurboModules)
   useEffect(() => {
@@ -89,18 +99,22 @@ function AppContent(): React.JSX.Element {
   const [frostedChromeOpen, setFrostedChromeOpen] = useState(false);
   const [shellBackground, setShellBackground] = useState(theme.colors.background);
   const shellColorAnim = useRef(new Animated.Value(0)).current;
-  const lastShellColorRef = useRef(theme.colors.background);
+  // Empty until first apply so cold-start always writes React state + native bars.
+  // (Native theme defaults are black; matching React background must not skip the write.)
+  const lastShellColorRef = useRef<string>("");
 
   const applyShellColor = useCallback((hex: string) => {
-    if (hex === lastShellColorRef.current) return;
-    lastShellColorRef.current = hex;
-    setShellBackground(hex);
+    if (hex !== lastShellColorRef.current) {
+      lastShellColorRef.current = hex;
+      setShellBackground(hex);
+    }
+    // Status solid; navigation bar always transparent (native) so shell paints under it.
     if (Platform.OS === "android") {
-      applySystemBarTheme({ statusBarColor: hex, navBarColor: hex });
+      applySystemBarTheme({ statusBarColor: hex });
     }
   }, []);
 
-  // Theme change: snap shell to the correct endpoint for current chrome state.
+  // Theme change / first mount: snap shell + system bars to the page background.
   useEffect(() => {
     const target = frostedChromeOpen
       ? frostedPanelSystemBarColor(theme.mode)
@@ -117,7 +131,11 @@ function AppContent(): React.JSX.Element {
     const to = frostedChromeOpen
       ? frostedPanelSystemBarColor(theme.mode)
       : theme.colors.background;
-    if (from.toLowerCase() === to.toLowerCase()) return;
+    // Empty string before first shell apply — don't animate from "".
+    if (!from || from.toLowerCase() === to.toLowerCase()) {
+      applyShellColor(to);
+      return;
+    }
 
     shellColorAnim.setValue(0);
     const listenerId = shellColorAnim.addListener(({ value }) => {
@@ -512,17 +530,79 @@ function AppContent(): React.JSX.Element {
     }
   }, [setContext, checkDownloadedModels]);
 
+  /**
+   * Android system back — walk the same parent hierarchy as on-screen Back buttons.
+   * Screen-level listeners (modals / drawers) register later and run first; when they
+   * return false we navigate here instead of finishing the Activity.
+   */
+  useEffect(() => {
+    if (Platform.OS !== "android" || !bootstrapped) return;
+
+    const onHardwareBack = () => {
+      switch (currentPage) {
+        case "settings":
+          setCurrentPage("conversation");
+          return true;
+        case "modelSelection":
+          setCurrentPage("settings");
+          return true;
+        case "stages":
+        case "diagnostics":
+        case "storage":
+        case "personas":
+        case "info":
+          setCurrentPage("settings");
+          return true;
+        case "personaEditor":
+          setEditingPersona(undefined);
+          setCurrentPage("personas");
+          return true;
+        case "modelSettings":
+          setSelectedModelForSettings(null);
+          setCurrentPage("modelSelection");
+          return true;
+        case "hfToken":
+          setCurrentPage("modelSelection");
+          return true;
+        case "onboarding":
+          // About → Review onboarding: back returns to About.
+          // First-run gate: allow system exit (no prior screen).
+          if (onboardingSkipTo === "info") {
+            setCurrentPage("info");
+            return true;
+          }
+          return false;
+        case "conversation":
+        default:
+          // Root screen — let Android finish / background the app.
+          return false;
+      }
+    };
+
+    const sub = BackHandler.addEventListener("hardwareBackPress", onHardwareBack);
+    return () => sub.remove();
+  }, [bootstrapped, currentPage, onboardingSkipTo]);
+
   return (
-    <>
+    <View style={[styles.container, { backgroundColor: shellBackground }]}>
       <StatusBar
-        translucent={false}
-        // Android: 'light-content' = light text/icons; 'dark-content' = dark icons
-        barStyle={theme.mode === 'dark' ? 'light-content' : 'dark-content'}
-        backgroundColor={shellBackground}
+        translucent
+        // Android: draw under status; shell paints underneath. Icons via barStyle.
+        barStyle={theme.mode === "dark" ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
       />
-      <SafeAreaView 
-        style={[styles.container, { backgroundColor: shellBackground }]}
-        edges={['top', 'bottom', 'left', 'right']}
+      {/*
+        Full-bleed shell (above) paints under the transparent system nav — no
+        SafeArea bottom pad (that pad was the solid black strip under Back).
+        Only top inset keeps titles/chrome out of the status bar; screens float
+        Back with insets.bottom + gap so control stays above system icons.
+      */}
+      <View
+        style={{
+          flex: 1,
+          paddingTop: insets.top,
+          backgroundColor: "transparent",
+        }}
       >
         {!bootstrapped ? null : currentPage === "onboarding" ? (
           <OnboardingScreen
@@ -706,8 +786,8 @@ function AppContent(): React.JSX.Element {
           />
         </PageFadeIn>
       )}
-      </SafeAreaView>
-    </>
+      </View>
+    </View>
   );
 }
 

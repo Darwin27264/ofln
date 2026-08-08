@@ -82,6 +82,7 @@ import { showAlert } from "../components/CustomAlert";
 import { BottomSheet } from "../components/BottomSheet";
 import { FrostedGlass } from "../components/FrostedGlass";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { floatingBackBottom } from "../utils/layoutInsets";
 import { useKeyboardPadding } from "../hooks/useKeyboardPadding";
 import { Persona, getPersonas } from "../services/personaService";
 import { ANIMATION_CONFIG, EASING, ANIMATION_DURATIONS } from "../utils/animationConfig";
@@ -259,6 +260,10 @@ export default function ConversationScreen({
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
   const insets = useSafeAreaInsets();
+  // Content is edge-to-edge under the transparent nav; drawer chrome clears it.
+  // Status is already padded by App's paddingTop — do not double-count top.
+  const layoutTopInset = 0;
+  const layoutBottomInset = insets.bottom;
   // Soft inset rows that sit calmly on the frosted selector panel.
   const selectorFrost = useMemo(() => {
     const dark = theme.mode === 'dark';
@@ -394,7 +399,7 @@ export default function ConversationScreen({
   const [inputOverlayHeight, setInputOverlayHeight] = useState(INPUT_FADE_HEIGHT + 72);
   // Estimate from window − safe area so remounts don't flash at a hardcoded 180 then jump.
   const initialGreetingTop = computeGreetingTop(
-    Dimensions.get("window").height - insets.top - insets.bottom,
+    Dimensions.get("window").height - layoutTopInset - layoutBottomInset,
     INPUT_FADE_HEIGHT + 72
   );
   /** Fixed pixel top for the empty-state hero (midpoint), frozen while keyboard is up. */
@@ -2125,19 +2130,29 @@ export default function ConversationScreen({
   }, [isGenerating, setContext, setSelectedGGUF, checkDownloadedModels, showToast, onGoToModelSelection]);
 
 
-  // Handle Android back button
+  // Android system back: dismiss overlays first (model sheet, history drawer).
   useEffect(() => {
+    if (Platform.OS !== "android") return;
+
     const handleBackPress = () => {
       if (isModelSelectorVisible && !isLoadingModel) {
         closeModelSelector();
         return true;
       }
+      if (isPanelOpen) {
+        // Close if open — togglePanel flips want-open when drawer is open.
+        if (panelWantOpenRef.current) {
+          togglePanel();
+        }
+        return true;
+      }
+      // Fall through to App-level page navigation / exit.
       return false;
     };
 
     const subscription = BackHandler.addEventListener("hardwareBackPress", handleBackPress);
     return () => subscription.remove();
-  }, [isModelSelectorVisible, isLoadingModel, closeModelSelector]);
+  }, [isModelSelectorVisible, isLoadingModel, isPanelOpen, closeModelSelector, togglePanel]);
 
   // Regenerate assistant message (ChatGPT / Claude / Gemini pattern):
   // keep the prompting user turn + prior context, drop that reply and anything
@@ -2317,10 +2332,13 @@ export default function ConversationScreen({
 
   // Matches the composer's animated paddingBottom so message list clears the
   // lifted input + keyboard instead of scrolling underneath them.
-  const composerBottomPadding = useMemo(
-    () => calculatePaddingMultiplier(keyboardPadding),
-    [calculatePaddingMultiplier, keyboardPadding],
-  );
+  const composerBottomPadding = useMemo(() => {
+    if (keyboardPadding > 0) {
+      return calculatePaddingMultiplier(keyboardPadding);
+    }
+    // Match floating Back: resolved nav clearance (Android min if inset is 0) + base pad.
+    return floatingBackBottom(insets.bottom);
+  }, [calculatePaddingMultiplier, keyboardPadding, insets.bottom]);
   const scrollBottomPadding = useMemo(() => {
     const keyboardLift = Math.max(0, composerBottomPadding - NO_KEYBOARD_PADDING);
     // `inputOverlayHeight` includes the translucent fade above the bar. Messages
@@ -2579,8 +2597,8 @@ export default function ConversationScreen({
           panelAnim={panelAnim}
           backdropOpacity={backdropOpacity}
           panelStyle={styles.slideOutPanel}
-          topInset={insets.top}
-          bottomInset={insets.bottom}
+          topInset={layoutTopInset}
+          bottomInset={layoutBottomInset}
           chatHistory={chatHistory}
           groupedChatHistory={groupedChatHistory}
           historySearchQuery={historySearchQuery}
