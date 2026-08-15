@@ -18,7 +18,7 @@
  * - Debounced chat history saves
  */
 
-import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -30,7 +30,6 @@ import {
   BackHandler,
   ActivityIndicator,
   LayoutChangeEvent,
-  NativeModules,
   PermissionsAndroid,
   StyleSheet,
   Share,
@@ -305,7 +304,11 @@ export default function ConversationScreen({
   );
   /** Gap between list and tab/footer chrome (symmetric top/bottom of the list). */
   const SELECTOR_LIST_GAP = 16;
-  const { keyboardHeight: keyboardPadding, syncKeyboardState } = useKeyboardPadding();
+  const {
+    keyboardHeight: keyboardPadding,
+    keyboardDuration,
+    syncKeyboardState,
+  } = useKeyboardPadding();
   // Layout measurements live in refs (not state) because they're read inside the
   // keyboard-padding animated listener on every frame of the keyboard animation.
   // Storing them in state would force a re-render on every layout tick during
@@ -337,62 +340,11 @@ export default function ConversationScreen({
   useEffect(() => {
     setAutoScrollEnabled(true);
   }, [currentChatId, setAutoScrollEnabled]);
-  
-  // Detect Samsung devices for keyboard padding adjustments
-  // Samsung devices often have different keyboard behavior that requires extra padding
-  const [isSamsungDevice, setIsSamsungDevice] = useState<boolean>(false);
-  
-  useEffect(() => {
-    if (Platform.OS === 'android') {
-      try {
-        // Try to detect Samsung device via Platform constants
-        // React Native's Platform.constants may have device info on some versions
-        const platformConstants = Platform.constants || {};
-        const brand = (platformConstants.Brand || '').toLowerCase();
-        const manufacturer = (platformConstants.Manufacturer || '').toLowerCase();
-        const model = (platformConstants.Model || '').toLowerCase();
-        
-        // Also try NativeModules as fallback
-        let nativeBrand = '';
-        let nativeManufacturer = '';
-        let nativeModel = '';
-        try {
-          const deviceInfo = NativeModules.PlatformConstants || {};
-          nativeBrand = (deviceInfo.Brand || '').toLowerCase();
-          nativeManufacturer = (deviceInfo.Manufacturer || '').toLowerCase();
-          nativeModel = (deviceInfo.Model || '').toLowerCase();
-        } catch (e) {
-          // NativeModules might not be available, that's okay
-        }
-        
-        // Check if device is Samsung based on brand/manufacturer/model
-        // Samsung devices often have model numbers starting with "SM-"
-        const isSamsung = 
-          brand.includes('samsung') ||
-          manufacturer.includes('samsung') ||
-          model.includes('samsung') ||
-          model.includes('sm-') || // Samsung model prefix (e.g., SM-G998B)
-          nativeBrand.includes('samsung') ||
-          nativeManufacturer.includes('samsung') ||
-          nativeModel.includes('samsung') ||
-          nativeModel.includes('sm-');
-        
-        setIsSamsungDevice(isSamsung);
-        
-        if (isSamsung) {
-          console.log('Samsung device detected - applying extra keyboard padding');
-        }
-      } catch (error) {
-        // If detection fails, we'll use windowResizeInsufficient as fallback
-        // This is fine - the windowResizeInsufficient flag already catches Samsung-like behavior
-        console.warn('Could not detect device manufacturer, will use behavior-based detection:', error);
-      }
-    }
-  }, []);
-  
-  // Animated padding value for smooth transitions above the keyboard.
-  // Initialize with 12px (no keyboard state) to prevent jump on first render.
-  const animatedBottomPadding = useRef(new Animated.Value(12)).current;
+
+  // How far the dock rides above its resting spot while the keyboard is open.
+  // Transform-only (native driver) — animating layout here relaid out the blur
+  // and gradient chrome every frame.
+  const composerLift = useRef(new Animated.Value(0)).current;
   // Measured height of the floating input overlay so messages can scroll under the fade.
   // Only updated while the keyboard is closed — live updates during padding animation
   // re-render the tree every frame and make the hero jitter.
@@ -2322,26 +2274,41 @@ export default function ConversationScreen({
     padding = Math.max(padding, keyboardH * 0.17);
     padding += 12;
 
-    if (Platform.OS === "android" && (isSamsungDevice || windowResizeInsufficient)) {
-      padding -= Math.max(16, keyboardH * 0.05);
+    // Edge-to-edge: no Samsung padding *reduction* (that sat the bar under the keys).
+    // When the window still under-reports resize, a small air gap clears the keys —
+    // keep it light so the bar sits tight above the keyboard, not floating high.
+    if (Platform.OS === "android" && windowResizeInsufficient) {
+      padding += Math.max(4, keyboardH * 0.012);
     }
+
+    // Nudge a couple px lower (closer to keyboard) without sitting under the keys.
+    if (Platform.OS === "android" && isKeyboardVisible) {
+      padding = Math.max(NO_KEYBOARD_PADDING, padding - 2);
+    }
+
     // When keyboard is visible on Android, never use less than MIN_PADDING_RATIO so input stays above keyboard
     const result = Math.max(padding, keyboardH * MIN_PADDING_RATIO);
     return Math.max(result, NO_KEYBOARD_PADDING);
-  }, [isSamsungDevice]);
+  }, []);
 
-  // Matches the composer's animated paddingBottom so message list clears the
+  // Resting gap under the input row. Floating Back clearance, a hair lower so
+  // the bar reads as docked to the edge rather than hovering above it.
+  const restingComposerPadding = useMemo(
+    () => Math.max(0, floatingBackBottom(insets.bottom) - 1),
+    [insets.bottom],
+  );
+
+  // Matches the composer's on-screen offset so the message list clears the
   // lifted input + keyboard instead of scrolling underneath them.
   const composerBottomPadding = useMemo(() => {
     if (keyboardPadding > 0) {
       return calculatePaddingMultiplier(keyboardPadding);
     }
-    // Match floating Back: resolved nav clearance (Android min if inset is 0) + base pad.
-    return floatingBackBottom(insets.bottom);
-  }, [calculatePaddingMultiplier, keyboardPadding, insets.bottom]);
+    return restingComposerPadding;
+  }, [calculatePaddingMultiplier, keyboardPadding, restingComposerPadding]);
   const scrollBottomPadding = useMemo(() => {
     const keyboardLift = Math.max(0, composerBottomPadding - NO_KEYBOARD_PADDING);
-    // `inputOverlayHeight` includes the translucent fade above the bar. Messages
+    // `inputOverlayHeight` includes the soft fade above the bar. Messages
     // should tuck into that fade and only clear the solid composer — otherwise
     // the gap under the last bubble looks oversized.
     const solidClearance = Math.max(
@@ -2351,28 +2318,40 @@ export default function ConversationScreen({
     return solidClearance + keyboardLift;
   }, [inputOverlayHeight, composerBottomPadding]);
 
-  // Composer padding: one timing per show/hide (layout prop, JS driver).
-  useEffect(() => {
-    // Block composer onLayout → setState while padding is in flight (avoids a
+  // Composer lift: native translateY. useLayoutEffect so motion starts before
+  // paint; Android did* uses a short catch-up so we don't chase the IME.
+  useLayoutEffect(() => {
+    // Block composer onLayout → setState while the dock is in flight (avoids a
     // one-shot greetingTop jump when the keyboard has already reported closed).
     suppressComposerMeasureRef.current = true;
     const settleTimer = setTimeout(() => {
       suppressComposerMeasureRef.current = false;
-    }, 320);
+    }, keyboardDuration + 80);
 
-    const target = composerBottomPadding;
-    const anim = Animated.timing(animatedBottomPadding, {
+    const target = Math.max(0, composerBottomPadding - restingComposerPadding);
+    if (keyboardDuration <= 0) {
+      composerLift.setValue(target);
+      return () => clearTimeout(settleTimer);
+    }
+
+    const anim = Animated.timing(composerLift, {
       toValue: target,
-      duration: keyboardPadding > 0 ? 250 : 200,
-      easing: EASING.EASE_OUT,
-      useNativeDriver: false,
+      duration: keyboardDuration,
+      // Slightly front-loaded so the bar keeps up with the IME rise.
+      easing: EASING.DECELERATE,
+      useNativeDriver: true,
     });
     anim.start();
     return () => {
       clearTimeout(settleTimer);
       anim.stop();
     };
-  }, [keyboardPadding, composerBottomPadding, animatedBottomPadding]);
+  }, [
+    keyboardDuration,
+    composerBottomPadding,
+    restingComposerPadding,
+    composerLift,
+  ]);
 
   // Keep the latest turn visible above the rising composer when the keyboard opens.
   // Skip while editing a user bubble — MessageList keeps that bubble in view instead.
@@ -2391,23 +2370,28 @@ export default function ConversationScreen({
 
   // Hero lift: native translateY only. Midpoint `top` stays frozen at full-window
   // layout so Android's early resize cannot nudge it before this runs.
-  useEffect(() => {
+  useLayoutEffect(() => {
     // Aim for the visual midpoint between top pills and the raised composer.
     // ~half the keyboard intrusion, capped so it doesn't tuck under the pills.
     const lift =
       keyboardPadding > 0 ? Math.min(keyboardPadding * 0.42, 200) : 0;
 
+    if (keyboardDuration <= 0) {
+      greetingKeyboardShift.setValue(-lift);
+      return;
+    }
+
     const anim = Animated.timing(greetingKeyboardShift, {
       toValue: -lift,
-      duration: keyboardPadding > 0 ? 250 : 200,
-      easing: EASING.EASE_OUT,
+      duration: keyboardDuration,
+      easing: EASING.DECELERATE,
       useNativeDriver: true,
     });
     anim.start();
     return () => {
       anim.stop();
     };
-  }, [keyboardPadding, greetingKeyboardShift]);
+  }, [keyboardPadding, keyboardDuration, greetingKeyboardShift]);
 
   // Single source of truth with App: shellBackground is what status/nav bars
   // and SafeArea already use. Paint the chat canvas with that exact hex so
@@ -2694,9 +2678,9 @@ export default function ConversationScreen({
 
         <ChatComposer
           shellBackground={shellBackground}
-          animatedBottomPadding={animatedBottomPadding}
+          composerLift={composerLift}
+          restingBottomPadding={restingComposerPadding}
           scaleAnim={scaleAnim}
-          inputOverlayHeight={inputOverlayHeight}
           onOverlayLayout={(h) => {
             if (suppressComposerMeasureRef.current || keyboardPadding > 0) return;
             if (h > 0 && Math.abs(h - inputOverlayHeight) > 1) {

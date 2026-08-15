@@ -1,6 +1,7 @@
 <resources>
-    <!-- Transparent system bars — app shell paints edge-to-edge underneath -->
+    <!-- Status transparent (edge-to-edge). Nav / window fill = shell so the
+         physical bottom never peeks through on API 35 (nav color is a no-op). -->
     <color name="app_status_bar">#00000000</color>
-    <color name="app_nav_bar">#00000000</color>
+    <color name="app_nav_bar">#FFFFFF</color>
     <color name="app_window_background">#FFFFFF</color>
 </resources>

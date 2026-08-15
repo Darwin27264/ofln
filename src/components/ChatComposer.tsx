@@ -1,6 +1,7 @@
 /**
- * Chat composer: attach menu, pending image/PDF preview, input, mic (STT), send/stop.
+ * Chat composer: attach menu, pending image/PDF preview, input, voice/send/stop.
  * Presentational — ConversationScreen owns handlers and keyboard padding (S04b / S30).
+ * Empty bar shows a sound-wave (voice) control; it becomes send once there is content.
  */
 
 import React from 'react';
@@ -15,13 +16,53 @@ import {
   Dimensions,
   Image,
   ActivityIndicator,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect } from 'react-native-svg';
+import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect, Path } from 'react-native-svg';
 
 import { FrostedGlass } from './FrostedGlass';
 import { useTheme } from '../context/ThemeContext';
-import { createStyles } from '../styles/styles';
+import { createStyles, INPUT_FADE_HEIGHT } from '../styles/styles';
+
+/** Minimal rightward sound-wave mark (voice dictation) — three arcs, no mic silhouette. */
+function VoiceWaveIcon({
+  size,
+  color,
+  active = false,
+}: {
+  size: number;
+  color: string;
+  active?: boolean;
+}) {
+  const stroke = active ? 2.35 : 1.85;
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M9 9.2c1.15 1.05 1.15 4.55 0 5.6"
+        stroke={color}
+        strokeWidth={stroke}
+        strokeLinecap="round"
+        fill="none"
+      />
+      <Path
+        d="M12.6 6.6c2.05 1.85 2.05 8.95 0 10.8"
+        stroke={color}
+        strokeWidth={stroke}
+        strokeLinecap="round"
+        fill="none"
+      />
+      <Path
+        d="M16.2 4c3 2.7 3 13.3 0 16"
+        stroke={color}
+        strokeWidth={stroke}
+        strokeLinecap="round"
+        fill="none"
+      />
+    </Svg>
+  );
+}
 
 export type ComposerPendingAttachment = {
   uri: string;
@@ -34,11 +75,56 @@ export type ComposerPendingAttachment = {
   height?: number;
 };
 
+/**
+ * Shell-colored wash under the dock: transparent at the top so messages tuck
+ * into it, fully opaque at the bottom so it meets the system nav seamlessly.
+ * Memoized — it only depends on size and tint, so typing and the keyboard
+ * animation must not re-rasterize the gradient.
+ */
+const ComposerFade = React.memo(function ComposerFade({
+  shellBackground,
+  width,
+  height,
+  style,
+}: {
+  shellBackground: string;
+  width: number;
+  height: number;
+  style?: StyleProp<ViewStyle>;
+}) {
+  // Overdraw a couple px so gradient anti-aliasing can't leave a seam.
+  const h = height + 2;
+  return (
+    <View style={style} pointerEvents="none">
+      <Svg width={width} height={h} preserveAspectRatio="none">
+        <Defs>
+          <SvgLinearGradient id="chatInputFade" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={shellBackground} stopOpacity="0" />
+            <Stop offset="0.22" stopColor={shellBackground} stopOpacity="0.12" />
+            <Stop offset="0.42" stopColor={shellBackground} stopOpacity="0.32" />
+            <Stop offset="0.62" stopColor={shellBackground} stopOpacity="0.55" />
+            <Stop offset="0.78" stopColor={shellBackground} stopOpacity="0.78" />
+            <Stop offset="0.9" stopColor={shellBackground} stopOpacity="0.94" />
+            <Stop offset="1" stopColor={shellBackground} stopOpacity="1" />
+          </SvgLinearGradient>
+        </Defs>
+        <Rect x="0" y="0" width={width} height={h} fill="url(#chatInputFade)" />
+      </Svg>
+    </View>
+  );
+});
+
 export type ChatComposerProps = {
   shellBackground: string;
-  animatedBottomPadding: Animated.Value;
+  /**
+   * Distance (px) the dock sits above its resting position while the keyboard
+   * is open. Driven natively as a translate — animating `paddingBottom` instead
+   * relaid out the blur/SVG chrome every frame and dropped frames.
+   */
+  composerLift: Animated.Value;
+  /** Static resting gap below the input row (nav clearance). */
+  restingBottomPadding: number;
   scaleAnim: Animated.Value;
-  inputOverlayHeight: number;
   onOverlayLayout: (height: number) => void;
 
   userInput: string;
@@ -55,7 +141,7 @@ export type ChatComposerProps = {
   onSend: () => void;
   onStop: () => void;
 
-  /** Platform STT (S30) — monochrome mic inside input bar, left of send. */
+  /** Platform STT (S30) — voice/send share one trailing control in the input bar. */
   isListening: boolean;
   onMicPress: () => void;
 
@@ -80,9 +166,9 @@ export type ChatComposerProps = {
 
 export function ChatComposer({
   shellBackground,
-  animatedBottomPadding,
+  composerLift,
+  restingBottomPadding,
   scaleAnim,
-  inputOverlayHeight,
   onOverlayLayout,
   userInput,
   onChangeText,
@@ -115,13 +201,33 @@ export function ChatComposer({
   onChooseDocument,
 }: ChatComposerProps) {
   const { theme } = useTheme();
-  const styles = createStyles(theme.colors);
+  const styles = React.useMemo(() => createStyles(theme.colors), [theme.colors]);
   const screenWidth = Dimensions.get('window').width;
+  // Local measure so the full-height fade SVG matches the docked composer.
+  const [fadeHeight, setFadeHeight] = React.useState(INPUT_FADE_HEIGHT + 72);
+
+  // Lift is a transform, so the dock keeps its resting height and the gradient
+  // below it would expose the canvas — the skirt covers that travel.
+  const liftTransform = React.useMemo(
+    () => [{ translateY: Animated.multiply(composerLift, -1) }],
+    [composerLift],
+  );
 
   const isPendingPdf =
     pendingAttachment?.kind === 'pdf' ||
     pendingAttachment?.type === 'application/pdf' ||
     !!pendingAttachment?.fileName?.toLowerCase().endsWith('.pdf');
+
+  // One trailing slot: voice while empty (or still listening); send once there is content.
+  const showSend = !sendDisabled && !isListening;
+  const actionMode = React.useRef(new Animated.Value(showSend ? 1 : 0)).current;
+  React.useEffect(() => {
+    Animated.timing(actionMode, {
+      toValue: showSend ? 1 : 0,
+      duration: 160,
+      useNativeDriver: true,
+    }).start();
+  }, [showSend, actionMode]);
 
   const attachItemStyle = {
     backgroundColor: 'transparent' as const,
@@ -259,44 +365,30 @@ export function ChatComposer({
         </View>
       )}
 
-      <View
-        style={styles.bottomContainer}
+      <Animated.View
+        style={[styles.bottomContainer, { transform: liftTransform }]}
         onLayout={(e) => {
           const h = e.nativeEvent.layout.height;
+          if (h > 0 && Math.abs(h - fadeHeight) > 1) {
+            setFadeHeight(h);
+          }
           onOverlayLayout(h);
         }}
         pointerEvents="box-none"
       >
-        <View style={styles.inputFade} pointerEvents="none">
-          <Svg
-            width={screenWidth}
-            height={inputOverlayHeight}
-            preserveAspectRatio="none"
-          >
-            <Defs>
-              <SvgLinearGradient id="chatInputFade" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor={shellBackground} stopOpacity="0" />
-                <Stop offset="0.35" stopColor={shellBackground} stopOpacity="0.35" />
-                <Stop offset="0.7" stopColor={shellBackground} stopOpacity="0.6" />
-                <Stop offset="1" stopColor={shellBackground} stopOpacity="0.75" />
-              </SvgLinearGradient>
-            </Defs>
-            <Rect
-              x="0"
-              y="0"
-              width={screenWidth}
-              height={inputOverlayHeight}
-              fill="url(#chatInputFade)"
-            />
-          </Svg>
-        </View>
-        <Animated.View
-          style={[
-            styles.inputBarArea,
-            {
-              paddingBottom: animatedBottomPadding,
-            },
-          ]}
+        <ComposerFade
+          shellBackground={shellBackground}
+          width={screenWidth}
+          height={fadeHeight}
+          style={styles.inputFade}
+        />
+        {/* Travels with the dock, covering the canvas exposed by the lift. */}
+        <View
+          pointerEvents="none"
+          style={[styles.composerSkirt, { backgroundColor: shellBackground }]}
+        />
+        <View
+          style={[styles.inputBarArea, { paddingBottom: restingBottomPadding }]}
           pointerEvents="box-none"
         >
           {pendingAttachment && (
@@ -387,29 +479,6 @@ export function ChatComposer({
                 multiline
                 onFocus={onInputFocus}
               />
-              {!isGenerating && (
-                <TouchableOpacity
-                  style={styles.micButton}
-                  onPress={onMicPress}
-                  disabled={isLoading || isOcrRunning}
-                  accessibilityLabel={isListening ? 'Stop listening' : 'Dictate with microphone'}
-                  accessibilityState={{ selected: isListening }}
-                  hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons
-                    name={isListening ? 'mic' : 'mic-outline'}
-                    size={22}
-                    color={
-                      isLoading || isOcrRunning
-                        ? theme.colors.textTertiary
-                        : isListening
-                          ? theme.colors.text
-                          : theme.colors.textSecondary
-                    }
-                  />
-                </TouchableOpacity>
-              )}
               {isGenerating ? (
                 <TouchableOpacity
                   style={styles.stopButton}
@@ -423,21 +492,93 @@ export function ChatComposer({
                 <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
                   <TouchableOpacity
                     style={styles.sendIconButton}
-                    onPress={onSend}
-                    disabled={sendDisabled || isLoading}
+                    onPress={showSend ? onSend : onMicPress}
+                    disabled={
+                      showSend
+                        ? sendDisabled || isLoading
+                        : isLoading || isOcrRunning
+                    }
+                    accessibilityLabel={
+                      showSend
+                        ? 'Send message'
+                        : isListening
+                          ? 'Stop listening'
+                          : 'Dictate with voice'
+                    }
+                    accessibilityState={{ selected: isListening && !showSend }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    activeOpacity={0.85}
                   >
-                    <Ionicons
-                      name="arrow-up-circle"
-                      size={40}
-                      color={sendDisabled ? theme.colors.textTertiary : theme.colors.text}
-                    />
+                    <View style={styles.composerActionIconSlot}>
+                      <Animated.View
+                        pointerEvents="none"
+                        style={[
+                          StyleSheet.absoluteFillObject,
+                          styles.composerActionIconCentered,
+                          {
+                            opacity: actionMode.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [1, 0],
+                            }),
+                            transform: [
+                              {
+                                scale: actionMode.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: [1, 0.72],
+                                }),
+                              },
+                            ],
+                          },
+                        ]}
+                      >
+                        <VoiceWaveIcon
+                          size={26}
+                          active={isListening}
+                          color={
+                            isLoading || isOcrRunning
+                              ? theme.colors.textTertiary
+                              : isListening
+                                ? theme.colors.text
+                                : theme.colors.textSecondary
+                          }
+                        />
+                      </Animated.View>
+                      <Animated.View
+                        pointerEvents="none"
+                        style={[
+                          StyleSheet.absoluteFillObject,
+                          styles.composerActionIconCentered,
+                          {
+                            opacity: actionMode,
+                            transform: [
+                              {
+                                scale: actionMode.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: [0.72, 1],
+                                }),
+                              },
+                            ],
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="arrow-up-circle"
+                          size={40}
+                          color={
+                            sendDisabled || isLoading
+                              ? theme.colors.textTertiary
+                              : theme.colors.text
+                          }
+                        />
+                      </Animated.View>
+                    </View>
                   </TouchableOpacity>
                 </Animated.View>
               )}
             </View>
           </View>
-        </Animated.View>
-      </View>
+        </View>
+      </Animated.View>
     </>
   );
 }

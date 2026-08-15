@@ -1,5 +1,5 @@
 // systemBars.ts
-import { NativeModules, Platform } from 'react-native';
+import { NativeModules } from 'react-native';
 
 // @ts-ignore - Native module may not be available during development
 const { SystemBars } = NativeModules as {
@@ -48,20 +48,25 @@ export function lerpHexColor(from: string, to: string, t: number): string {
 }
 
 /**
- * Android system bars: both status + nav stay transparent so the app shell
- * paints underneath. `statusBarColor` only drives glyph light/dark.
+ * Native chrome: status bar stays transparent (shell paints under it).
+ * `navBarColor` (defaults to the shell hex) paints the window / decor — and
+ * the pre-35 Android nav bar — so the physical bottom never shows a 1px gap.
+ * API 35+ ignores navigationBarColor; the window fill is what seals the edge.
+ * `statusBarColor` also drives light/dark glyph contrast.
  */
 export function applySystemBarTheme({
   statusBarColor,
+  navBarColor,
 }: {
   statusBarColor: string;
-  /** @deprecated Ignored — bars are always transparent. */
+  /** Defaults to statusBarColor — shell / frost endpoint. */
   navBarColor?: string;
 }) {
-  if (Platform.OS !== 'android' || !SystemBars) {
+  if (!SystemBars) {
     return;
   }
 
   const darkIcons = isColorLight(statusBarColor);
-  SystemBars.setSystemBarColors('transparent', 'transparent', darkIcons);
+  const nav = navBarColor ?? statusBarColor;
+  SystemBars.setSystemBarColors('transparent', nav, darkIcons);
 }

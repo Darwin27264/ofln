@@ -4,8 +4,8 @@ import type { ThemeColors } from "../context/ThemeContext";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
-/** Height of the soft fade above the chat input bar */
-export const INPUT_FADE_HEIGHT = 40;
+/** Soft fade band above the chat input row (layout + scroll tuck). */
+export const INPUT_FADE_HEIGHT = 72;
 /** Height of the soft fade under the top action pills */
 export const TOP_FADE_HEIGHT = 72;
 
@@ -183,6 +183,17 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
   inputFade: {
     ...StyleSheet.absoluteFillObject,
   },
+  /**
+   * Fills the canvas the dock uncovers while it is lifted above the keyboard,
+   * and seals the last pixel at the physical bottom. Clipped by the chat root.
+   */
+  composerSkirt: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: "100%",
+    height: 900,
+  },
   inputBarArea: {
     backgroundColor: colors.transparent,
     paddingTop: INPUT_FADE_HEIGHT,
@@ -242,13 +253,6 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     maxHeight: 140,
     fontFamily: "Poppins",
   },
-  micButton: {
-    width: 36,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 2,
-  },
   sendIconButton: {
     width: 44,
     height: 44,
@@ -256,6 +260,16 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 2,
+  },
+  composerActionIconSlot: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  composerActionIconCentered: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   sendIconText: {
     color: colors.primaryText,

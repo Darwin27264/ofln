@@ -1,8 +1,8 @@
 /**
  * Floating chrome (Back pills, docked actions) layout offsets.
  *
- * Android draws edge-to-edge with a transparent system nav bar; the app shell
- * paints full height under it. Back is offset by a real bottom inset (or a
+ * Edge-to-edge: transparent status + nav/home indicator; the app shell paints
+ * full height under them. Back is offset by a real bottom inset (or a
  * minimum fallback when the OS reports 0) so it never sits in the system nav.
  */
 import { Platform } from "react-native";

@@ -6,7 +6,7 @@
  * - Top-right filter pill (unchanged). Left column aligns to that baseline;
  *   right column starts lower so cards never sit under the filter.
  * - Bottom: Back + New chat. Search is a centered floating pill that expands
- *   and lifts to the mid-band above the keyboard.
+ *   and lifts to sit just above the keyboard (same idea as the chat composer).
  */
 
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
@@ -38,6 +38,10 @@ import {
 } from '../services/chatHistoryHelpers';
 import { ANIMATION_DURATIONS, EASING } from '../utils/animationConfig';
 import { floatingBackBottom } from '../utils/layoutInsets';
+import {
+  KEYBOARD_CATCHUP_MS,
+  keyboardAnimDuration,
+} from '../hooks/useKeyboardPadding';
 
 export type GroupedChatHistory = {
   pinnedChats: ChatConversation[];
@@ -62,9 +66,8 @@ const SEARCH_PILL_COLLAPSED_W = 108;
 const BOTTOM_CHROME_PAD_H = 15;
 const BACK_ROW_H = 48;
 
-/**
- * Search pill motion — tight, overlapping expand + lift (shared EASING only).
- */
+/** Gap between the expanded search pill and the top of the keyboard. */
+const SEARCH_ABOVE_KEYBOARD_GAP = 32;
 const SEARCH_MOTION = {
   expandMs: 200,
   collapseMs: 170,
@@ -495,6 +498,17 @@ export function HistoryDrawer({
   const historySearchQueryRef = useRef(historySearchQuery);
   historySearchQueryRef.current = historySearchQuery;
   const blurCollapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Live panel height (shrinks under Android adjustResize). */
+  const panelHeightRef = useRef(screenHeight);
+  /** Tallest panel height while the keyboard is closed. */
+  const fullPanelHeightRef = useRef(screenHeight);
+  const panelRef = useRef<View>(null);
+  const keyboardHeightRef = useRef(0);
+  keyboardHeightRef.current = keyboardHeight;
+  /** Screen Y of the keyboard top — used with measureInWindow for a true dock. */
+  const keyboardTopYRef = useRef<number | null>(null);
+  /** Last vertical target we animated toward — skip no-op restarts mid-lift. */
+  const lastSearchBottomTargetRef = useRef<number | null>(null);
 
   const filterBackdropOpacity = useRef(new Animated.Value(0)).current;
   const filterMenuScale = useRef(new Animated.Value(0.92)).current;
@@ -531,33 +545,98 @@ export function HistoryDrawer({
   }, [searchExpand, searchScrim, searchBottomAnim]);
 
   /**
-   * True visual center of the panel/window. Does not subtract keyboard height —
-   * window resize already changes `screenHeight` on some devices; stacking a
-   * keyboard offset on top pushed the pill too high.
+   * Dock the search pill just above the live keyboard.
+   * Starts immediately from keyboard height (no measure wait), then optionally
+   * corrects once measureInWindow returns — keeps the lift in sync with the IME.
    */
-  const screenCenterBottom = Math.max(
-    dockedSearchBottom,
-    screenHeight / 2 - SEARCH_PILL_H / 2,
-  );
-
-  /** Center while keyboard is open; rest above Back when it is not. */
-  const targetSearchBottom = useCallback(
-    (keyboardOpen: boolean, expanded: boolean) => {
-      if (expanded && keyboardOpen) return screenCenterBottom;
-      return dockedSearchBottom;
-    },
-    [screenCenterBottom, dockedSearchBottom],
-  );
-
-  const animateSearchBottom = useCallback(
-    (keyboardOpen: boolean, expanded = searchExpandedRef.current) => {
+  const runSearchBottomAnimation = useCallback(
+    (toValue: number, durationMs?: number) => {
+      const prev = lastSearchBottomTargetRef.current;
+      if (
+        prev != null &&
+        Math.abs(prev - toValue) < 4 &&
+        toValue <= prev
+      ) {
+        return;
+      }
+      lastSearchBottomTargetRef.current = toValue;
       searchBottomAnim.stopAnimation();
-      Animated.spring(searchBottomAnim, {
-        toValue: targetSearchBottom(keyboardOpen, expanded),
-        ...SEARCH_MOTION.spring,
+      // Always timing — spring lagged the keyboard on large travels.
+      const duration =
+        typeof durationMs === 'number' && durationMs >= 0
+          ? durationMs
+          : Platform.OS === 'android'
+            ? KEYBOARD_CATCHUP_MS
+            : 220;
+      if (duration <= 0) {
+        searchBottomAnim.setValue(toValue);
+        return;
+      }
+      Animated.timing(searchBottomAnim, {
+        toValue,
+        duration,
+        easing: EASING.DECELERATE,
+        useNativeDriver: false,
       }).start();
     },
-    [searchBottomAnim, targetSearchBottom],
+    [searchBottomAnim],
+  );
+
+  const dockSearchAboveKeyboard = useCallback(
+    (durationMs?: number) => {
+      const keyboardTop = keyboardTopYRef.current;
+      const keyboardH = keyboardHeightRef.current;
+      if (keyboardH <= 0) return;
+
+      // Start now — waiting on measureInWindow was a visible lag behind the IME.
+      const provisional = keyboardH + SEARCH_ABOVE_KEYBOARD_GAP;
+      runSearchBottomAnimation(provisional, durationMs);
+
+      const node = panelRef.current;
+      if (
+        keyboardTop == null ||
+        !node ||
+        typeof node.measureInWindow !== 'function'
+      ) {
+        return;
+      }
+
+      node.measureInWindow((_x, y, _w, h) => {
+        if (!mountedRef.current || !searchExpandedRef.current) return;
+        if (keyboardHeightRef.current <= 0) return;
+        const panelBottom = y + h;
+        const overlap = Math.max(0, panelBottom - keyboardTop);
+        const heightLoss = Math.max(0, fullPanelHeightRef.current - h);
+        const bottom =
+          heightLoss < keyboardH * 0.4
+            ? Math.max(overlap, keyboardH) + SEARCH_ABOVE_KEYBOARD_GAP
+            : overlap + SEARCH_ABOVE_KEYBOARD_GAP;
+        // Quiet correction only — don't restart a long ease.
+        if (Math.abs(bottom - provisional) > 8) {
+          runSearchBottomAnimation(
+            bottom,
+            Math.min(durationMs ?? KEYBOARD_CATCHUP_MS, KEYBOARD_CATCHUP_MS),
+          );
+        }
+      });
+    },
+    [runSearchBottomAnimation],
+  );
+
+  /** Sit above the keyboard while open; rest above Back when it is not. */
+  const animateSearchBottom = useCallback(
+    (
+      keyboardOpen: boolean,
+      expanded = searchExpandedRef.current,
+      durationMs?: number,
+    ) => {
+      if (expanded && keyboardOpen) {
+        dockSearchAboveKeyboard(durationMs);
+        return;
+      }
+      runSearchBottomAnimation(dockedSearchBottom, durationMs);
+    },
+    [dockSearchAboveKeyboard, runSearchBottomAnimation, dockedSearchBottom],
   );
 
   const collapseSearch = useCallback(
@@ -596,6 +675,9 @@ export function HistoryDrawer({
         if (epoch !== searchAnimEpochRef.current) return;
         setSearchExpanded(false);
         setKeyboardHeight(0);
+        keyboardHeightRef.current = 0;
+        keyboardTopYRef.current = null;
+        lastSearchBottomTargetRef.current = dockedSearchBottom;
       });
     },
     [
@@ -615,21 +697,16 @@ export function HistoryDrawer({
     setSearchExpanded(true);
     const epoch = ++searchAnimEpochRef.current;
     searchExpand.stopAnimation();
-    searchBottomAnim.stopAnimation();
     searchScrim.stopAnimation();
 
-    // Expand width + lift to center together; focus immediately so keyboard
-    // rises in parallel (no "grow then move" sequencing).
+    // Width + scrim only. Stay docked — the keyboard listener owns the one
+    // vertical lift to sit just above the IME.
     Animated.parallel([
       Animated.timing(searchExpand, {
         toValue: 1,
         duration: SEARCH_MOTION.expandMs,
         easing: SEARCH_MOTION.easeOut,
         useNativeDriver: false,
-      }),
-      Animated.spring(searchBottomAnim, {
-        toValue: screenCenterBottom,
-        ...SEARCH_MOTION.spring,
       }),
       Animated.timing(searchScrim, {
         toValue: 1,
@@ -642,12 +719,16 @@ export function HistoryDrawer({
       if (epoch !== searchAnimEpochRef.current) return;
     });
 
-    // Kick keyboard + lift mid-animation; don't wait for expand to finish.
+    // Keyboard already up (rare): lift once above the live keyboard.
+    if (keyboardHeightRef.current > 0) {
+      animateSearchBottom(true, true);
+    }
+
     requestAnimationFrame(() => {
       if (!mountedRef.current || epoch !== searchAnimEpochRef.current) return;
       searchInputRef.current?.focus();
     });
-  }, [searchExpand, searchBottomAnim, searchScrim, screenCenterBottom]);
+  }, [searchExpand, searchScrim, animateSearchBottom]);
 
   /** Defer empty-blur collapse so clear/close buttons still receive the press. */
   const scheduleCollapseIfEmpty = useCallback(() => {
@@ -666,12 +747,31 @@ export function HistoryDrawer({
   useEffect(() => {
     if (!isPanelOpen) return;
 
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const onShow = Keyboard.addListener(showEvent, (e) => {
+    // Prefer will* (travels with IME). Android usually only emits did*.
+    const showEvents =
+      Platform.OS === 'ios'
+        ? (['keyboardWillShow'] as const)
+        : (['keyboardWillShow', 'keyboardDidShow'] as const);
+    const hideEvents =
+      Platform.OS === 'ios'
+        ? (['keyboardWillHide'] as const)
+        : (['keyboardWillHide', 'keyboardDidHide'] as const);
+
+    const onShow = (e: {
+      endCoordinates?: { height?: number; screenY?: number };
+      duration?: number;
+    }) => {
       if (!mountedRef.current || !searchExpandedRef.current) return;
-      setKeyboardHeight(e.endCoordinates?.height ?? 0);
-      animateSearchBottom(true, true);
+      const height = e.endCoordinates?.height ?? 0;
+      const screenY = e.endCoordinates?.screenY;
+      const winH = Dimensions.get('window').height;
+      keyboardHeightRef.current = height;
+      keyboardTopYRef.current =
+        typeof screenY === 'number' && screenY > 40 && screenY < winH - 20
+          ? screenY
+          : null;
+      setKeyboardHeight(height);
+      dockSearchAboveKeyboard(keyboardAnimDuration(e));
       searchScrim.stopAnimation();
       Animated.timing(searchScrim, {
         toValue: 1,
@@ -679,11 +779,18 @@ export function HistoryDrawer({
         easing: SEARCH_MOTION.easeOut,
         useNativeDriver: true,
       }).start();
-    });
-    const onHide = Keyboard.addListener(hideEvent, () => {
+    };
+
+    const onHide = (e: { duration?: number }) => {
       if (!mountedRef.current) return;
+      keyboardHeightRef.current = 0;
+      keyboardTopYRef.current = null;
       setKeyboardHeight(0);
-      animateSearchBottom(false, searchExpandedRef.current);
+      animateSearchBottom(
+        false,
+        searchExpandedRef.current,
+        keyboardAnimDuration(e),
+      );
       searchScrim.stopAnimation();
       Animated.timing(searchScrim, {
         toValue: 0,
@@ -691,18 +798,39 @@ export function HistoryDrawer({
         easing: SEARCH_MOTION.easeIn,
         useNativeDriver: true,
       }).start();
-    });
-    return () => {
-      onShow.remove();
-      onHide.remove();
     };
-  }, [isPanelOpen, animateSearchBottom, searchScrim]);
+
+    const showSubs = showEvents.map((name) => Keyboard.addListener(name, onShow));
+    const hideSubs = hideEvents.map((name) => Keyboard.addListener(name, onHide));
+    return () => {
+      showSubs.forEach((s) => s.remove());
+      hideSubs.forEach((s) => s.remove());
+    };
+  }, [isPanelOpen, animateSearchBottom, dockSearchAboveKeyboard, searchScrim]);
 
   // Only snap dock offset while collapsed — never race an active spring/lift.
   useEffect(() => {
     if (searchExpanded || keyboardHeight > 0) return;
+    lastSearchBottomTargetRef.current = dockedSearchBottom;
     searchBottomAnim.setValue(dockedSearchBottom);
   }, [dockedSearchBottom, searchExpanded, keyboardHeight, searchBottomAnim]);
+
+  // If Android resizes the window after the keyboard is already up, re-measure
+  // against the keyboard top so the pill stays clear.
+  const handlePanelLayout = useCallback(
+    (height: number) => {
+      if (height <= 0) return;
+      panelHeightRef.current = height;
+      if (keyboardHeightRef.current <= 0) {
+        fullPanelHeightRef.current = Math.max(fullPanelHeightRef.current, height);
+        return;
+      }
+      if (searchExpandedRef.current) {
+        dockSearchAboveKeyboard();
+      }
+    },
+    [dockSearchAboveKeyboard],
+  );
 
   const closeFilterMenu = useCallback(() => {
     Animated.parallel([
@@ -790,6 +918,9 @@ export function HistoryDrawer({
     searchBottomAnim.setValue(dockedSearchBottom);
     setSearchExpanded(false);
     setKeyboardHeight(0);
+    keyboardHeightRef.current = 0;
+    keyboardTopYRef.current = null;
+    lastSearchBottomTargetRef.current = dockedSearchBottom;
   }, [
     isPanelOpen,
     filterBackdropOpacity,
@@ -1116,6 +1247,7 @@ export function HistoryDrawer({
       )}
 
       <Animated.View
+        ref={panelRef}
         style={[
           panelStyle,
           {
@@ -1130,6 +1262,9 @@ export function HistoryDrawer({
           },
         ]}
         pointerEvents={isPanelOpen ? 'auto' : 'none'}
+        onLayout={(e) => {
+          handlePanelLayout(e.nativeEvent.layout.height);
+        }}
       >
         <FrostedGlass variant="panel" style={StyleSheet.absoluteFillObject} />
 

@@ -108,10 +108,9 @@ function AppContent(): React.JSX.Element {
       lastShellColorRef.current = hex;
       setShellBackground(hex);
     }
-    // Status solid; navigation bar always transparent (native) so shell paints under it.
-    if (Platform.OS === "android") {
-      applySystemBarTheme({ statusBarColor: hex });
-    }
+    // Status transparent (shell paints under). Native window/nav fill uses the
+    // same hex so the physical bottom never shows a 1px gap under the gesture bar.
+    applySystemBarTheme({ statusBarColor: hex, navBarColor: hex });
   }, []);
 
   // Theme change / first mount: snap shell + system bars to the page background.
@@ -584,20 +583,24 @@ function AppContent(): React.JSX.Element {
   }, [bootstrapped, currentPage, onboardingSkipTo]);
 
   return (
-    <View style={[styles.container, { backgroundColor: shellBackground }]}>
+    <View
+      collapsable={false}
+      style={[styles.container, { backgroundColor: shellBackground }]}
+    >
       <StatusBar
         translucent
-        // Android: draw under status; shell paints underneath. Icons via barStyle.
+        // Draw under status; shell paints underneath. Icons via barStyle.
         barStyle={theme.mode === "dark" ? "light-content" : "dark-content"}
         backgroundColor="transparent"
       />
       {/*
-        Full-bleed shell (above) paints under the transparent system nav — no
-        SafeArea bottom pad (that pad was the solid black strip under Back).
-        Only top inset keeps titles/chrome out of the status bar; screens float
-        Back with insets.bottom + gap so control stays above system icons.
+        Full-bleed shell paints under transparent status + nav/home indicator.
+        Native window fill (applySystemBarTheme) seals the physical bottom so a
+        1px gap cannot show through. Only top inset keeps titles/chrome out of
+        the status bar; screens float Back with insets.bottom + gap.
       */}
       <View
+        collapsable={false}
         style={{
           flex: 1,
           paddingTop: insets.top,
@@ -787,6 +790,18 @@ function AppContent(): React.JSX.Element {
         </PageFadeIn>
       )}
       </View>
+      {/* Covers subpixel / SVG AA at the physical bottom inside the RN window. */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 3,
+          backgroundColor: shellBackground,
+        }}
+      />
     </View>
   );
 }

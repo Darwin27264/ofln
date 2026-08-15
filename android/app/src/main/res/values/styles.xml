@@ -9,10 +9,12 @@
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:statusBarColor">@color/app_status_bar</item>
         <item name="android:navigationBarColor">@color/app_nav_bar</item>
+        <!-- Match shell — a transparent divider is a 1px see-through hairline. -->
+        <item name="android:navigationBarDividerColor">@color/app_nav_bar</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
-        <!-- API 29+: never force a dark scrim over transparent nav -->
         <item name="android:enforceNavigationBarContrast">false</item>
         <item name="android:enforceStatusBarContrast">false</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 </resources>

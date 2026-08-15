@@ -13,7 +13,16 @@ class AppDelegate: RCTAppDelegate {
     // They will be passed down to the ViewController used by React Native.
     self.initialProps = [:]
 
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    let ok = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    let shell = UIColor { trait in
+      if trait.userInterfaceStyle == .dark {
+        return UIColor(red: 10.0 / 255.0, green: 10.0 / 255.0, blue: 10.0 / 255.0, alpha: 1)
+      }
+      return .white
+    }
+    self.window?.backgroundColor = shell
+    self.window?.rootViewController?.view.backgroundColor = shell
+    return ok
   }
 
   override func sourceURL(for bridge: RCTBridge) -> URL? {
