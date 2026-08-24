@@ -102,7 +102,7 @@ export function resolveThinkingModeForTurn(opts: {
   const mode: ThinkingMode = opts.thinkingMode ?? 'auto';
   if (mode === 'on') return true;
   if (mode === 'off') return false;
-  // auto: identical to pre-S20 resolveEnableThinking path
+  // auto: identical to historical resolveEnableThinking path
   return resolveEnableThinking(opts.userText, true);
 }
 

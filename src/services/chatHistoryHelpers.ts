@@ -1,5 +1,5 @@
 /**
- * Pure helpers for chat history (S12) — unit-testable without native SQLite.
+ * Pure helpers for chat history — unit-testable without native SQLite.
  */
 
 import type { ChatConversation, Message } from './chatHistoryService';

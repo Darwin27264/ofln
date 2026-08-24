@@ -5,7 +5,7 @@ import { SYSTEM_PROMPT_MOBILE } from "./inference/promptDefaults";
 
 export type SystemPromptSource = "default" | "user";
 
-/** Per-turn thinking override (S20). Only affects jinja_enable families (Qwen). */
+/** Per-turn thinking override. Only affects jinja_enable families (Qwen). */
 export type ThinkingMode = "auto" | "on" | "off";
 
 export const THINKING_MODES = ["auto", "on", "off"] as const;
@@ -19,7 +19,7 @@ export interface ModelSettings {
   systemPromptSource?: SystemPromptSource;
   /**
    * Thinking control: Auto = prompt heuristic; On/Off force enable_thinking
-   * only for jinja_enable families. Default auto matches pre-S20 behavior.
+   * only for jinja_enable families. Default auto matches historical Auto behavior.
    */
   thinkingMode: ThinkingMode;
   n_ctx: number; // Context window size
@@ -338,7 +338,7 @@ export const deleteModelSettings = async (
 };
 
 /**
- * Export all per-model settings for backup (S32).
+ * Export all per-model settings for backup.
  * Keys are model file names (without storage prefix).
  */
 export const exportAllModelSettings = async (): Promise<

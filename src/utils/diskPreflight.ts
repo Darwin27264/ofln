@@ -1,5 +1,5 @@
 /**
- * Disk space preflight before model downloads (S05).
+ * Disk space preflight before model downloads.
  * Requires free space ≥ expectedSize × 1.1 + pad.
  */
 

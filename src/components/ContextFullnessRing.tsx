@@ -1,5 +1,5 @@
 /**
- * Tiny circular context meter for chat chrome (S14 polish).
+ * Tiny circular context meter for chat chrome.
  * Uses the same fullness estimate as ContextFullnessBanner.
  */
 

@@ -52,37 +52,51 @@ const metricExplanations: { [key: string]: { title: string; explanation: string 
   contextSize: {
     title: "Context Size (n_ctx)",
     explanation:
-      "What it is:\nHow many tokens of conversation the model can keep in memory at once.\n\nAllowed values:\n512, 1024, 2048, 4096, or 8192 (power-of-two only).\n\nEffects of tuning:\n• Higher (4096–8192): Longer memory, much more RAM\n• Lower (512–1024): Faster load, forgets older turns sooner\n• Android may soft-cap near 2048 at load time\n• Recommended: 2048 for most phones",
+      "How many tokens of conversation stay in memory (512–8192).\n\n" +
+      "Higher = longer chats, more RAM. Lower = faster, forgets sooner.\n\n" +
+      "Try 2048 on phones.",
   },
   gpuLayers: {
     title: "GPU Layers (n_gpu_layers)",
     explanation:
-      "What it is:\nHow many layers run on GPU/NPU vs CPU (llama.rn / llama.cpp).\n\nAllowed range:\n0–99 (99 ≈ offload all layers).\n\nAndroid acceleration:\n• Works best with Q4_0 or Q6_K quants on OpenCL (Adreno 700+) or Hexagon NPU (Snapdragon 8 Gen 1+)\n• Other quants are forced to CPU (layers treated as 0)\n• Emulators always use CPU\n\nEffects of tuning:\n• Higher: Faster when acceleration is available\n• 0: CPU only — slowest but most compatible\n• Recommended: try 8–99 on capable phones with a Q4_0 model; use 0 if loads fail",
+      "Layers on GPU/NPU vs CPU (0–99). 0 = CPU only.\n\n" +
+      "On Android, Q4_0 / Q6_K may offload on supported chips. Other quants stay on CPU.\n\n" +
+      "Try 99 on capable phones; use 0 if load fails.",
   },
   temperature: {
     title: "Temperature",
     explanation:
-      "What it is:\nControls randomness vs focus in replies.\n\nAllowed range:\n0.00–2.00 (steps of 0.05).\n\nEffects of tuning:\n• Lower (0.2–0.5): More deterministic — good for facts / code\n• Mid (0.7–0.9): Balanced chat (app default 0.80; Qwen thinking may raise toward 0.85)\n• Higher (1.0–1.5): More creative; too high can ramble\n• Recommended: 0.7–1.0 for Qwen3.5",
+      "Randomness vs focus (0–2).\n\n" +
+      "Lower = factual and steady. Higher = creative; too high can ramble.\n\n" +
+      "Try 0.7–1.0 for chat.",
   },
   topP: {
     title: "Top P (Nucleus Sampling)",
     explanation:
-      "What it is:\nOnly considers tokens in the top probability mass.\n\nAllowed range:\n0.05–1.00 (steps of 0.01).\n\nEffects of tuning:\n• Lower (0.5–0.8): Tighter, more focused wording\n• Higher (0.95–1.0): More variety (Qwen3.5 official ~0.95)\n• Works with temperature\n• Recommended: 0.95 (app default)",
+      "Limits choices to the top probability mass (0.05–1.0).\n\n" +
+      "Lower = tighter wording. Higher = more variety.\n\n" +
+      "Default 0.95 works well with temperature.",
   },
   topK: {
     title: "Top K",
     explanation:
-      "What it is:\nLimits choices to the K most likely next tokens.\n\nAllowed range:\n1–100.\n\nEffects of tuning:\n• Lower (10–20): More predictable (Qwen3.5 official = 20)\n• Higher (40–100): More diversity\n• Recommended: 20 (app default); Qwen turns cap at 20 automatically",
+      "Only considers the K most likely next tokens (1–100).\n\n" +
+      "Lower = predictable. Higher = diverse.\n\n" +
+      "Default 20; Qwen models cap at 20 automatically.",
   },
   repeatPenalty: {
     title: "Repeat Penalty",
     explanation:
-      "What it is:\nDiscourages repeating the same token sequences (llama.rn penalty_repeat).\n\nAllowed range:\n1.00–2.00 (steps of 0.05). Values below 1.0 are blocked — they encourage loops.\n\nEffects of tuning:\n• 1.0: Off (Qwen thinking turns use this automatically)\n• 1.05–1.15: Mild; default for chat\n• Above ~1.4: May dodge common words awkwardly\n• Note: For Qwen models, presence penalty (auto) fights phrase loops better than a high repeat penalty",
+      "Discourages repeating phrases (1.0–2.0). 1.0 = off.\n\n" +
+      "1.05–1.15 is mild. Very high values can sound awkward.\n\n" +
+      "Qwen models also use presence penalty for phrase loops.",
   },
   maxPredict: {
     title: "Max Predict Tokens (n_predict)",
     explanation:
-      "What it is:\nUpper bound on tokens generated per reply.\n\nAllowed range:\n64–2048 (steps of 32) — capped for phone latency and battery.\n\nEffects of tuning:\n• Lower (128–256): Shorter, snappier answers (default 256)\n• Higher (512–1024): Longer answers, slower and more battery\n• Recommended: 256–512 on phones; raise only when you need long drafts",
+      "Max tokens per reply (64–2048).\n\n" +
+      "Lower = snappier. Higher = longer but slower.\n\n" +
+      "Try 256–512 on phones.",
   },
 };
 
@@ -435,7 +449,7 @@ export default function ModelSettingsScreen({
           />
         </View>
 
-        {/* Thinking mode (S20) — Auto matches prompt heuristic; On/Off for Qwen-style models only */}
+        {/* Thinking mode — Auto matches prompt heuristic; On/Off for Qwen-style models only */}
         <View style={localStyles.metricBlock}>
           <Text style={[localStyles.metricTitle, { color: theme.colors.text }]}>
             Thinking
@@ -450,7 +464,7 @@ export default function ModelSettingsScreen({
               lineHeight: 18,
             }}
           >
-            Auto uses complexity for supported models. On/Off force thinking where the template allows it.
+            Auto picks thinking for supported models. On/Off override when available.
           </Text>
           <View
             style={{

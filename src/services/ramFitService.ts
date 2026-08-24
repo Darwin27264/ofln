@@ -1,5 +1,5 @@
 /**
- * RAM fit chips (S09) — conservative local tiers vs device total memory.
+ * RAM fit chips — conservative local tiers vs device total memory.
  * Estimates loadability from on-disk GGUF size (not a guarantee).
  */
 
@@ -72,22 +72,17 @@ export function explainRamFit(result: RamFitResult): { title: string; message: s
 
   const title = `RAM fit: ${RAM_FIT_LABELS[result.tier]}`;
   const base =
-    `This estimate compares the model file (${file}) to your phone’s total RAM (${ram}).\n\n` +
-    `Peak load needs more than the file size (context + runtime), so the app uses conservative limits for devices in your RAM class:\n` +
-    `• Comfortable up to about ${fitsMax}\n` +
-    `• Tight up to about ${tightMax}\n` +
-    `• Above that → Won’t fit`;
+    `Model file: ${file}. Phone RAM: ${ram}.\n\n` +
+    `Peak load needs more than the file size (context + runtime). ` +
+    `For your RAM class: comfortable up to ~${fitsMax}, tight up to ~${tightMax}.`;
 
   let verdict: string;
   if (result.tier === 'fits') {
-    verdict =
-      `\n\nRated Fits — this size should load comfortably on your device at default settings.`;
+    verdict = `\n\nShould load comfortably at default settings.`;
   } else if (result.tier === 'tight') {
-    verdict =
-      `\n\nRated Tight — it may load, but expect less headroom. Lower context size or pick a smaller GGUF if load fails.`;
+    verdict = `\n\nMay load with less headroom. Lower context or pick a smaller model if load fails.`;
   } else {
-    verdict =
-      `\n\nRated Won’t fit — this file is likely too large for your RAM. Prefer a smaller model (or a lower quant).`;
+    verdict = `\n\nLikely too large. Prefer a smaller model or lower quant.`;
   }
 
   return { title, message: base + verdict };

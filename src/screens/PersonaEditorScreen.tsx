@@ -5,7 +5,7 @@
  * Handles validation, saving, and cancellation.
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import Icon from "react-native-vector-icons/MaterialIcons";
+import { launchImageLibrary } from "react-native-image-picker";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
@@ -23,8 +24,12 @@ import { useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import {
   savePersona,
   generatePersonaId,
+  persistPersonaAvatar,
+  deletePersonaAvatar,
   Persona,
 } from "../services/personaService";
+import { IMAGE_PICKER_OPTIONS } from "../services/mediaNormalizeService";
+import { PersonaAvatar } from "../components/PersonaAvatar";
 
 interface PersonaEditorScreenProps {
   persona?: Persona | null;
@@ -42,11 +47,14 @@ export default function PersonaEditorScreen({
   const scrollPadBottom = useScrollPadForFloatingBack();
 
   const isEditMode = !!persona;
+  // Stable id so a newly picked photo can be persisted before first save.
+  const [personaId] = useState(() => persona?.id || generatePersonaId());
 
   const [name, setName] = useState<string>("");
   const [tagline, setTagline] = useState<string>("");
   const [tags, setTags] = useState<string>("");
   const [avatar, setAvatar] = useState<string>("");
+  const [avatarUri, setAvatarUri] = useState<string>("");
   const [identity, setIdentity] = useState<string>("");
   const [backstory, setBackstory] = useState<string>("");
   const [speakingStyle, setSpeakingStyle] = useState<string>("");
@@ -62,6 +70,7 @@ export default function PersonaEditorScreen({
       setTagline(persona.tagline || "");
       setTags(persona.tags?.join(", ") || "");
       setAvatar(persona.avatar || "");
+      setAvatarUri(persona.avatarUri || "");
       setIdentity(persona.identity || "");
       setBackstory(persona.backstory || "");
       setSpeakingStyle(persona.speakingStyle || "");
@@ -72,6 +81,47 @@ export default function PersonaEditorScreen({
       setPersonaStrength(persona.personaStrength || "medium");
     }
   }, [persona]);
+
+  const previewPersona = useMemo(
+    () =>
+      ({
+        id: personaId,
+        name: name || "Persona",
+        tagline: tagline || "",
+        createdAt: persona?.createdAt || Date.now(),
+        avatar: avatar || undefined,
+        avatarUri: avatarUri || undefined,
+      }) as Persona,
+    [personaId, name, tagline, persona?.createdAt, avatar, avatarUri]
+  );
+
+  const handlePickAvatar = useCallback(async () => {
+    try {
+      const result = await launchImageLibrary({
+        ...IMAGE_PICKER_OPTIONS,
+        maxWidth: 512,
+        maxHeight: 512,
+      });
+      if (result.didCancel || !result.assets?.[0]?.uri) return;
+      const uri = result.assets[0].uri;
+      const persisted = await persistPersonaAvatar(personaId, uri);
+      setAvatarUri(persisted);
+    } catch (error) {
+      console.error("Error picking persona avatar:", error);
+      showAlert("Photo Failed", "Could not use that image. Try another photo.", [
+        { text: "OK" },
+      ]);
+    }
+  }, [personaId]);
+
+  const handleClearAvatar = useCallback(async () => {
+    setAvatarUri("");
+    try {
+      await deletePersonaAvatar(personaId);
+    } catch {
+      // ignore
+    }
+  }, [personaId]);
 
   const handleAddExample = useCallback(() => {
     setExamples([...examples, { user: "", persona: "" }]);
@@ -105,11 +155,12 @@ export default function PersonaEditorScreen({
       .filter((tag) => tag.length > 0);
 
     const personaData: Persona = {
-      id: persona?.id || generatePersonaId(),
+      id: personaId,
       name: name.trim(),
       tagline: tagline.trim(),
       tags: parsedTags.length > 0 ? parsedTags : undefined,
       avatar: avatar.trim() || undefined,
+      avatarUri: avatarUri.trim() || undefined,
       identity: identity.trim() || undefined,
       backstory: backstory.trim() || undefined,
       speakingStyle: speakingStyle.trim() || undefined,
@@ -154,6 +205,7 @@ export default function PersonaEditorScreen({
     tagline,
     tags,
     avatar,
+    avatarUri,
     identity,
     backstory,
     speakingStyle,
@@ -163,6 +215,7 @@ export default function PersonaEditorScreen({
     examples,
     personaStrength,
     persona,
+    personaId,
     onSave,
   ]);
 
@@ -319,14 +372,82 @@ export default function PersonaEditorScreen({
             </View>
 
             <View style={{ marginBottom: 16 }}>
-              <Text style={fieldLabelStyle}>Avatar (Icon name)</Text>
-              <TextInput
-                style={inputBaseStyle}
-                value={avatar}
-                onChangeText={setAvatar}
-                placeholder="Optional: icon name (e.g., person, star)"
-                placeholderTextColor={theme.colors.textTertiary}
-              />
+              <Text style={fieldLabelStyle}>Profile picture</Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 12,
+                }}
+              >
+                <PersonaAvatar
+                  persona={previewPersona}
+                  size={72}
+                  borderRadius={16}
+                  backgroundColor={theme.colors.surface}
+                  iconColor={theme.colors.text}
+                />
+                <View style={{ flex: 1, gap: 8 }}>
+                  <TouchableOpacity
+                    onPress={handlePickAvatar}
+                    style={{
+                      backgroundColor: theme.colors.primary,
+                      paddingVertical: 10,
+                      paddingHorizontal: 14,
+                      borderRadius: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Icon name="photo-library" size={18} color={theme.colors.primaryText} />
+                    <Text
+                      style={{
+                        color: theme.colors.primaryText,
+                        fontSize: 14,
+                        fontWeight: "600",
+                        fontFamily: "Poppins",
+                        marginLeft: 8,
+                      }}
+                    >
+                      {avatarUri ? "Change photo" : "Choose photo"}
+                    </Text>
+                  </TouchableOpacity>
+                  {!!avatarUri && (
+                    <TouchableOpacity
+                      onPress={handleClearAvatar}
+                      style={{
+                        paddingVertical: 8,
+                        paddingHorizontal: 14,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        alignItems: "center",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: theme.colors.textSecondary,
+                          fontSize: 13,
+                          fontFamily: "Poppins",
+                        }}
+                      >
+                        Remove photo
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+              <Text
+                style={{
+                  marginTop: 8,
+                  fontSize: 12,
+                  color: theme.colors.textTertiary,
+                  fontFamily: "Poppins",
+                }}
+              >
+                Optional. Shown on cards and in the chat selector.
+              </Text>
             </View>
           </>
         ), "info")}
@@ -428,7 +549,7 @@ export default function PersonaEditorScreen({
                 marginBottom: 12,
               }}
             >
-              Add example conversations to guide the persona's responses.
+              Add examples to guide how this persona replies.
             </Text>
             {examples.map((example, index) => (
               <View
@@ -581,7 +702,7 @@ export default function PersonaEditorScreen({
                 marginTop: 8,
               }}
             >
-              Low: style only | Medium: style + identity + boundaries | High: includes examples
+              Low: style only | Medium: + identity + boundaries | High: + backstory + examples
             </Text>
           </View>
         ), "tune")}

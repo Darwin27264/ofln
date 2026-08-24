@@ -1,5 +1,5 @@
 /**
- * Build Markdown for local chat export (S18).
+ * Build Markdown for local chat export.
  * Pure — share sheet wiring lives in the screen/handler.
  */
 

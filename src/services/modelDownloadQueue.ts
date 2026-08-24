@@ -1,5 +1,5 @@
 /**
- * Bounded parallel model download queue (S32 restore).
+ * Bounded parallel model download queue for backup restore.
  * Caps concurrency so restore does not thrash disk/network.
  * Sorts smallest-first via caller (sortModelsSmallestFirst).
  */

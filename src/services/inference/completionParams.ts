@@ -1,6 +1,6 @@
 /**
  * Single builder for per-turn inference knobs (thinking, n_predict, stop, sampling).
- * Used by nativeCompletion, streamChat, and legacy handleSendMessageCompletion.
+ * Used by nativeCompletion and streamChat.
  *
  * Qwen3.5 sampling follows the HF model card (presence_penalty over high repeat
  * penalty; 0.8B gets tighter thinking budgets). llama.rn 0.12 keys are
@@ -24,7 +24,7 @@ export interface BuildCompletionParamsInput {
     ModelSettings,
     'temperature' | 'n_predict' | 'repeat_penalty' | 'top_p' | 'top_k'
   > & {
-    /** Optional for older call sites; defaults to auto (pre-S20 behavior). */
+    /** Optional for older call sites; defaults to auto. */
     thinkingMode?: ModelSettings['thinkingMode'];
   };
 }

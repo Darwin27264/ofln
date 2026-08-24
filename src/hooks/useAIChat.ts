@@ -72,7 +72,7 @@ export interface UseAIChatReturn {
   regenerate: (assistantIndex?: number) => Promise<void>;
   /**
    * Edit a user message, drop all later turns, and run a new completion
-   * (S26). Does not touch the composer.
+   *. Does not touch the composer.
    * @param userIndex Absolute index into `messages` (incl. system).
    */
   editUserAndRegenerate: (userIndex: number, newContent: string) => Promise<void>;
@@ -85,7 +85,7 @@ export interface UseAIChatReturn {
   tokensPerSecond: number[];
   currentThought: string;
   modelStatus: ModelStatus;
-  /** True after a completion that dropped older turns to fit n_ctx (S15). */
+  /** True after a completion that dropped older turns to fit n_ctx. */
   showTrimNotice: boolean;
 }
 
@@ -364,7 +364,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
   const persistMessages = useCallback((toSave: ChatMessage[]) => {
     if (disablePersistenceRef.current) return;
     const epoch = persistEpochRef.current;
-    // Queue saves: parallel saveChat(null) would insert two orphan chats (S16).
+    // Queue saves: parallel saveChat(null) would insert two orphan chats.
     persistQueueRef.current = persistQueueRef.current
       .catch(() => undefined)
       .then(async () => {
@@ -391,7 +391,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
       });
   }, []);
 
-  /** Flush streaming patch + persist transcript when the app backgrounds (S16). */
+  /** Flush streaming patch + persist transcript when the app backgrounds. */
   const flushPersistOnBackground = useCallback(() => {
     flushAssistantPatch();
     if (disablePersistenceRef.current) return;
@@ -591,7 +591,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
       cancelAnimationFrame(flushRafRef.current);
       flushRafRef.current = null;
     }
-    // New inference always stops OS speech (S29) and dictation (S30).
+    // New inference always stops OS speech and dictation.
     void stopSpeaking();
     void stopListening();
     setError(null);
@@ -675,8 +675,8 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
 
   /**
    * Regenerate an assistant reply without staging text in the composer.
-   * Matches ChatGPT / Claude / Gemini / Cloudscape: replay the same user turn
-   * against prior context; drop the old assistant reply and any later turns.
+   * Replay the same user turn against prior context; drop the old assistant
+   * reply and any later turns.
    */
   const regenerate = useCallback(
     async (assistantIndex?: number) => {
@@ -715,7 +715,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
 
       const userTurn = prev[uIdx];
       // Keep system + history through the prompting user message; drop the
-      // assistant reply and any forked-off later turns (Cloudscape context rule).
+      // Drop the assistant reply and any forked-off later turns.
       const kept = prev.slice(0, uIdx + 1);
       const assistantPlaceholder: ChatMessage = {
         role: 'assistant',
@@ -740,7 +740,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
   );
 
   /**
-   * Edit a user turn (S26): replace content, truncate after it, regenerate.
+   * Edit a user turn: replace content, truncate after it, regenerate.
    * Earlier turns stay; later assistant/user turns are dropped.
    */
   const editUserAndRegenerate = useCallback(

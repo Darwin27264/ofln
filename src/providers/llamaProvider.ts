@@ -463,7 +463,7 @@ class LlamaProviderService {
       });
     }
 
-    // S21: log accel status to error_log (View Logs) — no chat-chrome chip.
+    // log accel status to error_log (View Logs) — no chat-chrome chip.
     void this.logRuntimeAcceleration(modelName, nGpuLayers);
   }
 
@@ -547,7 +547,7 @@ class LlamaProviderService {
     }
     try {
       // Do NOT pass chat_template here — real sends often omit it and rely on
-      // model.metadata / native GGUF templates (the S26 Ultra failure mode).
+      // model.metadata / native GGUF templates (known multimodal/chat-template failure mode).
       await ctx.getFormattedChat([{ role: 'user', content: 'ping' }], undefined, {
         jinja: true,
         enable_thinking: false,

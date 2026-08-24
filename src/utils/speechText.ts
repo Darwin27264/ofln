@@ -1,5 +1,5 @@
 /**
- * Pure helpers for OS text-to-speech prep (S29).
+ * Pure helpers for OS text-to-speech prep.
  * Strips think blocks and light markdown so the spoken answer matches the UI.
  */
 

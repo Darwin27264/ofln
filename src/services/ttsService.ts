@@ -1,5 +1,5 @@
 /**
- * OS text-to-speech (S29) via react-native-tts native module.
+ * OS text-to-speech via react-native-tts native module.
  *
  * IMPORTANT: Do not `import 'react-native-tts'` — its default export constructs
  * NativeEventEmitter at load and throws when TextToSpeech isn’t linked yet

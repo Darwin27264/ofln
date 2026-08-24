@@ -1,5 +1,5 @@
 /**
- * Platform speech-to-text (S30) via OS recognition.
+ * Platform speech-to-text via OS recognition.
  *
  * Lib choice note:
  * - Official `@react-native-voice/voice` is **archived** and broken on New Arch /

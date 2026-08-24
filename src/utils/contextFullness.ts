@@ -1,5 +1,5 @@
 /**
- * Context fullness estimate (S14) — heuristic aligned with contextTrim (~3.5 chars/token).
+ * Context fullness estimate — heuristic aligned with contextTrim (~3.5 chars/token).
  * Not a real tokenizer; good enough for a soft “getting full” banner.
  */
 

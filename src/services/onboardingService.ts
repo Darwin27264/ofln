@@ -1,15 +1,19 @@
 /**
- * First-run onboarding gate (S11).
+ * First-run onboarding gate.
  * Flag only — download/load stay on App / llamaProvider.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { classifyRamFit, type RamFitTier } from './ramFitService';
 import { parseSizeToBytes } from '../utils/diskPreflight';
+import {
+  ONBOARDING_STARTER_IDS,
+  STARTER_MODELS,
+} from './starterModels';
 
 export const ONBOARDING_COMPLETE_KEY = '@has_completed_onboarding';
 
-/** Curated candidates shown during onboarding (subset of Popular models). */
+/** Curated candidates shown during onboarding (subset of Start here shelf). */
 export type OnboardingModelCandidate = {
   id: string;
   name: string;
@@ -21,34 +25,23 @@ export type OnboardingModelCandidate = {
 
 /**
  * Short list for first-run — prefer small Q4_0 Qwen so phones/emulators succeed.
- * Same repos/filenames as ModelSelection Popular list.
+ * Same repos/filenames as the Start here shelf.
  */
-export const ONBOARDING_MODEL_CANDIDATES: OnboardingModelCandidate[] = [
-  {
-    id: 'qwen35-08b-q40',
-    name: 'Qwen3.5 0.8B Instruct (Q4_0)',
-    repoId: 'unsloth/Qwen3.5-0.8B-GGUF',
-    fileName: 'Qwen3.5-0.8B-Q4_0.gguf',
-    size: '0.51 GB',
-    description: 'Lightest start (~0.5 GB). Best for low-RAM phones and emulators.',
-  },
-  {
-    id: 'qwen35-2b-q40',
-    name: 'Qwen3.5 2B Instruct (Q4_0)',
-    repoId: 'unsloth/Qwen3.5-2B-GGUF',
-    fileName: 'Qwen3.5-2B-Q4_0.gguf',
-    size: '1.13 GB',
-    description: 'Balanced daily driver when your phone has a bit more headroom.',
-  },
-  {
-    id: 'qwen35-4b-q40',
-    name: 'Qwen3.5 4B Instruct (Q4_0)',
-    repoId: 'unsloth/Qwen3.5-4B-GGUF',
-    fileName: 'Qwen3.5-4B-Q4_0.gguf',
-    size: '2.41 GB',
-    description: 'Stronger thinking and code — needs more RAM (~3.5 GB+).',
-  },
-];
+export const ONBOARDING_MODEL_CANDIDATES: OnboardingModelCandidate[] =
+  ONBOARDING_STARTER_IDS.map((id) => {
+    const m = STARTER_MODELS.find((s) => s.id === id);
+    if (!m) {
+      throw new Error(`ONBOARDING_STARTER_IDS missing catalog entry: ${id}`);
+    }
+    return {
+      id: m.id,
+      name: m.name,
+      repoId: m.repoId,
+      fileName: m.fileName,
+      size: m.size,
+      description: m.description,
+    };
+  });
 
 const TIER_RANK: Record<RamFitTier, number> = {
   fits: 0,

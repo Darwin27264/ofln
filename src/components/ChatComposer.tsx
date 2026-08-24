@@ -1,6 +1,6 @@
 /**
  * Chat composer: attach menu, pending image/PDF preview, input, voice/send/stop.
- * Presentational — ConversationScreen owns handlers and keyboard padding (S04b / S30).
+ * Presentational — ConversationScreen owns handlers and keyboard padding.
  * Empty bar shows a sound-wave (voice) control; it becomes send once there is content.
  */
 
@@ -141,7 +141,7 @@ export type ChatComposerProps = {
   onSend: () => void;
   onStop: () => void;
 
-  /** Platform STT (S30) — voice/send share one trailing control in the input bar. */
+  /** Platform STT — voice/send share one trailing control in the input bar. */
   isListening: boolean;
   onMicPress: () => void;
 

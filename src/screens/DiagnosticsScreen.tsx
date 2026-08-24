@@ -266,7 +266,7 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
 
     showAlert(
       "Run smoke test?",
-      "This can take a while — often one to several minutes, depending on the model and device.\n\nIt will:\n• Load the model into memory again\n• Run three short completions (stop mid-stream, full reply, reload)\n• Use extra RAM while it runs\n\nIf a chat model is already loaded, the app may get slow or unstable until the test finishes. Stay on this screen until it completes.\n\nOnly continue if you mean to debug.",
+      "Reloads the model and runs three short completions. Uses extra RAM and may take several minutes. Continue?",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -326,7 +326,7 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
             fontFamily: "Poppins",
           }}
         >
-          View error logs and run on-device checks when model loading or chat fails.
+          View error logs and run device checks when load or chat fails.
         </Text>
 
         {/* 1. Logs */}
@@ -432,108 +432,114 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
           </TouchableOpacity>
         </View>
 
-        {/* 2. Acceleration */}
-        <SectionLabel label="Acceleration" color={theme.colors.textSecondary} />
-
-        <TouchableOpacity
-          onPress={confirmAccelCheck}
-          style={{
-            backgroundColor: theme.colors.card,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            padding: 16,
-            flexDirection: "row",
-            alignItems: "center",
-            marginBottom: 20,
-            opacity: Platform.OS === "android" ? 1 : 0.55,
-          }}
-        >
-          <Ionicons
-            name="hardware-chip-outline"
-            size={24}
-            color={theme.colors.text}
-            style={{ marginRight: 12 }}
-          />
-          <View style={{ flex: 1 }}>
+        {/* 2. Acceleration + Smoke test */}
+        <View style={{ flexDirection: "row", gap: 12, marginBottom: 20 }}>
+          <TouchableOpacity
+            onPress={confirmAccelCheck}
+            style={{
+              flex: 1,
+              backgroundColor: theme.colors.card,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              paddingVertical: 22,
+              paddingHorizontal: 14,
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: 140,
+              opacity: Platform.OS === "android" ? 1 : 0.55,
+            }}
+            accessibilityLabel="Check acceleration"
+          >
+            <Ionicons
+              name="hardware-chip-outline"
+              size={32}
+              color={theme.colors.text}
+              style={{ marginBottom: 10 }}
+            />
             <Text
               style={{
                 fontSize: 16,
                 fontWeight: "600",
                 color: theme.colors.text,
                 fontFamily: "Poppins",
-                marginBottom: 4,
+                textAlign: "center",
+                marginBottom: 6,
               }}
             >
-              Check acceleration
+              Acceleration
             </Text>
             <Text
               style={{
                 fontSize: 12,
                 color: theme.colors.textSecondary,
                 fontFamily: "Poppins",
+                textAlign: "center",
+                lineHeight: 16,
               }}
             >
               {Platform.OS === "android"
-                ? "OpenCL / Hexagon NPU detection"
+                ? "OpenCL / Hexagon check"
                 : "Android only"}
             </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-        </TouchableOpacity>
+          </TouchableOpacity>
 
-        {/* 3. Smoke test */}
-        <SectionLabel label="Smoke test" color={theme.colors.textSecondary} />
-
-        <TouchableOpacity
-          onPress={confirmSmokeTest}
-          disabled={running}
-          style={{
-            backgroundColor: modelPath && !running ? theme.colors.card : theme.colors.surface,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            padding: 16,
-            flexDirection: "row",
-            alignItems: "center",
-            marginBottom: 20,
-            opacity: running ? 0.7 : 1,
-          }}
-        >
-          <Ionicons
-            name={running ? "hourglass-outline" : "play-circle-outline"}
-            size={24}
-            color={theme.colors.text}
-            style={{ marginRight: 12 }}
-          />
-          <View style={{ flex: 1 }}>
+          <TouchableOpacity
+            onPress={confirmSmokeTest}
+            disabled={running}
+            style={{
+              flex: 1,
+              backgroundColor:
+                modelPath && !running ? theme.colors.card : theme.colors.surface,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              paddingVertical: 22,
+              paddingHorizontal: 14,
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: 140,
+              opacity: running ? 0.7 : 1,
+            }}
+            accessibilityLabel={
+              running ? "Smoke test running" : "Run llama.rn smoke test"
+            }
+          >
+            <Ionicons
+              name={running ? "hourglass-outline" : "play-circle-outline"}
+              size={32}
+              color={theme.colors.text}
+              style={{ marginBottom: 10 }}
+            />
             <Text
               style={{
                 fontSize: 16,
                 fontWeight: "600",
                 color: theme.colors.text,
                 fontFamily: "Poppins",
-                marginBottom: 4,
+                textAlign: "center",
+                marginBottom: 6,
               }}
             >
-              {running ? "Running…" : "Run llama.rn smoke test"}
+              {running ? "Running…" : "Smoke test"}
             </Text>
             <Text
               style={{
                 fontSize: 12,
                 color: theme.colors.textSecondary,
                 fontFamily: "Poppins",
+                textAlign: "center",
+                lineHeight: 16,
               }}
             >
               {modelPath
-                ? "Confirms first — may take several minutes"
+                ? "May take several minutes"
                 : "Load a model first"}
             </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-        </TouchableOpacity>
+          </TouchableOpacity>
+        </View>
 
-        {/* 4. Live test output */}
+        {/* 3. Live test output */}
         <SectionLabel label="Test output" color={theme.colors.textSecondary} />
 
         <View

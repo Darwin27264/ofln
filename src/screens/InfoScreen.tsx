@@ -1,6 +1,14 @@
 // InfoScreen.tsx — in-app About page (app info + quick-start guide)
-import React from "react";
-import { View, Text, TouchableOpacity, ScrollView } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  useWindowDimensions,
+} from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
@@ -85,69 +93,64 @@ const GUIDE_SECTIONS: GuideSection[] = [
     title: "Getting started",
     icon: "rocket-outline",
     body:
-      "1. Open Models and pick a Popular model (Q4_0 preferred).\n" +
-      "2. Wait for the download, then tap the card to load it.\n" +
-      "3. Chat runs fully on-device — no account and no cloud AI.\n" +
-      "4. Wi‑Fi is only needed to download models from HuggingFace.\n" +
-      "5. You can run the short onboarding again anytime from this About page.",
+      "1. Open Models → Start here and pick a Q4_0 model.\n" +
+      "2. Download, then tap the card to load.\n" +
+      "3. Chat stays on-device. Wi‑Fi is only for downloads.",
   },
   {
     title: "Choosing a model",
     icon: "cube-outline",
     body:
-      "Popular picks (smallest → strongest):\n" +
-      "• Qwen3.5 0.8B — ultra-light (~0.5 GB), low-RAM phones\n" +
-      "• Qwen3.5 2B — balanced daily driver\n" +
-      "• SmolLM3 3B — compact, multilingual\n" +
-      "• Phi-4 Mini — stronger math / logic\n" +
-      "• Gemma 4 E2B — general-purpose flagship\n" +
-      "• Qwen3.5 4B — best thinking / code quality in this list\n\n" +
-      "Prefer Q4_0 or Q6_K on Android if you want GPU/NPU offload. Other quants still run on CPU.\n" +
-      "On emulators, start with 0.8B / 2B — 4B+ often needs 6GB+ AVD RAM.",
+      "Start here lists phone-friendly picks. Smaller models run faster; larger ones give better answers.\n\n" +
+      "Tap a model’s RAM-fit dot to check your phone. On Android, Q4_0 and Q6_K can use GPU or NPU when supported.",
   },
   {
     title: "Chat, photos & OCR",
     icon: "chatbubbles-outline",
     body:
-      "• Attach a photo or take one — images are resized before OCR so phones stay stable.\n" +
-      "• On-device ML Kit reads text from the image and adds it to your prompt.\n" +
-      "• True pixel vision (mmproj projector files) is not auto-downloaded yet; text models use OCR.\n" +
-      "• Temporary Mode skips saving the conversation to history.",
+      "Attach a photo — text is read on-device and added to your message.\n" +
+      "Temporary Mode skips saving the chat to history.",
   },
   {
-    title: "Speed & memory tips",
+    title: "Speed & memory",
     icon: "flash-outline",
     body:
-      "• Start with smaller models on mid-range devices.\n" +
-      "• Context size (n_ctx) at 2048 is the safe Android default — higher uses more RAM.\n" +
-      "• GPU Layers > 0 only helps on supported Android chips with Q4_0 / Q6_K models.\n" +
-      "• Emulators run CPU-only. Close other apps when loading large GGUFs.\n" +
-      "• The engine uses flash-attn auto and quantized KV caches where supported (llama.rn).",
+      "Default context (2048) is the safe Android setting.\n" +
+      "Use smaller models on mid-range phones.\n" +
+      "Close other apps when loading large GGUF files.",
   },
   {
     title: "Privacy",
     icon: "shield-checkmark-outline",
     body:
-      "Models, chats, personas, and OCR all stay on your device. HuggingFace is contacted only when you browse or download a model. No cloud LLM API is used for replies.",
+      "Chats, personas, and models stay on your device. Hugging Face is used only when you browse or download. No cloud LLM is used for replies.",
   },
 ];
 
 function GuideCard({
   section,
   colors,
+  width,
+  minHeight,
+  onHeight,
 }: {
   section: GuideSection;
   colors: { card: string; border: string; text: string; textSecondary: string };
+  width: number;
+  minHeight?: number;
+  onHeight?: (height: number) => void;
 }) {
   return (
     <View
+      onLayout={(e) => onHeight?.(e.nativeEvent.layout.height)}
       style={{
+        width,
         backgroundColor: colors.card,
         borderRadius: 12,
         borderWidth: 1,
         borderColor: colors.border,
         padding: 16,
-        marginBottom: 12,
+        minHeight,
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
@@ -173,6 +176,97 @@ function GuideCard({
       >
         {section.body}
       </Text>
+    </View>
+  );
+}
+
+function GuideCarousel({
+  colors,
+}: {
+  colors: {
+    card: string;
+    border: string;
+    text: string;
+    textSecondary: string;
+    textTertiary: string;
+    primary: string;
+  };
+}) {
+  const { width: windowWidth } = useWindowDimensions();
+  // InfoScreen container padding is 20 on each side.
+  const cardWidth = Math.max(260, windowWidth - 40);
+  const [page, setPage] = useState(0);
+  const [cardHeight, setCardHeight] = useState(0);
+
+  const onHeight = useCallback((height: number) => {
+    setCardHeight((prev) => (height > prev ? height : prev));
+  }, []);
+
+  const onScrollEnd = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const x = e.nativeEvent.contentOffset.x;
+      const next = Math.round(x / cardWidth);
+      setPage(Math.max(0, Math.min(GUIDE_SECTIONS.length - 1, next)));
+    },
+    [cardWidth],
+  );
+
+  const dots = useMemo(
+    () =>
+      GUIDE_SECTIONS.map((section, index) => (
+        <View
+          key={section.title}
+          style={{
+            width: index === page ? 16 : 7,
+            height: 7,
+            borderRadius: 4,
+            marginHorizontal: 3,
+            backgroundColor:
+              index === page ? colors.primary : colors.textTertiary,
+            opacity: index === page ? 1 : 0.45,
+          }}
+        />
+      )),
+    [page, colors.primary, colors.textTertiary],
+  );
+
+  return (
+    <View style={{ marginBottom: 12 }}>
+      <ScrollView
+        horizontal
+        pagingEnabled
+        nestedScrollEnabled
+        showsHorizontalScrollIndicator={false}
+        decelerationRate="fast"
+        onMomentumScrollEnd={onScrollEnd}
+        style={cardHeight > 0 ? { height: cardHeight } : undefined}
+        accessibilityLabel="How to use guide"
+        accessibilityHint="Swipe left or right to see the next tip"
+      >
+        {GUIDE_SECTIONS.map((section) => (
+          <GuideCard
+            key={section.title}
+            section={section}
+            colors={colors}
+            width={cardWidth}
+            minHeight={cardHeight > 0 ? cardHeight : undefined}
+            onHeight={onHeight}
+          />
+        ))}
+      </ScrollView>
+
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          marginTop: 12,
+        }}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        {dots}
+      </View>
     </View>
   );
 }
@@ -246,7 +340,7 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
             fontFamily: "Poppins",
           }}
         >
-          Run GGUF language models offline on your phone. Download once, then chat without the cloud.
+          Run GGUF chat models on your phone. Download once, then chat without the cloud.
         </Text>
 
         <TouchableOpacity
@@ -291,7 +385,7 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
                 lineHeight: 18,
               }}
             >
-              Replay the short first-run guide anytime — pick a model, privacy tips, and how chat works.
+              Replay the first-run guide.
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={20} color={theme.colors.textTertiary} />
@@ -309,9 +403,7 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
           How to use
         </Text>
 
-        {GUIDE_SECTIONS.map((section) => (
-          <GuideCard key={section.title} section={section} colors={theme.colors} />
-        ))}
+        <GuideCarousel colors={theme.colors} />
 
         <View
           style={{
@@ -353,11 +445,8 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
               fontFamily: "Poppins",
             }}
           >
-            Replies are generated entirely on your phone. Smaller and more compressed
-            models (especially 0.8B–2B and Q4 quants) can occasionally ramble, repeat
-            phrases, invent details, or give uneven answers. That comes with running AI
-            offline — it’s normal, not a connection error. Try regenerating, rephrasing
-            the prompt, or switching to a larger model when quality matters more.
+            Smaller models can ramble, repeat, or invent details — normal for on-device AI, not a
+            network error. Try rephrasing, regenerating, or a larger model when quality matters.
           </Text>
         </View>
 

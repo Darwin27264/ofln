@@ -32,7 +32,7 @@ export interface ModelRuntimePolicy {
   systemPromptDefault: string;
   thinking: {
     strategy: ThinkingStrategy;
-    /** Product default when user has Auto (S20). Complex-ask heuristic still applies for jinja_enable. */
+    /** Product default when user has Auto. Complex-ask heuristic still applies for jinja_enable. */
     preferDefault: 'off' | 'auto';
   };
   sampling: {
@@ -127,7 +127,7 @@ export function resolveModelPolicy(modelName: string): ModelRuntimePolicy {
   };
 }
 
-/** Short help blurb for Model Settings (S23 can surface this). */
+/** Short help blurb for Model Settings. */
 export function policyRecommendedBlurb(policy: ModelRuntimePolicy): string {
   const think =
     policy.thinking.strategy === 'jinja_enable'
@@ -137,6 +137,6 @@ export function policyRecommendedBlurb(policy: ModelRuntimePolicy): string {
         : 'Standard chat (no special thinking switch).';
   return (
     `${policy.familyId} · ${policy.sizeTier} · ${think} ` +
-    'Uses the GGUF chat template when available; family stub only as fallback.'
+    'Uses the GGUF chat template when available.'
   );
 }

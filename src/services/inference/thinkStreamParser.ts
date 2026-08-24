@@ -1,6 +1,6 @@
 /**
  * Shared stop sequences and think-block / CoT parsing helpers
- * used by nativeCompletion, streamChat, and legacy llamaService.
+ * used by nativeCompletion and streamChat.
  */
 
 const STOP_WORDS = [

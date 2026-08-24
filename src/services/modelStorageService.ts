@@ -1,5 +1,5 @@
 /**
- * List / delete on-device GGUF files (S19).
+ * List / delete on-device GGUF files.
  */
 
 import RNFS from 'react-native-fs';

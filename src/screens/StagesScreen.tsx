@@ -229,7 +229,13 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
 
   const hasAnyUsageRecords = usageRecords.length > 0;
 
-  // Helper to stop current animation
+  // Pill swipe animation state (declared before callbacks that close over them).
+  const pillTranslateX = useRef(new Animated.Value(0)).current;
+  const pillOpacity = useRef(new Animated.Value(1)).current;
+  const isAnimating = useRef(false);
+  const currentAnimation = useRef<Animated.CompositeAnimation | null>(null);
+  const isMountedRef = useRef(true);
+
   const stopCurrentAnimation = useCallback(() => {
     if (currentAnimation.current) {
       currentAnimation.current.stop();
@@ -238,23 +244,69 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
     isAnimating.current = false;
   }, []);
 
-  // Navigation functions with animation
-  const navigateToPrevious = useCallback(() => {
-    if (!hasPreviousModel || sortedModels.length === 0 || isAnimating.current || !isMountedRef.current) return;
-    
-    // Stop any ongoing animation
+  const runPillAnimation = useCallback((animation: Animated.CompositeAnimation) => {
+    currentAnimation.current = animation;
+    animation.start((finished) => {
+      // Clear the busy flag when the run completes or is interrupted.
+      if (!finished || isMountedRef.current) {
+        isAnimating.current = false;
+      }
+      currentAnimation.current = null;
+    });
+  }, []);
+
+  /** Snap the model pill back to center after a cancelled / incomplete swipe. */
+  const snapPillToCenter = useCallback(() => {
+    if (!isMountedRef.current) return;
     stopCurrentAnimation();
-    
-    const prevIndex = currentModelIndex - 1;
-    const prevModel = sortedModels[prevIndex];
-    if (prevIndex >= 0 && prevModel && prevModel !== selectedModel) {
+    isAnimating.current = true;
+    runPillAnimation(
+      Animated.parallel([
+        Animated.timing(pillTranslateX, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pillOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+  }, [pillOpacity, pillTranslateX, runPillAnimation, stopCurrentAnimation]);
+
+  /** Animate to an adjacent model. direction -1 = previous, +1 = next. */
+  const navigateModelByOffset = useCallback(
+    (direction: -1 | 1) => {
+      const canMove = direction < 0 ? hasPreviousModel : hasNextModel;
+      if (!canMove || sortedModels.length === 0 || isAnimating.current || !isMountedRef.current) {
+        return;
+      }
+
+      stopCurrentAnimation();
+
+      const targetIndex = currentModelIndex + direction;
+      const targetModel = sortedModels[targetIndex];
+      if (
+        targetIndex < 0 ||
+        targetIndex >= sortedModels.length ||
+        !targetModel ||
+        targetModel === selectedModel
+      ) {
+        return;
+      }
+
       isAnimating.current = true;
       userTouchedRef.current = true;
-      
-      // Animate out to right
+
+      // Exit toward the swipe direction, then enter from the opposite side.
+      const exitX = direction < 0 ? SCREEN_WIDTH * 0.2 : -SCREEN_WIDTH * 0.2;
+      const enterX = -exitX;
+
       const outAnimation = Animated.parallel([
         Animated.timing(pillTranslateX, {
-          toValue: SCREEN_WIDTH * 0.2,
+          toValue: exitX,
           duration: 120,
           useNativeDriver: true,
         }),
@@ -264,7 +316,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           useNativeDriver: true,
         }),
       ]);
-      
+
       currentAnimation.current = outAnimation;
       outAnimation.start((finished) => {
         if (!finished || !isMountedRef.current) {
@@ -272,140 +324,57 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           currentAnimation.current = null;
           return;
         }
-        
-        // Verify model is still valid before changing
+
         const currentIndex = sortedModels.indexOf(selectedModel);
-        const newPrevIndex = currentIndex - 1;
-        const newPrevModel = newPrevIndex >= 0 ? sortedModels[newPrevIndex] : null;
-        
-        if (newPrevModel && newPrevModel !== selectedModel) {
-          // Change model
-          setSelectedModel(newPrevModel);
-          // Reset position from left
-          pillTranslateX.setValue(-SCREEN_WIDTH * 0.2);
-          
-          // Animate in from left
-          const inAnimation = Animated.parallel([
-            Animated.timing(pillTranslateX, {
-              toValue: 0,
-              duration: 220,
-              useNativeDriver: true,
-            }),
-            Animated.timing(pillOpacity, {
-              toValue: 1,
-              duration: 220,
-              useNativeDriver: true,
-            }),
-          ]);
-          
-          currentAnimation.current = inAnimation;
-          inAnimation.start((finished) => {
-            if (finished && isMountedRef.current) {
-              isAnimating.current = false;
-            }
-            currentAnimation.current = null;
-          });
+        const nextIndex = currentIndex + direction;
+        const nextModel =
+          nextIndex >= 0 && nextIndex < sortedModels.length ? sortedModels[nextIndex] : null;
+
+        if (nextModel && nextModel !== selectedModel) {
+          setSelectedModel(nextModel);
+          pillTranslateX.setValue(enterX);
+          runPillAnimation(
+            Animated.parallel([
+              Animated.timing(pillTranslateX, {
+                toValue: 0,
+                duration: 220,
+                useNativeDriver: true,
+              }),
+              Animated.timing(pillOpacity, {
+                toValue: 1,
+                duration: 220,
+                useNativeDriver: true,
+              }),
+            ]),
+          );
         } else {
-          // Model changed or invalid, reset animation state
           pillTranslateX.setValue(0);
           pillOpacity.setValue(1);
           isAnimating.current = false;
           currentAnimation.current = null;
         }
       });
-    }
-  }, [hasPreviousModel, currentModelIndex, sortedModels, selectedModel, stopCurrentAnimation]);
+    },
+    [
+      currentModelIndex,
+      hasNextModel,
+      hasPreviousModel,
+      pillOpacity,
+      pillTranslateX,
+      runPillAnimation,
+      selectedModel,
+      sortedModels,
+      stopCurrentAnimation,
+    ],
+  );
 
-  const navigateToNext = useCallback(() => {
-    if (!hasNextModel || sortedModels.length === 0 || isAnimating.current || !isMountedRef.current) return;
-    
-    // Stop any ongoing animation
-    stopCurrentAnimation();
-    
-    const nextIndex = currentModelIndex + 1;
-    const nextModel = sortedModels[nextIndex];
-    if (nextIndex < sortedModels.length && nextModel && nextModel !== selectedModel) {
-      isAnimating.current = true;
-      userTouchedRef.current = true;
-      
-      // Animate out to left
-      const outAnimation = Animated.parallel([
-        Animated.timing(pillTranslateX, {
-          toValue: -SCREEN_WIDTH * 0.2,
-          duration: 120,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pillOpacity, {
-          toValue: 0.3,
-          duration: 120,
-          useNativeDriver: true,
-        }),
-      ]);
-      
-      currentAnimation.current = outAnimation;
-      outAnimation.start((finished) => {
-        if (!finished || !isMountedRef.current) {
-          isAnimating.current = false;
-          currentAnimation.current = null;
-          return;
-        }
-        
-        // Verify model is still valid before changing
-        const currentIndex = sortedModels.indexOf(selectedModel);
-        const newNextIndex = currentIndex + 1;
-        const newNextModel = newNextIndex < sortedModels.length ? sortedModels[newNextIndex] : null;
-        
-        if (newNextModel && newNextModel !== selectedModel) {
-          // Change model
-          setSelectedModel(newNextModel);
-          // Reset position from right
-          pillTranslateX.setValue(SCREEN_WIDTH * 0.2);
-          
-          // Animate in from right
-          const inAnimation = Animated.parallel([
-            Animated.timing(pillTranslateX, {
-              toValue: 0,
-              duration: 220,
-              useNativeDriver: true,
-            }),
-            Animated.timing(pillOpacity, {
-              toValue: 1,
-              duration: 220,
-              useNativeDriver: true,
-            }),
-          ]);
-          
-          currentAnimation.current = inAnimation;
-          inAnimation.start((finished) => {
-            if (finished && isMountedRef.current) {
-              isAnimating.current = false;
-            }
-            currentAnimation.current = null;
-          });
-        } else {
-          // Model changed or invalid, reset animation state
-          pillTranslateX.setValue(0);
-          pillOpacity.setValue(1);
-          isAnimating.current = false;
-          currentAnimation.current = null;
-        }
-      });
-    }
-  }, [hasNextModel, currentModelIndex, sortedModels, selectedModel, stopCurrentAnimation]);
+  const navigateToPrevious = useCallback(() => navigateModelByOffset(-1), [navigateModelByOffset]);
+  const navigateToNext = useCallback(() => navigateModelByOffset(1), [navigateModelByOffset]);
 
-  // Animation refs for pill swipe
-  const pillTranslateX = useRef(new Animated.Value(0)).current;
-  const pillOpacity = useRef(new Animated.Value(1)).current;
-  const isAnimating = useRef(false);
-  const currentAnimation = useRef<Animated.CompositeAnimation | null>(null);
-  const isMountedRef = useRef(true);
-
-  // Cleanup on unmount
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
-      // Stop any ongoing animations
       if (currentAnimation.current) {
         currentAnimation.current.stop();
         currentAnimation.current = null;
@@ -414,150 +383,63 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
     };
   }, []);
 
-  // PanResponder for swipe gestures
   const panResponder = useMemo(
-    () => PanResponder.create({
-      onStartShouldSetPanResponder: () => {
-        return sortedModels.length > 1 && !isAnimating.current;
-      },
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        if (sortedModels.length <= 1 || isAnimating.current) return false;
-        return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10;
-      },
-      onPanResponderGrant: () => {
-        if (isAnimating.current) return;
-        pillTranslateX.setValue(0);
-        pillOpacity.setValue(1);
-      },
-      onPanResponderMove: (_, gestureState) => {
-        if (isAnimating.current) return;
-        const resistance = 0.5;
-        const maxDrag = 60;
-        const dragAmount = Math.max(-maxDrag, Math.min(maxDrag, gestureState.dx * resistance));
-        pillTranslateX.setValue(dragAmount);
-        const opacityChange = 1 - Math.abs(dragAmount) / maxDrag * 0.1;
-        pillOpacity.setValue(Math.max(0.9, opacityChange));
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (isAnimating.current || sortedModels.length <= 1 || !isMountedRef.current) {
-          return;
-        }
-
-        const swipeThreshold = 50;
-        const velocity = gestureState.vx || 0;
-        const dx = gestureState.dx || 0;
-
-        if (dx > swipeThreshold || velocity > 0.3) {
-          // Swipe right - go to previous
-          if (hasPreviousModel) {
-            navigateToPrevious();
-          } else {
-            // Snap back if no previous model
-            stopCurrentAnimation();
-            isAnimating.current = true;
-            const snapBack = Animated.parallel([
-              Animated.timing(pillTranslateX, {
-                toValue: 0,
-                duration: 200,
-                useNativeDriver: true,
-              }),
-              Animated.timing(pillOpacity, {
-                toValue: 1,
-                duration: 200,
-                useNativeDriver: true,
-              }),
-            ]);
-            currentAnimation.current = snapBack;
-            snapBack.start((finished) => {
-              if (finished && isMountedRef.current) {
-                isAnimating.current = false;
-              }
-              currentAnimation.current = null;
-            });
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => sortedModels.length > 1 && !isAnimating.current,
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          if (sortedModels.length <= 1 || isAnimating.current) return false;
+          return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10;
+        },
+        onPanResponderGrant: () => {
+          if (isAnimating.current) return;
+          pillTranslateX.setValue(0);
+          pillOpacity.setValue(1);
+        },
+        onPanResponderMove: (_, gestureState) => {
+          if (isAnimating.current) return;
+          const resistance = 0.5;
+          const maxDrag = 60;
+          const dragAmount = Math.max(-maxDrag, Math.min(maxDrag, gestureState.dx * resistance));
+          pillTranslateX.setValue(dragAmount);
+          const opacityChange = 1 - (Math.abs(dragAmount) / maxDrag) * 0.1;
+          pillOpacity.setValue(Math.max(0.9, opacityChange));
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (isAnimating.current || sortedModels.length <= 1 || !isMountedRef.current) {
+            return;
           }
-        } else if (dx < -swipeThreshold || velocity < -0.3) {
-          // Swipe left - go to next
-          if (hasNextModel) {
-            navigateToNext();
+
+          const swipeThreshold = 50;
+          const velocity = gestureState.vx || 0;
+          const dx = gestureState.dx || 0;
+
+          if (dx > swipeThreshold || velocity > 0.3) {
+            if (hasPreviousModel) navigateToPrevious();
+            else snapPillToCenter();
+          } else if (dx < -swipeThreshold || velocity < -0.3) {
+            if (hasNextModel) navigateToNext();
+            else snapPillToCenter();
           } else {
-            // Snap back if no next model
-            stopCurrentAnimation();
-            isAnimating.current = true;
-            const snapBack = Animated.parallel([
-              Animated.timing(pillTranslateX, {
-                toValue: 0,
-                duration: 200,
-                useNativeDriver: true,
-              }),
-              Animated.timing(pillOpacity, {
-                toValue: 1,
-                duration: 200,
-                useNativeDriver: true,
-              }),
-            ]);
-            currentAnimation.current = snapBack;
-            snapBack.start((finished) => {
-              if (finished && isMountedRef.current) {
-                isAnimating.current = false;
-              }
-              currentAnimation.current = null;
-            });
+            snapPillToCenter();
           }
-        } else {
-          // Snap back to center if swipe wasn't strong enough
-          stopCurrentAnimation();
-          isAnimating.current = true;
-          const snapBack = Animated.parallel([
-            Animated.timing(pillTranslateX, {
-              toValue: 0,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-            Animated.timing(pillOpacity, {
-              toValue: 1,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-          ]);
-          currentAnimation.current = snapBack;
-          snapBack.start((finished) => {
-            if (finished && isMountedRef.current) {
-              isAnimating.current = false;
-            }
-            currentAnimation.current = null;
-          });
-        }
-      },
-      onPanResponderTerminate: () => {
-        if (!isAnimating.current && isMountedRef.current) {
-          stopCurrentAnimation();
-          isAnimating.current = true;
-          const snapBack = Animated.parallel([
-            Animated.timing(pillTranslateX, {
-              toValue: 0,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-            Animated.timing(pillOpacity, {
-              toValue: 1,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-          ]);
-          currentAnimation.current = snapBack;
-          snapBack.start((finished) => {
-            if (finished && isMountedRef.current) {
-              isAnimating.current = false;
-            }
-            currentAnimation.current = null;
-          });
-        }
-      },
-    }),
-    [sortedModels.length, hasPreviousModel, hasNextModel, navigateToPrevious, navigateToNext, stopCurrentAnimation]
+        },
+        onPanResponderTerminate: () => {
+          if (!isAnimating.current && isMountedRef.current) {
+            snapPillToCenter();
+          }
+        },
+      }),
+    [
+      hasNextModel,
+      hasPreviousModel,
+      navigateToNext,
+      navigateToPrevious,
+      snapPillToCenter,
+      sortedModels.length,
+    ],
   );
 
-  // Stats calculation
   const stats = useModelStats(usageRecords, selectedModel);
 
   const resourceAverages = useMemo(() => {
@@ -565,8 +447,8 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
     return computeUsageAverages(filterRecordsForModel(usageRecords, selectedModel));
   }, [usageRecords, selectedModel]);
 
-  // S22: personal tok/s history + half-vs-half trend (from usage_log only).
-  // Cap high enough for "view all"; UI previews first 5.
+  // Personal tok/s history + half-vs-half trend from usage_log. Cap high for
+  // "view all"; UI previews the first 5 rows.
   const recentHistory = useMemo(
     () => buildUsageHistory(usageRecords, selectedModel, 200),
     [usageRecords, selectedModel],
@@ -965,6 +847,14 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
               Checking device backends…
             </Text>
           )}
+          <Text
+            style={[
+              stylesLocalWithTheme.statusHint,
+              { color: theme.colors.textTertiary, marginTop: 10 },
+            ]}
+          >
+            Q4_0 / Q6_K may use GPU or NPU on Android. Metrics are private to your device.
+          </Text>
         </View>
 
         {/* Suggestions */}
@@ -978,7 +868,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           ))}
         </View>
 
-        {/* S22 — Personal tok/s history (bottom); preview 5, expand for all */}
+        {/* Personal tok/s history — preview 5, expand for all */}
         {selectedModel && recentHistory.length > 0 && (
           <View style={[stylesLocalWithTheme.statusCard, { backgroundColor: theme.colors.glass }]}>
             <View style={stylesLocalWithTheme.statusHeader}>

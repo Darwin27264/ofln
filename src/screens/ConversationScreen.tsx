@@ -83,7 +83,8 @@ import { FrostedGlass } from "../components/FrostedGlass";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { floatingBackBottom } from "../utils/layoutInsets";
 import { useKeyboardPadding } from "../hooks/useKeyboardPadding";
-import { Persona, getPersonas } from "../services/personaService";
+import { Persona, getPersonas, updatePersonaLastUsed } from "../services/personaService";
+import { PersonaAvatar } from "../components/PersonaAvatar";
 import { ANIMATION_CONFIG, EASING, ANIMATION_DURATIONS } from "../utils/animationConfig";
 import { extractTextFromImage } from "../services/ocrService";
 import {
@@ -429,7 +430,7 @@ export default function ConversationScreen({
   const warnModelNotLoaded = useCallback(() => {
     showAlert(
       'No model loaded',
-      'Select and load a model before sending messages. Tap the model name at the top of the chat to choose one.',
+      'Load a model first — tap the model name at the top.',
       [{ text: 'OK' }],
     );
   }, []);
@@ -1153,7 +1154,7 @@ export default function ConversationScreen({
     }
   }, [dismissMenu, showToast]);
 
-  /** Export chat as Markdown via the system share sheet (S18). */
+  /** Export chat as Markdown via the system share sheet. */
   const handleExportChat = useCallback(
     async (chatId: string) => {
       dismissMenu();
@@ -1360,7 +1361,7 @@ export default function ConversationScreen({
       return;
     }
 
-    // Freeze dictation before snapshoting / clearing the composer (S30).
+    // Freeze dictation before snapshoting / clearing the composer.
     void stopListening();
 
     const displayContent = userInput.trim();
@@ -1650,7 +1651,7 @@ export default function ConversationScreen({
     };
   }, [showToast]);
 
-  /** Toggle platform STT into the composer (S30). */
+  /** Toggle platform STT into the composer. */
   const handleMicPress = useCallback(async () => {
     if (isGenerating || isLoading || isOcrRunning) return;
     if (isListening || isSttListening()) {
@@ -1673,7 +1674,7 @@ export default function ConversationScreen({
     }
   }, [isGenerating, isLoading, isOcrRunning, isListening, userInput, showToast]);
 
-  /** Play / stop OS TTS for an assistant bubble (S29). */
+  /** Play / stop OS TTS for an assistant bubble. */
   const handleSpeakMessage = useCallback(
     async (content: string, visibleIndex: number) => {
       void stopListening();
@@ -1731,11 +1732,11 @@ export default function ConversationScreen({
         const display = formatAccelLogDisplay(snap);
         if (display.shortLabel === "none") {
           setSelectedAccelLabel(null);
-          setSelectedAccelDetail(display.message);
+          setSelectedAccelDetail(display.detailMessage);
           return;
         }
         setSelectedAccelLabel(display.shortLabel);
-        setSelectedAccelDetail(display.message);
+        setSelectedAccelDetail(display.detailMessage);
       } catch {
         if (!cancelled) {
           setSelectedAccelLabel(null);
@@ -1860,7 +1861,7 @@ export default function ConversationScreen({
     }
   }, [showToast]);
 
-  /** Open document picker for a PDF and set pendingAttachment (S27b). */
+  /** Open document picker for a PDF and set pendingAttachment. */
   const chooseDocument = useCallback(async () => {
     try {
       if (sendPrepareRef.current || isOcrRunning) {
@@ -2137,7 +2138,7 @@ export default function ConversationScreen({
     showToast,
   ]);
 
-  /** Edit user turn (S26): truncate after it and regenerate. */
+  /** Edit user turn: truncate after it and regenerate. */
   const handleEditUserMessage = useCallback(
     async (messageIndex: number, newContent: string) => {
       if (!llamaProvider.isReady() || !selectedGGUF) {
@@ -2470,10 +2471,17 @@ export default function ConversationScreen({
                   justifyContent: 'center',
                   marginLeft: 8,
                   opacity: personaIndicatorOpacity,
+                  overflow: 'hidden',
                 }}
                 collapsable={false}
               >
-                <Ionicons name="person" size={14} color="#FFFFFF" />
+                <PersonaAvatar
+                  persona={selectedPersona}
+                  size={24}
+                  borderRadius={12}
+                  backgroundColor="#007AFF"
+                  iconColor="#FFFFFF"
+                />
               </Animated.View>
             )}
             {contextRingMounted && (
@@ -2489,8 +2497,8 @@ export default function ConversationScreen({
                     showAlert(
                       `Context ~${contextFullness.percent}%`,
                       contextFullness.isHigh
-                        ? "This chat is using most of the model’s context window. Older turns may be trimmed soon. Start a new chat for a fresh window."
-                        : "Estimated share of the model’s context window used by this chat. It isn’t an exact tokenizer count.",
+                        ? "Most of the context window is in use. Older turns may drop soon — start a new chat for a fresh window."
+                        : "Rough share of context used — not an exact token count.",
                       contextFullness.isHigh
                         ? [
                             { text: "New chat", onPress: () => handleNewChatPress() },
@@ -2974,6 +2982,7 @@ export default function ConversationScreen({
                         <TouchableOpacity
                           onPress={() => {
                             setSelectedPersona(persona);
+                            void updatePersonaLastUsed(persona.id);
                             showToast(`Persona "${persona.name}" selected`);
                           }}
                           disabled={isSelected}
@@ -2992,6 +3001,23 @@ export default function ConversationScreen({
                           ]}
                         >
                           <View style={styles.modelButtonContent}>
+                            <View style={{ marginRight: 12 }}>
+                              <PersonaAvatar
+                                persona={persona}
+                                size={40}
+                                borderRadius={10}
+                                backgroundColor={
+                                  isSelected
+                                    ? "rgba(255,255,255,0.2)"
+                                    : theme.colors.surface
+                                }
+                                iconColor={
+                                  isSelected
+                                    ? theme.colors.primaryText
+                                    : theme.colors.text
+                                }
+                              />
+                            </View>
                             <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
                               <Text style={[
                                 styles.buttonText,

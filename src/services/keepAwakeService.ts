@@ -1,5 +1,5 @@
 /**
- * Screen keep-awake while generating (S17).
+ * Screen keep-awake while generating.
  * Talks to @sayem314/react-native-keep-awake’s TurboModule by name so a
  * Metro reload before native rebuild no-ops instead of crashing on import.
  */

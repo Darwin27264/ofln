@@ -1,5 +1,5 @@
 /**
- * Pure helpers for document/OCR hardening (S27).
+ * Pure helpers for document/OCR hardening.
  * No RNFS / ML Kit — unit-testable budget + honest refusal copy.
  */
 

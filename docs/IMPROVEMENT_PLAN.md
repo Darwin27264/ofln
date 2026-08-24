@@ -1,434 +1,276 @@
-# OFLN Product Roadmap
+# OFLN Improvement Plan
 
-**Status:** living plan — last track update **2026-08-06** (**S30 Platform STT done**; next = S28 optional vision or S31 remote)  
-**Audience:** builders / AI agents shipping OFLN  
-**Stack:** RN 0.78.1 · New Arch · `llama.rn` 0.12.6 · styles via `createStyles` + [`DESIGN.md`](../DESIGN.md)
+**Last updated:** 2026-08-14  
+**Audience:** maintainers and contributors  
+**Stack:** React Native 0.78.1 · New Architecture · `llama.rn` 0.12.6 · UI via `createStyles` + [`DESIGN.md`](../DESIGN.md)
 
-### Agent handoff (required)
-
-The app is **working**. Do **one atomic step** at a time (see §5 tables). Never implement a whole phase in one session.
-
-1. Read this file + [`AGENT_IMPLEMENTATION_GUIDE.md`](./AGENT_IMPLEMENTATION_GUIDE.md) **Handoff** (full truth).  
-2. Re-explore/trace live code for that step’s symbols.  
-3. Implement **only** that step; match existing StyleSheet / `DESIGN.md`.  
-4. Smoke-test (§7 + TTS/STT/PDF when relevant). Stop if chat/load/download regresses.  
-5. Mark the step done in **both** plan docs; open a new session for the next step.  
-6. **Do not commit** unless the user asks.
-
-### Agent pass-off prompt (2026-08-06, post-S30)
-
-Paste the following as the next agent’s user message (or attach this file + the guide Handoff):
-
-```
-You are continuing OFLN (React Native offline LLM app). Session updated 2026-08-06 after S30 Platform STT.
-
-# Role
-One atomic step only. Prefer extend over rewrite. Match StyleSheet / createStyles + DESIGN.md. Do not commit unless asked.
-
-# Read first (required order)
-1. docs/AGENT_IMPLEMENTATION_GUIDE.md — full **Handoff — session status (2026-08-06) — S30 done**
-2. docs/IMPROVEMENT_PLAN.md — status line, Phase 4 table, §8 tracking, this pass-off block
-3. Trace live code before coding — docs can drift; source of truth is the repo
-
-# Product / stack
-- RN 0.78.1, New Arch bridgeless, llama.rn 0.12.6
-- Calm monochrome UI (DESIGN.md)
-- Live chat: useNativeCompletion: true → aiChatService.nativeCompletion via useAIChat
-- Conversation model auto-load effect deps: [selectedGGUF] only (never add modelStatus/context)
-- Dual unload when needed: releaseAllLlama() + llamaProvider.unloadModel()
-- Large uncommitted working tree — do not commit unless asked
-
-# Already done (do not re-litigate)
-## Phase 0–3 + policy
-- S01–S23 as prior arc; S24 deferred; S25 removed
-- S26 edit→regenerate; S32 backup/restore
-
-## S27 + S27b DONE
-- Document pipeline + chat PDF attach hardened (see prior handoff)
-
-## S29 DONE — System TTS
-- react-native-tts + patches; NativeModules.TextToSpeech only; Speak rightmost; stop on gen
-- Neural TTS deferred
-
-## S30 DONE — Platform STT
-- Official @react-native-voice/voice archived / New Arch broken → @dev-amirzubair/react-native-voice@1.0.4
-- sttService: TurboModuleRegistry/NativeModules presence + lazy require
-- joinComposerSpeech; mic in ChatComposer (left of send); Listening… placeholder
-- stopListening on beginGeneration, Stop, send, Speak, unmount
-- Android RECORD_AUDIO + RecognitionService queries; iOS mic + speech plists
-
-# Tests
-npm test → 29 suites / 167 tests green after S30
-
-# Recommended next (pick ONE)
-1. S28 — mmproj vision (optional, hard, device-only)
-   - Must read llama.rn 0.12.6 mmproj API first
-   - One curated GGUF+mmproj pair; wire projectorPath load
-   - Live path today ALWAYS OCR+textForPrompt — vision needs real path changes + device smoke
-   - OCR fallback always remains
-2. S31 — Remote OpenAI client (opt-in base URL + keychain key; privacy banner)
-
-# Hard constraints
-- Surgical diffs; one step
-- Keep useNativeCompletion: true
-- No Conversation selectedGGUF effect dep changes
-- Dual unload preserved
-- Do not implement S24, neural TTS/STT, RAG, or stack S28 with other work
-- Native rebuild still owed for keychain/device-info/sqlite/keep-awake/tts/voice
-- Do not commit unless asked
-
-# If finishing current step
-- Mark DONE in both plan docs; update Handoff; leave npm test count
-- Short summary: files, smoke, test count
-
-# Explicitly out of queue
-Persona memory (S24), neural TTS/STT, RAG, tool agent loop, biometric lock, committing without ask
-```
+Companion implementation notes (symbols, invariants, smoke rules): [`AGENT_IMPLEMENTATION_GUIDE.md`](./AGENT_IMPLEMENTATION_GUIDE.md). Prefer the codebase over either doc when they disagree.
 
 ---
 
-## 0. Product thesis (not a PocketPal clone)
+## Product thesis
 
 > **OFLN is the calm, honest offline reasoning companion.**
 
-Fix broken trust UX, cover category jobs thinly, deepen OFLN strengths (reasoning, honesty, Stages, calm UI).  
-**Do not** clone PalsHub, neural TTS catalogs, public leaderboards, or Paper redesigns.
+Run GGUF models fully on-device with clear hardware feedback, durable local history, and a restrained UI. Compete on trust and clarity—not on marketplace size, social leaderboards, or feature checklists.
 
-| Pillar | Invest | Avoid |
-|--------|--------|-------|
-| Calm craft (`DESIGN.md`) | Soft motion, monochrome, one job/screen | Badge dashboards, accent spam |
-| Honest hardware | Fit chips, accel status | Social leaderboards |
-| Reasoning quality | Think UX, family params | Raw stream dumps |
-| Personal insight | Stages local analytics | Glicko / cloud rank |
-| Private by default | Temp chat, local export | Accounts / hub |
-| Local personas | Memory notes, optional tools later | Marketplace |
-
----
-
-## 1. Code & UI quality rules (agents must follow)
-
-### 1.1 StyleSheet — stick to the current system
-
-- Theme colors come from `ThemeContext` / `useTheme()`.
-- Screen styles: prefer **`createStyles(colors)`** from `src/styles/styles.ts` (existing pattern in Settings, Conversation, etc.).
-- New reusable tokens → add to `createStyles` or a **small colocated** `StyleSheet.create` that uses the same `colors.*` keys — **do not** invent a second design system or copy React Native Paper themes.
-- Read **[`DESIGN.md`](../DESIGN.md)** before any UI: Poppins, monochrome-first, fade+scale page enter (`PageFadeIn`), floating Back pill, frosted chrome, warn before destructive.
-- Spinners on surfaces → `colors.text`; on primary buttons → `colors.primaryText`. Accent is rare.
-- Motion: use `src/utils/animationConfig.ts` durations; settle animations then drop animated styles (Android overlay rule).
-
-### 1.2 Code quality
-
-- Match existing naming, imports, and service/hook layout.
-- Prefer **extend** `chatHistoryService` / `llamaProvider` / `src/api/model.ts` over parallel systems.
-- No drive-by refactors outside the step.
-- Pure logic → small functions + Jest when easy; no native llama in unit tests.
-- Feature-flag risky paths (`USE_RESUMABLE_DOWNLOADS`, etc.) until smoke-pass, then remove flag.
-- Comments only where intent is non-obvious.
-
-### 1.3 Performance / usefulness
-
-- Do not add work on the JS thread during token streaming (no heavy JSON parse per token).
-- Do not load extra native engines beside a GGUF (no ONNX TTS next to a 4B model).
-- Prefer visible honesty (banner, chip) over silent magic that burns CPU.
-
-### 1.4 Session discipline
-
-```
-ONE atomic step (Sxx) per agent session / PR.
-Smoke chat → stop → load/unload after any touch to download, load, or useAIChat.
-If unsure, shrink scope — do not “finish the phase.”
-```
+| Invest | Avoid cloning |
+|--------|----------------|
+| Calm craft (`DESIGN.md`) | Badge dashboards, accent spam |
+| Honest fit / accel / context UX | Public tok/s leaderboards |
+| Reasoning quality (think UX, family policy) | Raw dump UIs |
+| Local Stages analytics | Cloud rank / Glicko |
+| Private by default (temp chat, local backup) | Accounts, hubs, telemetry |
+| Local personas | Persona marketplaces |
 
 ---
 
-## 2. Final safety & complexity audit
+## 1. Current state (2026-08-14)
 
-Legend: **S** = safe/simple · **M** = medium, careful · **H** = hard / race-prone · **D** = defer or simplify
+OFLN is a working offline LLM chat app for Android and iOS. Phases 0–3 of the original execution queue are **code-complete**; Phase 4 voice and backup are shipped. Remaining Phase 4 items are optional vision and optional remote client.
 
-| ID | Verdict | Notes for agents |
-|----|---------|------------------|
-| 0.1 Unify load | **S** | Verify dead `llamaService.loadModel`; keep `checkFileExists`; don’t touch Diagnostics `initLlama` same PR |
-| 0.2 Status API | **S–M** | Extend existing status; don’t change `loadModel` boolean contract lightly |
-| 0.3 Split Conversation | **H if bulk** | **Must** split into S03a/b/c — one extract per session |
-| 0.4 Errors | **S** | Extend `formatLoadError`; no raw stacks in alerts |
-| 0.5 Tests | **S** | Pure inference helpers only |
-| 1.1 Resume download | **M** | Highest value; flag + partial files; never load `.partial` as model |
-| 1.2 Verify size | **S** | **Size only** v1 — skip SHA (slow on phone) |
-| 1.3 HF token | **S–M** | Keychain; header only for HF hosts |
-| 1.4 RAM fit | **S–M** | Local tier table; conservative; chip UI via existing ModelCard styles |
-| 1.5 Onboarding | **M** | **After** 1.1+1.4; reuse App download/load — no fork |
-| 1.6 Load failure UX | **S** | Can pair with 0.4 |
-| 1.7 Disk preflight | **S** | Before download starts |
-| 2.1 SQLite | **M** | Same service API; migrate once; backup key; **alone** in its session |
-| 2.2 Search | **S** | Drawer filter/SQL **only**; defer in-chat find |
-| 2.3 Context banner | **M** | v1: meter + “New chat” only; **defer** live n_ctx reload sheet |
-| 2.4 Trim notice | **S** | One line when trim runs |
-| 2.5 Flush on background | **S** | AppState → persist |
-| 2.6 Unload on background | **D→H** | **Deferred** (races with completion). Keep-awake-while-generating only (2.6a) |
-| 2.7 Export | **S** | Markdown share |
-| 2.8 Storage manager | **S–M** | Confirm + unload if deleting active model; also clear-all chat history (separate UI section) |
-| Stretch summary memory | **D** | Defer — easy to hurt quality |
-| 3.1 Thinking mode setting | **S–M** | Wire to existing heuristics; don’t rewrite parser |
-| 3.2 Family “recommended” copy | **S** | **Done (S19p/S23)** — `policyRecommendedBlurb` |
-| 3.3 Debug chip | **D** | Already Diagnostics — skip product UI |
-| 3.4 Stages trends | **M** | Aggregate **existing** `usage_log` — no new telemetry system |
-| 3.5 Accel chip | **S** | Read `getAccelerationStatusSnapshot` |
-| 3.6 Thermal/battery | **D** | Defer — noisy UX; optional later thin toast |
-| 3.7 Persona memory notes | **S** | Extend `buildPersonaSystemPrompt` |
-| 3.8a Temp chat polish | **—** | **Removed** — existing temp UI is sufficient (toggle contrast fix only if needed) |
-| 3.8b Biometric lock | **D** | After core trust; separate step later |
-| 4.1 mmproj vision | **H** | Isolated; OCR remains default; verify llama.rn 0.12.6 API first |
-| 4.2 Docs harden | **S–M** | Caps + honest errors; no vector DB |
-| 4.3 Edit → regen | **S** | Reuse `regenerate` |
-| 4.4 Tool loop | **D→H** | **Deferred** as full agent loop. Optional later: Experimental calculate-only |
-| 4.5 System TTS | **M** | OS only; strip think; one lib |
-| 4.6 Platform STT | **M** | Separate step after TTS |
-| 4.7 Remote client | **M** | After local solid; loud privacy banner |
-| Phase 5 items | — | Only after Phases 0–2 dogfood |
+### Shipped capabilities
 
-**Removed from near-term critical path:** full tool/agent OS, rolling summary memory, background model unload, biometric lock, neural TTS, in-chat message find, live context reload sheet, thermal gating.
+| Area | What exists |
+|------|-------------|
+| Models | HF browse/download (optional Keychain token), local GGUF import, resumable downloads, size verify, disk preflight, RAM-fit chips |
+| Inference | Native `completion()` streaming via `llamaProvider` / `useAIChat`; think/`<think>` parsing; Thinking Auto/On/Off; ModelRuntimePolicy (family templates + defaults) |
+| Acceleration | Android OpenCL / Hexagon gated by capability + quant allowlist (`Q4_0`, `Q6_K`); accel status in logs / model quick panel |
+| Chat UX | Streaming, edit→regenerate, pin/rename history, temporary chats, Markdown export |
+| History | op-sqlite behind service API, drawer search, AppState flush persist |
+| Context honesty | Fullness banner/ring, trim notice |
+| Attachments | Image OCR + PDF text extract (caps + honest refusals); **not** true mmproj vision yet |
+| Voice | OS TTS (`react-native-tts`) + platform STT (`@dev-amirzubair/react-native-voice`) |
+| Personas | Local library + editor (no memory notes yet) |
+| Storage | Model delete, clear chats, full backup/restore (JSON chats or ZIP profile; models re-download; secrets never exported) |
+| Insight | Stages trends from local `usage_log` |
+| Onboarding | First-run flow with skip |
+| Design | Light/dark, Poppins, frosted chrome, motion tokens |
+
+### Engineering invariants (do not break)
+
+- Live chat path: `useNativeCompletion: true` → `aiChatService.nativeCompletion`
+- Conversation auto-load effect deps: **`[selectedGGUF]` only**
+- Dual unload when leaving conversation: `releaseAllLlama()` + `llamaProvider.unloadModel()`
+- Never load `.partial` GGUF files
+- Prefer extend existing services (`chatHistoryService`, `llamaProvider`, `src/api/model.ts`) over parallel stacks
+- UI: `ThemeContext` + `createStyles` / `DESIGN.md` — no second design system
+
+### Open / verification debt
+
+- Device smoke checklist documented (`docs/DEVICE_SMOKE.md`); **physical execution** still owed after native rebuild for Keychain, device-info, op-sqlite, keep-awake, TTS, Voice
+- Unit tests: prefer pure helpers (Jest); keep native llama out of unit tests
+- Large working tree historically uncommitted until maintainers ask
+- Diagnostics export (P0 #3) still open
 
 ---
 
-## 3. Jobs we still cover (useful, not bloated)
+## 2. Completed / no longer relevant
 
-| Job | How (thin) |
-|-----|------------|
-| Downloads finish | Resume + size check + disk preflight |
-| Right model | RAM fit chips + short onboarding |
-| Gated HF | Keychain token |
-| Context death | Banner + new chat + trim notice |
-| History | SQLite + drawer search + export |
-| Quality wedge | Thinking setting, accel chip, Stages trends, persona notes |
-| Attachments later | OCR now; mmproj isolated; docs caps |
-| Voice later | OS TTS then STT — not both at once |
+The S01–S32 atomic queue largely landed. Do **not** re-open these as new work unless regressions appear.
 
----
+| Item | Status |
+|------|--------|
+| Load unification, inference unit tests, user-facing errors | Done |
+| Conversation extracts (HistoryDrawer, ChatComposer, MessageList) | Done |
+| Disk preflight, resume download, size verify, HF token | Done |
+| RAM fit, load-failure CTAs, onboarding | Done |
+| SQLite history, drawer search, context banner, trim notice, AppState flush | Done |
+| Keep-awake while generating, Markdown export, storage manager | Done |
+| ModelRuntimePolicy + family blurbs | Done |
+| Thinking mode, accel status, Stages trends | Done |
+| Edit→regenerate, document pipeline + chat PDF attach | Done |
+| System TTS, platform STT, backup/restore | Done |
+| Temp-chat polish as a project | **Removed** — current UI sufficient |
+| Dead-helper / comment-polish cleanup as plan items | **Obsolete** — addressed in stabilize arc |
+| Dual chat load path / “unify provider” as open work | **Closed** |
 
-## 4. Phase overview (still phased — execute via §6 steps)
-
-```
-Phase 0  Stabilize          → safe codebase
-Phase 1  First-run trust    → downloads / fit / onboard
-Phase 2  Durable honesty    → history / context visibility
-Phase 3  OFLN wedge         → reasoning / Stages / personas (thin)
-Phase 4  Capability (select)→ vision/docs/edit/voice/remote — one at a time
-Phase 5  Polish             → only what dogfood asks
-```
+**Still deferred by design (not forgotten):** persona memory notes (needs a small design before code); neural TTS/STT; full tool/agent loop; background model unload; biometric lock; live n_ctx reload sheet; thermal nag UI; in-chat message find; scanned-PDF OCR as a product claim; PalsHub-style marketplace.
 
 ---
 
-## 5. Atomic execution queue (implement in order)
+## 3. Competitive landscape (category peers)
 
-Each **Sxx** = one agent session / one PR. Do not batch.
+Category: on-device / offline / local LLM mobile chat (GGUF or compiled mobile runtimes). Research snapshot: mid‑2026.
 
-### Phase 0
+### Peer map
 
-| Step | Goal | Max scope | Done when |
-|------|------|-----------|-----------|
-| **S01** | Confirm load unification | Grep; remove/quarantine dead `llamaService.loadModel` only if unused; keep `checkFileExists` | Chat still loads via provider; smoke OK — **DONE 2026-07-30** |
-| **S02** | Inference unit tests | Tests for params / think / trim / quant allowlist | `npm test` green — **DONE 2026-07-30** |
-| **S03** | Error copy v0 | Centralize user-facing load/download strings | Alerts readable; no stack dumps — **DONE 2026-07-31** |
-| **S04a** | Extract HistoryDrawer | Move drawer JSX only; props in/out | Behavior identical — **DONE 2026-07-31** |
-| **S04b** | Extract Composer | Send/stop/attach UI only | Behavior identical — **DONE 2026-07-31** |
-| **S04c** | Extract MessageList | List + bubbles only | Behavior identical — **DONE 2026-07-31** |
+| App | Positioning | Strengths vs OFLN | Notes |
+|-----|--------------|-------------------|--------|
+| **PocketPal AI** | Default “any GGUF” app (RN + `llama.rn`) | Distribution, HF UX polish, PalsHub, neural TTS catalogs, device benchmarks / optional community leaderboard, large OSS presence | Closest technical peer; same engine family |
+| **MLC Chat** | Speed via MLC-LLM / AOT | Higher tok/s on flagship GPU paths; curated models | Narrower model choice; less “any GGUF” |
+| **Private LLM** (iOS) | Paid curated privacy | Polished store product, OmniQuant angle, Shortcuts | Monetized; not full HF free-for-all |
+| **LM Playground** | Android power user | KleidiAI/OpenMP, download ETA/notifications, optional tools, vision/RAG claims, background generation | High feature density |
+| **Maid** | Privacy / F-Droid friendly | Local + remote providers, chat import/export, auditable | Android-focused |
+| **ChatterUI** | Characters / roleplay | Character Card v2, remote APIs, instruct control | Different primary job |
+| **Layla** | Beginner Play Store funnel | Fast first chat, curated small models | Less power-user depth |
+| **OfflineLLM** | Hard privacy | Zero INTERNET permission story, biometric, Vulkan offload | Credibility wedge for paranoid users |
+| **Google AI Edge Gallery** / system Nano / Apple FM | OEM / demo path | Built-in models, no GGUF hunting | Not a general GGUF client |
 
-### Phase 1
+### Dimensions that matter to users
 
-| Step | Goal | Max scope | Done when |
-|------|------|-----------|-----------|
-| **S05** | Disk preflight | Free space check before download | Clear alert if too small — **DONE 2026-07-31** |
-| **S06** | Resume downloads | `blob-util` partial + rename; flag; pause≠discard | Mid-fail resume works; `.partial` never loaded — **DONE 2026-07-31** |
-| **S07** | Size verify on complete | Compare Content-Length / expected size | Mismatch → don’t activate — **DONE 2026-07-31** |
-| **S08** | HF token | Keychain + Models→HF token page + Bearer on HF only | Gated 401 → Add token CTA — **DONE 2026-07-31** (UI on Models, not Settings) |
-| **S09** | RAM fit chips | `device-info` + local tiers; dot (left of size) + expanded tag | Fits/Tight/Won’t fit; tap explains; memo includes `ramFit` — **DONE 2026-08-01** |
-| **S10** | Load failure CTAs | Wire S03 strings + retry / models / lower ctx | OOM path actionable — **DONE 2026-08-01** |
-| **S11** | Onboarding 4 steps | New page type; reuse download/load | Skip works; returning users skip — **DONE 2026-08-01** (device smoke pending) |
+1. **Model discovery** — HF browse, gated tokens, curated starters, quant guidance, RAM fit  
+2. **Performance** — tok/s, GPU/NPU offload, memory discipline, battery honesty  
+3. **Chat UX** — history/search, personas, multimodal, voice, documents  
+4. **Privacy credibility** — offline-after-download, no accounts, clear network uses (HF only)  
+5. **Trust & polish** — MIT/OSS, backups, native feel, crash/diagnostics honesty  
+6. **Monetization pressure** — free OSS (PocketPal/Maid) vs IAP curated (Private LLM) vs hub premium pals; OFLN stays free/MIT unless product strategy changes
 
-### Phase 2
+### Where OFLN already differentiates
 
-| Step | Goal | Max scope | Done when |
-|------|------|-----------|-----------|
-| **S12** | SQLite behind service API | op-sqlite; migrate AsyncStorage; backup | 100+ chats; API unchanged for UI — **DONE 2026-08-01** (device smoke pending rebuild) |
-| **S13** | Drawer search | Filter sessions by title/preview/content | Snappy on mid device — **DONE 2026-08-02** |
-| **S14** | Context fullness banner | ≥80% estimate; dismiss; **New chat** CTA only; ring in model pill | **DONE 2026-08-03** |
-| **S15** | Visible trim notice | One line when trim drops turns | **DONE 2026-08-03** |
-| **S16** | AppState flush save | Persist on background | **DONE 2026-08-03** |
-| **S17** | Keep-awake while generating | Only during completion | **DONE 2026-08-03** |
-| **S18** | Export chat Markdown | Share sheet | **DONE 2026-08-03** |
-| **S19** | Storage manager | List/delete GGUF with confirm; clear-all chat history section | **DONE 2026-08-04** (+ chat clear 2026-08-05) |
+- **Honesty stack:** RAM-fit chips, context fullness, accel status, load-failure CTAs, policy blurbs  
+- **Stages:** private local performance insight without a social leaderboard  
+- **Calm UI:** deliberate monochrome craft vs marketplace/dashboard density  
+- **ModelRuntimePolicy:** multi-family chat quality without a prompt DB  
+- **Backup completeness:** chats + personas + settings + catalog re-download (secrets excluded)  
+- **Voice without RAM fight:** OS TTS/STT instead of ONNX engines competing with the GGUF
 
-### Side work (quality — not a Phase 3 product chrome item)
+### Gaps vs category leaders (prioritized)
 
-| Step | Goal | Max scope | Done when |
-|------|------|-----------|-----------|
-| **S19p** | ModelRuntimePolicy (GGUF-first prompts/templates) | Dynamic family+size policy; family sanitize stubs; default-source system prompts | Multi-model coherent chat without a prompt DB — **DONE 2026-08-04** |
-
-### Phase 3 (thin wedge)
-
-| Step | Goal | Max scope | Done when |
-|------|------|-----------|-----------|
-| **S20** | Thinking Auto/On/Off | Setting → existing enable_thinking path | Default Auto = today’s behavior — **DONE 2026-08-04** |
-| **S21** | Accel status (log + quick-panel tag) | After load → View Logs INFO; selected row label | **DONE 2026-08-04** (no top-chrome chip) |
-| **S22** | Stages trends from usage_log | Recent runs (bottom, 5 + expand); no new backend | **DONE 2026-08-04** |
-| **S23** | Family recommended blurb | Model Settings help from policy | Copy only — **DONE 2026-08-04** (via `policyRecommendedBlurb` on Model Settings) |
-| **S24** | Persona memory notes | **Deferred** — wider memory system needs planning | (not in immediate queue) |
-
-### Phase 4 (only after S01–S19 solid)
-
-| Step | Goal | Max scope | Done when |
-|------|------|-----------|-----------|
-| **S26** | Edit user → regenerate | UI + existing `regenerate` path | Earlier turns kept — **DONE 2026-08-05** |
-| **S27** | Harden document **pipeline** | Caps + honest PDF *parser* errors + budget inject | Parser/OCR path hardened — **DONE 2026-08-05** (see gap) |
-| **S27b** | **Chat document attach** | Attach menu → document picker → extract on send | User can attach a PDF; S27 parser used end-to-end — **DONE 2026-08-05** |
-| **S28** | mmproj vision (optional) | One curated pair; OCR fallback remains | Device smoke; isolated PR |
-| **S29** | System TTS | OS TTS; strip think; play button | No ONNX — **DONE 2026-08-06** |
-| **S30** | Platform STT | Mic → composer | Separate from S29 — **DONE 2026-08-06** |
-| **S31** | Remote OpenAI client | Opt-in; privacy banner | Local still default |
-| **S32** | Device backup / restore | Chats JSON + full ZIP; model catalog re-download (parallel cap 2, smallest first); system Save/Open pickers | Storage → Backup; merge/replace; schema v1 — **DONE 2026-08-05** |
-
-### Explicitly not in this queue
-
-Background unload · biometric lock · tool/agent loop · summary memory · neural TTS · context reload sheet · thermal nag · PalsHub · **S25 temp polish (removed)** · **S24 persona memory (deferred until designed)**.
+| Gap | Impact | Effort | Notes |
+|-----|--------|--------|-------|
+| Store / OSS distribution + privacy page | High for acquisition | Low–Med | Trust table stakes vs PocketPal/Maid |
+| Broader / clearer accel + visible tok/s | High | Med | Peers win “feels fast”; OFLN has accel gating but limited quants |
+| Curated “start here” models + download ETA/speed | High for first session | Low–Med | Layla/LM Playground win first-run confidence |
+| True vision (mmproj) | Med–High | Hard | Peers advertise vision; OFLN is OCR-honest today |
+| Opt-in remote OpenAI-compatible client | Med | Med | Maid/ChatterUI cover hybrid users |
+| Background generation / notification | Med (Android) | Med–Hard | LM Playground differentiator; race-prone |
+| Neural TTS catalogs | Low for OFLN thesis | High + RAM cost | Explicitly avoid as default |
+| Persona marketplace | Low for OFLN thesis | High | Avoid PalsHub clone |
+| Zero-network / biometric lock | Niche high | Med | Credibility for privacy maximalists; after core polish |
+| Document RAG / tool agents | Tempting | High / quality risk | Defer; thin caps + OCR already cover light doc jobs |
 
 ---
 
-## 6. Phase notes (detail for humans; agents use §5)
+## 4. Near-term improvements (next 1–2 months)
 
-### Phase 0 — Stabilize
-Unify provider load; tests; error copy; **three** Conversation extracts.  
-Guide: §4 Phase 0.
+Ordered by **impact ÷ effort** for OFLN as it exists today. Ship surgically; one risky native change at a time.
 
-### Phase 1 — First-run trust
-Resume downloads (flagged), size verify, HF token, RAM chips, onboarding last.  
-Guide: §4 Phase 1. UX copy: actionable, calm, not “Error.”
+### P0 — Trust & release readiness
 
-### Phase 2 — Durable honesty
-SQLite (same API), drawer search, context banner (new chat only), trim notice, flush, keep-awake, export, storage UI.  
-**Phase 2 code-complete 2026-08-04** (device smoke still pending native rebuild).  
-**No** background unload. Guide: §4 Phase 2.
+1. **Device smoke after native rebuild** — **Docs done** ([`DEVICE_SMOKE.md`](./DEVICE_SMOKE.md) + README checklist). Physical-device execution still owed by maintainers (cannot invent results).  
+2. **Public-facing trust docs** — **Done** ([`PRIVACY.md`](./PRIVACY.md) + README Privacy short table). Network story traced to HF browse/download + optional Keychain token; no OFLN cloud inference.  
+3. **Diagnostics export** — Share sanitized logs / crash crumbs for support without raw prompt dumps by default. *(Still open.)*
 
-### Phase 3 — Wedge
-Productize existing reasoning/accel/Stages/personas — settings and UI, not new engines.  
-**S19p (2026-08-04):** GGUF-first **ModelRuntimePolicy** landed — see §8a.  
-**S20 (2026-08-04):** Thinking Auto/On/Off per-model via `thinkingMode` + `resolveThinkingModeForTurn` (jinja_enable only).  
-**S21 (2026-08-04):** Accel INFO log after load; selected-row tag in model quick panel (no top-chrome chip).  
-**S22 (2026-08-04):** Stages **Recent runs** at bottom (preview 5 + View more) + trend from `usage_log`.  
-**Quick selector polish (2026-08-05):** Sticky **Browse models** / **Clear persona** footers; tab bar fixed; shared chrome padding.  
-**Storage / Models / Personas polish (2026-08-05):** Storage **Clear all** chats; Models section **Local**; no card “Downloaded” badge; Personas bottom **Add** pill; S09 dot left of size + memo fix for async RAM.  
-**S23** blurbs: already on Model Settings via `policyRecommendedBlurb` (do not re-add a second help system).  
-**S24** Persona memory notes: **deferred** — needs wider memory-system planning (not next).  
-**S25** Temp chat polish: **removed** — current temp UI is good; active toggle contrast fix only (2026-08-05).  
-**S26 (2026-08-05):** Edit user message → truncate later turns → regenerate (`editUserAndRegenerate` + long-press Copy/Edit menu).  
-**S27 (2026-08-05):** Document **pipeline** harden — 4MB PDF cap, encrypted/scanned honest refusals, `documentInjectCharBudget` for OCR and extract.  
-**S27b (2026-08-05, harden 08-06):** Chat File (PDF) attach + extract on send; re-entrancy and filename safety.  
-**S29 (2026-08-06):** OS TTS — Speak rightmost on assistant row; strip think; stop on gen; patch-package for AGP. Neural deferred.  
-**S30 (2026-08-06):** Platform STT — New Arch Voice fork (`@dev-amirzubair/react-native-voice`); monochrome mic → composer; stop on gen/Stop/send/Speak.  
-**Recommended next:** **S28** (optional vision) or **S31** (remote). One only.
+### P1 — First-session competitiveness
 
-### Phase 4 — Selective capability
-Edit, docs, optional vision, OS voice, optional remote — **serial**, never parallel native adds.
+4. **Curated starter shelf** — **Done** (`src/services/starterModels.ts`; Models UI “Start here” + shelf hints; onboarding candidates derived from same catalog).  
+5. **Download progress honesty** — **Done** (speed/ETA via `downloadProgressFormat` + `onProgress` detail in `src/api/model.ts`; ModelCard / onboarding surfaces). Resume + size verify unchanged.  
+6. **Surface tok/s more calmly** — **Done** (chat uses `tok/s` via `formatTokensPerSecondLabel`; Stages note clarifies private metrics + accel allowlist; accel alert uses `detailMessage`).
 
-### Phase 5 — Dogfood-driven
-Crash log export, HF bookmarks, private bench card, E2E — pick from real feedback.
+### P2 — Capability parity (selective)
+
+7. **S28 — Optional mmproj vision** — One curated GGUF+mmproj pair; wire `projectorPath`; OCR remains fallback. Device-only; read `llama.rn` 0.12.6 API first.  
+8. **S31 — Opt-in remote OpenAI-compatible client** — Base URL + Keychain key; loud privacy banner; local remains default.  
+9. **Accel breadth** — Revisit quant allowlist / capability messaging when `llama.rn` / device matrix allows safer OpenCL/Hexagon coverage; never silent magic. *(Messaging clearer in this pass; allowlist still Q4_0 / Q6_K.)*
+
+### P3 — Thin quality wedges (only if dogfood asks)
+
+10. **HF bookmarks / recent models** — Low effort retention.  
+11. **Persona memory notes (ex-S24)** — Short per-persona notes injected into system prompt; design scope first (no vector memory).  
+12. **Storage path flexibility** — Optional SAF / external model location for multi-GB files (Android pressure).
 
 ---
 
-## 7. Smoke checklist (after every Sxx that touches load/download/chat)
+## 5. Medium-term (3–6 months)
+
+Only after P0–P2 dogfood. Prefer depth on thesis over parity.
+
+| Theme | Candidate work | Guardrails |
+|-------|----------------|------------|
+| Performance | Track upstream `llama.rn` / llama.cpp mobile wins (KleidiAI-class kernels if exposed); per-model GPU layer presets with honest fallback | No second inference engine beside the active GGUF |
+| Multimodal | Expand vision beyond one curated pair; keep OCR path | Isolated PRs; budget RAM |
+| Chat durability | Optional encrypted-at-rest settings; export formats users request | Backup schema versioning already required |
+| Hybrid use | Remote client polish (streaming parity, model list) | Never make remote the default |
+| Accessibility | Dynamic type, reduce-motion respect, TalkBack/VoiceOver pass | Match `DESIGN.md` |
+| Release engineering | CI lint/test, signed release checklist, iPad/tablet layout pass | Don’t block product on perfect CI |
+
+---
+
+## 6. Competitive differentiators (lean into these)
+
+1. **Honest phone companion** — Fit, context, accel, and failure CTAs as first-class product, not Advanced Settings trivia.  
+2. **Stages as private insight** — Local trends from real usage; never a public rank chase.  
+3. **Calm craft** — One job per screen; soft motion; monochrome-first (`DESIGN.md`).  
+4. **Reasoning control** — Thinking mode + family policy so multi-model chat stays coherent.  
+5. **Voice without competing for RAM** — OS TTS/STT while the GGUF owns memory.  
+6. **Portable private profile** — Backup/restore that re-hydrates catalog without exporting secrets.  
+7. **MIT + auditable offline story** — Same license class as leading OSS peers; clearer than closed “Private ChatGPT” clones.
+
+---
+
+## 7. Risks and non-goals
+
+### Risks
+
+- **RAM contention** — Neural TTS/STT or a second ONNX runtime beside a 3B–4B GGUF regresses load success on mid-range phones.  
+- **Vision scope creep** — mmproj + downloads + multimodal completion is race-prone; OCR honesty is better than half-broken vision.  
+- **Background unload / generation** — Easy to corrupt completion or leak VRAM; defer until explicitly designed.  
+- **Marketplace distraction** — PalsHub-style hubs shift OFLN away from calm local craft.  
+- **Doc drift** — This plan and the agent guide can lag the tree; source of truth is code + README features.
+
+### Non-goals (explicit)
+
+- Persona / Pal marketplace or in-app checkout  
+- Public benchmark leaderboards  
+- Neural TTS/STT catalogs as default  
+- Full tool/agent OS or always-on RAG vector DB  
+- Cloning PocketPal Paper UI or MLC’s curated-only model strategy wholesale  
+- Accounts / cloud sync as a required path  
+- Claiming “pixel vision” or “fully offline including model browse” while HF download still needs network
+
+### Complexity reminders (kept from prior audits)
+
+| Topic | Guidance |
+|-------|----------|
+| Resume downloads | Partial files + rename; never activate mismatch |
+| Context UX | Meter + New chat; defer live n_ctx reload sheet |
+| Background unload | Deferred — races with completion |
+| Tool loop | Deferred — optional calculate-only experiment later if ever |
+| Biometric lock | After core trust polish; separate step |
+| Conversation splits | Already extracted; avoid bulk re-architecture |
+
+---
+
+## 8. Working agreements
+
+- Prefer **extend over rewrite**; surgical diffs.  
+- Touching download / load / `useAIChat`: smoke chat → stop → unload/load another model.  
+- New durable user data: wire **backup export + import** + schema/tests + README backup table in the same change.  
+- Visual changes: follow and update [`DESIGN.md`](../DESIGN.md).  
+- Do not commit unless maintainers ask.
+
+### Smoke checklist (minimum)
+
+Full post-rebuild pass: [`DEVICE_SMOKE.md`](./DEVICE_SMOKE.md). Minimum:
 
 1. Launch → conversation  
 2. Select/download model → chat  
-3. Send → stream → **Stop**  
-4. Regenerate  
+3. Send → stream → Stop  
+4. Regenerate / edit→regenerate  
 5. Settings round-trip  
-6. Back to models → unload → load another  
-7. Kill/reopen → history (if persistence touched)  
-8. Theme + CustomAlert still work  
+6. Unload → load another model  
+7. Kill/reopen → history  
+8. Theme + CustomAlert  
+9. When relevant: TTS Speak, STT mic, PDF/image attach, backup import merge  
+10. Stages model-pill swipe  
 
 ---
 
-## 8. Tracking
+## 9. Success criteria
 
-Copy into issues; check off **S01…** only when smoke passes.
-
-- [x] S01 … S05 (Phase 0 + disk) — smoke OK earlier in arc  
-- [x] S06 … S10 (resume, size verify, HF token, RAM fit, load CTAs) — **code + Jest done; device smoke pending native rebuild**  
-- [x] **S11** (Phase 1 onboarding) — **code + Jest done; device smoke pending**  
-- [x] **S12** … **S19** (Phase 2) — **code + Jest done; device smoke pending native rebuild**  
-- [x] **S19p** (ModelRuntimePolicy — system prompts + family template stubs) — **code + Jest done 2026-08-04**  
-- [x] **S23** (family recommended blurb on Model Settings) — **done with S19p**  
-- [x] **S20** (Thinking mode Auto/On/Off) — **code + Jest done 2026-08-04**  
-- [x] **S21** (Accel status → app logs + quick-panel tag) — **code + Jest done 2026-08-04**  
-- [x] **S22** (Stages trends — Recent runs bottom / 5 + View more) — **code + Jest done 2026-08-04**  
-- [ ] **S24** (Persona memory notes) — **deferred** (wider memory system; plan before implement)  
-- [x] ~~S25~~ (Temp chat polish) — **removed** (current UI kept; toggle contrast fixed 2026-08-05)  
-- [x] **S26** (Edit user → regenerate) — **code + Jest done 2026-08-05**
-- [x] **S27** (Harden document pipeline) — **parser/OCR budget only 2026-08-05**
-- [x] **S27b** (Chat document attach) — **code + harden + Jest 2026-08-05/06**
-- [ ] **S28** (mmproj vision, optional) — hard; device-only
-- [x] **S29** (System TTS) — **code + Jest 2026-08-06** (Speak rightmost; OS only)
-- [x] **S30** (Platform STT) — **code + Jest 2026-08-06** (mic → composer; New Arch Voice fork)
-- [ ] S31 (remote client, as needed)
-
-Update [`AGENT_IMPLEMENTATION_GUIDE.md`](./AGENT_IMPLEMENTATION_GUIDE.md) if symbols/libs change. See guide **Handoff — PAUSED** for rebuild + smoke + full pass-off.
-
----
-
-## 8a. S19p — ModelRuntimePolicy (landed 2026-08-04)
-
-**Why:** Broken/off-topic replies on multi-model mobile chat are often **wrong chat templates** or **bloated system prompts on tiny models**, not missing cloud data.  
-**What:** Pure, dynamic policy — **no database**. Resolved each load/settings/send from filename heuristics + family packages.
-
-### Layer stack (do not invert)
-
-1. **GGUF** `tokenizer.chat_template` when valid (preferred always)  
-2. **User** per-file settings (`@model_settings_{file}` + `systemPromptSource`)  
-3. **`resolveModelPolicy(modelName)`** — family + size tier defaults  
-4. **Family Jinja stub** only when sanitize/metadata forces a fallback  
-
-### New / key files
-
-| File | Role |
-|------|------|
-| `src/services/inference/modelPolicy.ts` | `resolveModelPolicy`, `policyRecommendedBlurb`, `POLICY_SCHEMA_VERSION` |
-| `src/services/inference/modelFamily.ts` | Families: `qwen3`, `deepseek-r1`, `smollm3`, `gemma4`, `phi`, `generic` + `resolveSizeTier` + thinking strategy |
-| `src/services/inference/familyTemplates.ts` | Fallback Jinja: ChatML+think / Gemma turns / Phi tags |
-| `src/services/inference/promptDefaults.ts` | Short positive system prompts by size/family |
-| `src/services/modelSettingsService.ts` | `systemPromptSource: 'default' \| 'user'`; `getDefaultSettingsForModel` |
-| `src/services/ggufSanitizeService.ts` | Sanitize pad **v5** embeds family id + family stub (not ChatML-for-all) |
-| `llamaProvider` / `nativeCompletion` | Inject **family** stub when metadata/template missing |
-| `__tests__/inference/modelPolicy.test.ts` | Policy + defaults unit tests |
-
-### Agent rules when extending
-
-- **New HF GGUF with healthy template:** usually **zero code** — load + use GGUF.  
-- **New family:** add profile in `modelFamily.ts` + stub in `familyTemplates.ts` (and sampling tweak in `modelPolicy` if needed).  
-- **Do not** add a prompt/recipe SQLite table or remote catalog for this.  
-- **S20 DONE:** user Thinking Auto/On/Off via `thinkingMode` + `policy.thinking.strategy` (`jinja_enable` / `always_on` / `none`).  
-- Prefer **native GGUF template**; only replace multimodal/oversized/broken Jinja.  
-- User `systemPromptSource: 'user'` must never be auto-overwritten; `default` may refresh on policy upgrades.  
-
-### Device smoke (S19p)
-
-1. Load **Qwen3.5 0.8B** → short answers; Model Settings shows tiny-ish default prompt + policy blurb  
-2. Load **Gemma 4 E2B** (if present) → coherent chat (not ChatML token soup if stub path used)  
-3. Custom system prompt → save → reopen still custom after app restart  
-4. Reset settings → returns to policy defaults for that filename  
-5. Diagnostics log: sanitize decision includes `familyId` when pad runs  
-
----
-
-## 9. Success (product, not parity)
-
-1. Mid-range user: download + first reply in one sitting.  
-2. No dual chat load path; failures actionable; no lost chats on kill.  
-3. User can say if GPU is on / context tight / why a model fits.  
-4. Reasoning feels controlled; UI still calm (`DESIGN.md`).  
-5. Rich enough (search, export, honest context, optional vision/voice) **without** a marketplace.  
-6. Side-by-side: “OFLN is calmer and clearer about my phone.”
+1. Mid-range user completes download + first reply in one sitting with clear fit guidance.  
+2. Failures are actionable; chats survive kill; backups restore without leaking secrets.  
+3. User can tell whether GPU/NPU path is active, whether context is tight, and why a model fits.  
+4. Reasoning feels controlled; UI stays calm.  
+5. Rich enough (search, export, docs, OS voice, optional vision/remote) **without** a marketplace.  
+6. Side-by-side with category leaders: “OFLN is calmer and clearer about my phone.”
 
 ---
 
 ## 10. Sources
 
-Category pain (downloads, fit, context, search, attachments). Mobile LLM constraints 2026. OFLN assets: `DESIGN.md`, `styles.ts` / `createStyles`, inference pipeline, accel gating, Stages. Competitors = **jobs**, not blueprints.
+- Category guides and app comparisons (PocketPal, MLC Chat, Private LLM, LM Playground, Maid, ChatterUI, Layla, OfflineLLM, OEM galleries), mid‑2026  
+- PocketPal / Maid / ChatterUI public READMEs and positioning  
+- OFLN assets: `README.md`, `DESIGN.md`, inference + accel + backup services, Stages  
+- Competitors inform **jobs**, not blueprints

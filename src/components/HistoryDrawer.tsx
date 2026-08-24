@@ -1,6 +1,6 @@
 /**
  * Chat history slide-out drawer + long-press context menu.
- * Collage (masonry) layout — presentational only; ConversationScreen owns state (S04a).
+ * Collage (masonry) layout — presentational only; ConversationScreen owns state.
  *
  * Layout:
  * - Top-right filter pill (unchanged). Left column aligns to that baseline;
@@ -1799,12 +1799,17 @@ export function HistoryDrawer({
               onNewChat();
               onClose();
             }}
-            style={topRightPillStyle}
+            style={[
+              topRightPillStyle,
+              {
+                backgroundColor: '#FFFFFF',
+                borderColor: 'rgba(0,0,0,0.08)',
+              },
+            ]}
             activeOpacity={0.85}
             accessibilityLabel="New chat"
           >
-            <FrostedGlass style={StyleSheet.absoluteFillObject} />
-            <Ionicons name="add-outline" size={23} color={theme.colors.text} />
+            <Ionicons name="add-outline" size={23} color="#111111" />
           </TouchableOpacity>
         </View>
       </Animated.View>

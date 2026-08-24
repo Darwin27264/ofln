@@ -1,14 +1,6 @@
 /**
- * App Component
- * 
- * Root component of the application. Manages global state, navigation, and model context.
- * Handles page transitions, model loading, and coordinates between screens.
- * 
- * Architecture:
- * - Centralized state management for model context and navigation
- * - Optimized page transitions with navigation stack tracking
- * - Memory management for model loading/unloading
- * - Theme and alert context providers
+ * App root — navigation, model selection state, theme/alert providers,
+ * and coordination between screens. Model load/unload goes through llamaProvider.
  */
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
@@ -26,7 +18,8 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { createStyles } from "./src/styles/styles";
-import { downloadModel, DownloadCancellationToken } from "./src/api/model";
+import { downloadModel, DownloadCancellationToken, type DownloadProgressInfo } from "./src/api/model";
+import { resolveHfDownloadUrl } from "./src/services/hfModelHelpers";
 import { releaseAllLlama } from "llama.rn";
 import RNFS from "react-native-fs";
 import axios from "axios";
@@ -55,7 +48,7 @@ import InfoScreen from "./src/screens/InfoScreen";
 import DiagnosticsScreen from "./src/screens/DiagnosticsScreen";
 import OnboardingScreen from "./src/screens/OnboardingScreen";
 import StorageScreen from "./src/screens/StorageScreen";
-import { Persona, getPersonas } from "./src/services/personaService";
+import { Persona, getPersonas, updatePersonaLastUsed } from "./src/services/personaService";
 import { ModelInfo } from "./src/components/ModelCard";
 
 // Services (legacy helpers still used for download / existence checks)
@@ -186,7 +179,7 @@ function AppContent(): React.JSX.Element {
   /** Skip from onboarding returns here (About review → info; first-run → conversation). */
   const [onboardingSkipTo, setOnboardingSkipTo] = useState<"conversation" | "info">("conversation");
 
-  // S11 — first-run gate (mount once). About “Review” never clears the flag.
+  // First-run gate (mount once). About “Review” never clears the flag.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -382,7 +375,7 @@ function AppContent(): React.JSX.Element {
     setCurrentPage("modelSelection");
   }, []);
 
-  /** Unload if deleting the active GGUF from Storage (S19); dual release. */
+  /** Unload if deleting the active GGUF from Storage; dual release. */
   const handleUnloadIfActiveModel = useCallback(async (fileName: string) => {
     if (selectedGGUF !== fileName) return;
     setContext(null);
@@ -447,18 +440,20 @@ function AppContent(): React.JSX.Element {
    * - Model already exists (loads directly, no re-download)
    * - Download failures (error logged, selection reset, user notified)
    * - Load failures after download (error logged, file may be corrupted)
-   * - Network interruptions (handled by downloadModel with retry logic)
+   * - Network interruptions (resume via downloadModel)
    * - Storage full (handled by downloadModel, user notified)
    * - Concurrent downloads (prevented by UI state)
+   * - Optional HF revision (branch/sha); resolves via API when omitted
    */
   const handleDownloadModel = useCallback(async (
     file: string, 
     repoId: string, 
-    onProgress: (progress: number) => void,
+    onProgress: (progress: number, info?: DownloadProgressInfo) => void,
     cancellationToken?: DownloadCancellationToken,
     expectedBytes?: number | null,
+    revision?: string | null,
   ) => {
-    const downloadUrl = `https://huggingface.co/${repoId}/resolve/main/${file}`;
+    const downloadUrl = await resolveHfDownloadUrl(repoId, file, revision);
     const destPath = `${RNFS.DocumentDirectoryPath}/${file}`;
     
     // Check if already cancelled / paused
@@ -744,8 +739,11 @@ function AppContent(): React.JSX.Element {
             }}
             onUsePersona={(persona) => {
               setSelectedPersona(persona);
+              void updatePersonaLastUsed(persona.id);
               setCurrentPage("settings");
             }}
+            downloadedModels={downloadedModels}
+            handleDownloadModel={handleDownloadModel}
           />
         </PageFadeIn>
       )}
@@ -755,6 +753,9 @@ function AppContent(): React.JSX.Element {
           <PersonaEditorScreen
             persona={editingPersona}
             onSave={(savedPersona) => {
+              setSelectedPersona((prev) =>
+                prev?.id === savedPersona.id ? savedPersona : prev
+              );
               setEditingPersona(undefined);
               setCurrentPage("personas");
             }}

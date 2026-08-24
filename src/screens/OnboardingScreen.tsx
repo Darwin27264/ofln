@@ -1,5 +1,5 @@
 /**
- * First-run onboarding (S11).
+ * First-run onboarding.
  * Four steps, one job each — remounts PageFadeIn per step (no slide deck).
  * Download/load goes through App.handleDownloadModel only.
  */
@@ -41,6 +41,8 @@ import {
 } from '../utils/userFacingErrors';
 import { showLoadFailureAlert } from '../utils/loadFailureAlert';
 import { llamaProvider } from '../providers/llamaProvider';
+import { formatDownloadProgressLine } from '../utils/downloadProgressFormat';
+import type { DownloadProgressInfo } from '../api/model';
 
 type Step = 0 | 1 | 2 | 3;
 
@@ -51,9 +53,10 @@ interface Props {
   handleDownloadModel: (
     file: string,
     repoId: string,
-    onProgress: (progress: number) => void,
+    onProgress: (progress: number, info?: DownloadProgressInfo) => void,
     cancellationToken?: DownloadCancellationToken,
     expectedBytes?: number | null,
+    revision?: string | null,
   ) => Promise<void>;
   /** After Skip / finish — already marked complete by this screen. */
   onFinished: (destination: OnboardingExit) => void;
@@ -82,6 +85,7 @@ export default function OnboardingScreen({
   );
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
+  const [progressDetail, setProgressDetail] = useState<string>('');
 
   useEffect(() => {
     let cancelled = false;
@@ -119,6 +123,7 @@ export default function OnboardingScreen({
     if (busy) return;
     setBusy(true);
     setProgress(alreadyHaveSelected ? null : 0);
+    setProgressDetail('');
     try {
       if (!alreadyHaveSelected) {
         const disk = await checkDiskSpaceForDownload(selected.size);
@@ -132,7 +137,10 @@ export default function OnboardingScreen({
       await handleDownloadModel(
         selected.fileName,
         selected.repoId,
-        (p) => setProgress(p),
+        (p, info) => {
+          setProgress(p);
+          setProgressDetail(info ? formatDownloadProgressLine(info) : '');
+        },
         undefined,
         parseSizeToBytes(selected.size),
       );
@@ -199,12 +207,12 @@ export default function OnboardingScreen({
 
   const bodyForStep =
     step === 0
-      ? 'A calm offline reasoning companion. Models and chats stay on your phone — no account and no cloud AI for replies.'
+      ? 'Offline chat on your phone. No account — replies never use a cloud AI.'
       : step === 1
-        ? 'Wi‑Fi is only needed to download a model from Hugging Face. After that, everything runs on-device.'
+        ? 'Wi‑Fi is only for downloading models from Hugging Face. After that, everything runs on-device.'
         : step === 2
-          ? 'Here’s a small Q4_0 pick that usually fits. Download now if you like — or continue and choose from Models whenever you’re ready.'
-          : 'Open chat anytime. Pick or load a model from Models when you’re ready. You can review this guide anytime from Settings → About.';
+          ? 'Optional starter — download now or pick later from Models.'
+          : 'Open chat anytime. Load a model from Models when ready.';
 
   const primaryLabel =
     step === 2 ? 'Continue' : step === 3 ? 'Start chatting' : 'Continue';
@@ -215,7 +223,9 @@ export default function OnboardingScreen({
       : 'Load & chat'
     : busy
       ? progress != null
-        ? `Downloading ${Math.round(progress)}%`
+        ? progressDetail
+          ? `Downloading ${Math.round(progress)}% · ${progressDetail}`
+          : `Downloading ${Math.round(progress)}%`
         : 'Working…'
       : 'Download & load';
 
@@ -360,9 +370,7 @@ export default function OnboardingScreen({
                 lineHeight: 22,
               }}
             >
-              Tip: Prefer Q4_0 on Android when you want GPU/NPU offload. You don’t need a model yet —
-              open Models anytime to download or load one. Need a refresher later? Settings → About →
-              Review onboarding.
+              Tip: Q4_0 works best with Android GPU/NPU acceleration. Open Models anytime to download or load one.
             </Text>
           )}
         </ScrollView>

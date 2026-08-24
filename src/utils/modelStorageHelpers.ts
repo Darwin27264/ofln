@@ -1,5 +1,5 @@
 /**
- * Pure helpers for on-device GGUF storage (S19).
+ * Pure helpers for on-device GGUF storage.
  * No RNFS here — unit-testable without native FS.
  */
 

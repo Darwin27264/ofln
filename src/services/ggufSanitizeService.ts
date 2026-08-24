@@ -52,7 +52,7 @@ export const SAFE_CHAT_TEMPLATE_STUB = CHATML_STUB;
 /**
  * Qwen3.5 (and similar) ship a ~7.8KB multimodal Jinja that is under the 16KB
  * buffer limit but still breaks llama.rn template validation / formatting on
- * some Android devices (S25/S26 Ultra). Detect and replace with the text stub.
+ * some Android devices (notably on some Samsung devices). Detect and replace with the text stub.
  */
 export function looksLikeMultimodalChatTemplate(preview: string): boolean {
   const p = preview.toLowerCase();

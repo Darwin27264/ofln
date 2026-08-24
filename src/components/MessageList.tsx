@@ -1,6 +1,6 @@
 /**
  * Message list + empty-state greeting for the conversation canvas.
- * Presentational — ConversationScreen owns scroll/send/regenerate handlers (S04c).
+ * Presentational — ConversationScreen owns scroll/send/regenerate handlers.
  */
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
@@ -25,6 +25,7 @@ import { FrostedGlass } from './FrostedGlass';
 import { useTheme } from '../context/ThemeContext';
 import { createStyles } from '../styles/styles';
 import { ANIMATION_DURATIONS, EASING } from '../utils/animationConfig';
+import { formatTokensPerSecondLabel } from '../utils/accelChipDisplay';
 
 /** Match MessageMarkdown defaults so enter/exit edit does not change type size. */
 const USER_MSG_FONT_SIZE = 16;
@@ -131,7 +132,7 @@ export type MessageListProps = {
   onToggleThought: (absoluteIndex: number) => void;
   onCopyMessage: (content: string) => void;
   onRegenerateMessage: (visibleIndex: number) => void;
-  /** Speak / stop assistant reply via OS TTS (S29). */
+  /** Speak / stop assistant reply via OS TTS. */
   onSpeakMessage?: (content: string, visibleIndex: number) => void;
   /** When set, play button shows stop icon for this visible index. */
   speakingVisibleIndex?: number | null;
@@ -158,7 +159,7 @@ export type MessageListProps = {
   presetMessages: string[];
   presetIcons: Record<string, string>;
   onPresetMessage: (preset: string) => void;
-  /** Calm one-liner when context trim dropped older turns (S15). */
+  /** Calm one-liner when context trim dropped older turns. */
   showTrimNotice?: boolean;
 };
 
@@ -865,7 +866,7 @@ export function MessageList({
                               : undefined;
                         return typeof turnTps === 'number' && turnTps > 0 ? (
                           <Text style={[styles.tokenInfo, { marginTop: 0 }]}>
-                            {turnTps} tokens/s
+                            {formatTokensPerSecondLabel(turnTps)}
                           </Text>
                         ) : null;
                       })()}

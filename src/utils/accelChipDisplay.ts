@@ -1,6 +1,6 @@
 /**
- * Pure formatting for acceleration status (S21).
- * Used when writing to app logs — no native imports (Jest-safe).
+ * Pure formatting for acceleration status.
+ * Used when writing to app logs / calm UI chips — no native imports (Jest-safe).
  */
 
 export type AccelStatusSnapshotLike = {
@@ -16,8 +16,10 @@ export type AccelStatusSnapshotLike = {
 export type AccelLogDisplay = {
   /** Short status tag: CPU | GPU | NPU | Accel | none */
   shortLabel: string;
-  /** One-line log message */
+  /** One-line log / alert message */
   message: string;
+  /** Slightly longer calm copy for Settings-style alerts */
+  detailMessage: string;
   context: {
     available: boolean;
     availableKind: string;
@@ -57,9 +59,21 @@ export function formatAccelLogDisplay(
 
   const message = `${statusLine}. ${availableLine}`;
 
+  const hint =
+    snap.on === true
+      ? 'Layers are offloaded on this device for the current model.'
+      : snap.on === false && snap.available
+        ? 'Hardware is present, but this load is on CPU (quant allowlist, layers, or emulator). Prefer Q4_0 or Q6_K with GPU layers > 0.'
+        : snap.on === false
+          ? 'Running on CPU. OpenCL/Hexagon acceleration is Android-only and device-dependent.'
+          : 'Load a model to see whether GPU/NPU offload is active.';
+
+  const detailMessage = `${message}\n\n${hint}`;
+
   return {
     shortLabel,
     message,
+    detailMessage,
     context: {
       available: snap.available,
       availableKind: snap.availableKind,
@@ -69,4 +83,17 @@ export function formatAccelLogDisplay(
       summary: snap.summary,
     },
   };
+}
+
+/**
+ * Calm per-turn speed label for chat (matches Stages wording).
+ * Empty string when tps is missing or non-positive.
+ */
+export function formatTokensPerSecondLabel(tps: number): string {
+  if (typeof tps !== 'number' || !Number.isFinite(tps) || tps <= 0) {
+    return '';
+  }
+  const rounded =
+    tps >= 100 ? Math.round(tps) : Math.round(tps * 10) / 10;
+  return `${rounded} tok/s`;
 }

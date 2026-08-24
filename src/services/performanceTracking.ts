@@ -419,7 +419,7 @@ export function computeModelPerformanceStats(
   };
 }
 
-/** One completed run for personal history lists (Stages S22). */
+/** One completed run for personal history lists (Stages screen). */
 export type UsageHistoryEntry = {
   timestamp: number;
   tokensPerSecond: number;

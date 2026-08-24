@@ -1,5 +1,5 @@
 /**
- * AppState helpers for chat persistence flush (S16).
+ * AppState helpers for chat persistence flush.
  * Pure — no native side effects; useAIChat owns the actual save.
  */
 

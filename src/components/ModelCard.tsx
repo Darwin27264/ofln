@@ -36,7 +36,7 @@ import Icon from "react-native-vector-icons/MaterialIcons";
 import { useTheme } from "../context/ThemeContext";
 import CircularProgress from "./CircularProgress";
 import { ANIMATION_CONFIG, EASING, getStaggeredDelay } from "../utils/animationConfig";
-import { isThinkingModel } from "../utils/modelUtils";
+import { isThinkingModel, getQuantRecommendLabel } from "../utils/modelUtils";
 import type { RamFitResult } from "../services/ramFitService";
 import { explainRamFit, RAM_FIT_LABELS } from "../services/ramFitService";
 import { showAlert } from "./CustomAlert";
@@ -58,6 +58,12 @@ export interface ModelInfo {
   downloads?: number;
   tags?: string[];
   publishedDate?: string;
+  /** Calm shelf hint from curated starters (e.g. Fits most phones). */
+  shelfHint?: string;
+  /** HF repo tip / branch for resolve URLs (avoid hardcoding main). */
+  revision?: string;
+  /** Gated HF repo — needs token before files can be listed/downloaded. */
+  needsAuth?: boolean;
 }
 
 interface ModelCardProps {
@@ -68,6 +74,8 @@ interface ModelCardProps {
   /** Partial download paused — tap card/download to resume. */
   isPaused?: boolean;
   progress: number;
+  /** Optional speed · ETA under the percent while downloading. */
+  progressDetail?: string;
   isLoading: boolean;
   onDownload: () => void;
   onDelete: () => void;
@@ -80,7 +88,7 @@ interface ModelCardProps {
   // Animation control from parent
   isInitialAnimationPhase: boolean;
   animatedModelIds: React.MutableRefObject<Set<string>>;
-  /** S09 — RAM fit vs device total memory (omit when unknown). */
+  /** RAM fit vs device total memory (omit when unknown). */
   ramFit?: RamFitResult | null;
 }
 
@@ -154,6 +162,7 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
   isDownloading,
   isPaused = false,
   progress,
+  progressDetail,
   isLoading,
   onDownload,
   onDelete,
@@ -332,6 +341,10 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
 
   // Memoize quantization extraction and date formatting
   const modelQuantization = useMemo(() => extractQuantization(model.fileName), [model.fileName]);
+  const quantRecommend = useMemo(
+    () => (modelQuantization ? getQuantRecommendLabel(modelQuantization) : null),
+    [modelQuantization],
+  );
   const formattedPublishedDate = useMemo(() => {
     return model.publishedDate ? formatPublishedDate(model.publishedDate) : null;
   }, [model.publishedDate]);
@@ -468,6 +481,72 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                   </Text>
                 </View>
               )}
+              {model.needsAuth ? (
+                <View
+                  style={{
+                    backgroundColor: theme.colors.surface,
+                    paddingHorizontal: 6,
+                    paddingVertical: 2,
+                    borderRadius: 4,
+                  }}
+                  accessibilityLabel="Requires Hugging Face token"
+                >
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      color: theme.colors.warning,
+                      fontFamily: "Poppins",
+                      fontWeight: "500",
+                    }}
+                    numberOfLines={1}
+                  >
+                    Needs token
+                  </Text>
+                </View>
+              ) : null}
+              {model.shelfHint ? (
+                <View
+                  style={{
+                    backgroundColor: theme.colors.surface,
+                    paddingHorizontal: 6,
+                    paddingVertical: 2,
+                    borderRadius: 4,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      color: theme.colors.textSecondary,
+                      fontFamily: "Poppins",
+                    }}
+                    numberOfLines={1}
+                  >
+                    {model.shelfHint}
+                  </Text>
+                </View>
+              ) : null}
+              {quantRecommend === "Accel" ? (
+                <View
+                  style={{
+                    backgroundColor: theme.colors.surface,
+                    paddingHorizontal: 6,
+                    paddingVertical: 2,
+                    borderRadius: 4,
+                  }}
+                  accessibilityLabel="Quantization compatible with Android GPU or NPU acceleration"
+                >
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      color: theme.colors.textSecondary,
+                      fontFamily: "Poppins",
+                      fontWeight: "500",
+                    }}
+                  >
+                    Accel
+                  </Text>
+                </View>
+              ) : null}
               {model.availableQuants && model.availableQuants.length > 0 && (
                 <View
                   style={{
@@ -530,6 +609,21 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                 >
                   {progress}%
                 </Text>
+                {progressDetail ? (
+                  <Text
+                    style={{
+                      fontSize: 9,
+                      color: theme.colors.textTertiary,
+                      fontFamily: "Poppins",
+                      marginTop: 2,
+                      textAlign: "center",
+                      maxWidth: 88,
+                    }}
+                    numberOfLines={2}
+                  >
+                    {progressDetail}
+                  </Text>
+                ) : null}
               </View>
             ) : isPaused ? (
               <View style={{ alignItems: "center", justifyContent: "center" }}>
@@ -674,6 +768,7 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                       }}
                     >
                       {modelQuantization}
+                      {quantRecommend === "Accel" ? " · Accel" : ""}
                     </Text>
                   </View>
                 )}
@@ -921,10 +1016,13 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
     prevProps.isDownloading === nextProps.isDownloading &&
     prevProps.isPaused === nextProps.isPaused &&
     prevProps.progress === nextProps.progress &&
+    prevProps.progressDetail === nextProps.progressDetail &&
     prevProps.isLoading === nextProps.isLoading &&
     prevProps.isExpanded === nextProps.isExpanded &&
     prevProps.index === nextProps.index &&
     prevProps.isInitialAnimationPhase === nextProps.isInitialAnimationPhase &&
+    prevProps.model.shelfHint === nextProps.model.shelfHint &&
+    prevProps.model.needsAuth === nextProps.model.needsAuth &&
     prevProps.ramFit?.tier === nextProps.ramFit?.tier &&
     prevProps.ramFit?.fileBytes === nextProps.ramFit?.fileBytes &&
     prevProps.ramFit?.totalMemoryBytes === nextProps.ramFit?.totalMemoryBytes

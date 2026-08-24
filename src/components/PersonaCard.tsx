@@ -9,13 +9,13 @@ import {
   Text,
   TouchableOpacity,
   Animated,
-  Easing,
   InteractionManager,
 } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { useTheme } from "../context/ThemeContext";
 import { Persona } from "../services/personaService";
-import { ANIMATION_CONFIG, getStaggeredDelay } from "../utils/animationConfig";
+import { PersonaAvatar } from "./PersonaAvatar";
+import { ANIMATION_CONFIG, EASING, getStaggeredDelay } from "../utils/animationConfig";
 
 interface PersonaCardProps {
   persona: Persona;
@@ -146,13 +146,13 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
         Animated.timing(dropdownTranslateY, {
           toValue: 0,
           duration: 200,
-          easing: Easing.bezier(0.4, 0.0, 0.2, 1),
+          easing: EASING.STANDARD,
           useNativeDriver: true,
         }),
         Animated.timing(dropdownOpacity, {
           toValue: 1,
           duration: 180,
-          easing: Easing.bezier(0.4, 0.0, 0.2, 1),
+          easing: EASING.STANDARD,
           useNativeDriver: true,
         }),
       ]);
@@ -169,13 +169,13 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
         Animated.timing(dropdownTranslateY, {
           toValue: -20,
           duration: 150,
-          easing: Easing.bezier(0.4, 0.0, 1, 1),
+          easing: EASING.ACCELERATE,
           useNativeDriver: true,
         }),
         Animated.timing(dropdownOpacity, {
           toValue: 0,
           duration: 120,
-          easing: Easing.bezier(0.4, 0.0, 1, 1),
+          easing: EASING.ACCELERATE,
           useNativeDriver: true,
         }),
       ]);
@@ -223,21 +223,13 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
           onPress={onToggleExpand}
           activeOpacity={0.7}
         >
-          <View
-            style={{
-              width: 60,
-              height: 60,
-              borderRadius: 12,
-              backgroundColor: theme.colors.surface,
-              marginRight: 12,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Icon 
-              name="person" 
-              size={28} 
-              color={theme.colors.text} 
+          <View style={{ marginRight: 12 }}>
+            <PersonaAvatar
+              persona={persona}
+              size={60}
+              borderRadius={12}
+              backgroundColor={theme.colors.surface}
+              iconColor={theme.colors.text}
             />
           </View>
 
@@ -467,6 +459,8 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
     prevProps.persona.tagline === nextProps.persona.tagline &&
     prevProps.persona.tags?.join(',') === nextProps.persona.tags?.join(',') &&
     prevProps.persona.lastUsed === nextProps.persona.lastUsed &&
+    prevProps.persona.avatar === nextProps.persona.avatar &&
+    prevProps.persona.avatarUri === nextProps.persona.avatarUri &&
     prevProps.isExpanded === nextProps.isExpanded &&
     prevProps.index === nextProps.index &&
     prevProps.isInitialAnimationPhase === nextProps.isInitialAnimationPhase &&

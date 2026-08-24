@@ -1,5 +1,5 @@
 /**
- * S10 — actionable CTAs on model load failures (retry / models / lower ctx).
+ * Actionable CTAs on model load failures (retry / models / lower ctx).
  */
 
 import { showAlert } from '../components/CustomAlert';
@@ -121,7 +121,7 @@ function buildButtons(
   return buttons;
 }
 
-/** Show S03 copy with kind-aware primary actions. */
+/** Show load-failure copy with kind-aware primary actions. */
 export function showLoadFailureAlert(
   uf: UserFacingError,
   actions: LoadFailureActions = {},

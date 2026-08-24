@@ -1,22 +1,9 @@
 /**
- * AI Chat Service — Vercel AI SDK streamText orchestration
+ * AI chat service — Vercel AI SDK `streamText` orchestration and native completion.
  *
- * Replaces the manual `context.completion()` call in the legacy
- * `handleSendMessageCompletion` (llamaService.ts) with the Vercel AI
- * SDK's `streamText()`, while preserving:
- *
- *   - Thinking/reasoning block handling (Qwen3, DeepSeek R1)
- *   - Sliding-window context trimming
- *   - Performance metrics (tok/s, inference time)
- *   - Per-model settings (temperature, top_p, etc.)
- *   - Persona system prompt injection
- *   - Multimodal image embedding for vision models
- *
- * The service operates on the singleton `llamaProvider` and exposes a
- * simple `streamChat()` function consumable by the `useAIChat` hook.
- *
- * Model-family detection, prompt heuristics, completion params, think
- * parsing, and context trim live in `./inference`.
+ * Preserves thinking/reasoning parsing, context trim, performance metrics,
+ * per-model settings, persona prompts, and vision formatting. Consumed by
+ * `useAIChat`. Family detection and completion params live in `./inference`.
  */
 
 import { streamText } from 'ai';

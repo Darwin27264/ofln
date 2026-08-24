@@ -1,5 +1,5 @@
 /**
- * Pure helpers for platform speech-to-text → composer (S30).
+ * Pure helpers for platform speech-to-text → composer.
  */
 
 /** Merge existing composer text with a recognized utterance. */

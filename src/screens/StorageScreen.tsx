@@ -1,8 +1,8 @@
 /**
- * Storage manager (S19) — list on-device GGUF sizes; delete with confirm.
+ * Storage manager — list on-device GGUF sizes; delete with confirm.
  * Active model is unloaded by the parent before unlink when needed.
  * Also clears all saved chat history (separate section).
- * S32: Backup export/import (chats JSON or full ZIP + model re-download queue).
+ * Backup export/import: chats JSON or full ZIP + model re-download queue.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -48,6 +48,77 @@ export type StorageScreenProps = {
   }) => void | Promise<void>;
 };
 
+function SectionHeader({
+  title,
+  subtitle,
+  colors,
+}: {
+  title: string;
+  subtitle?: string;
+  colors: { text: string; textSecondary: string; textTertiary: string };
+}) {
+  return (
+    <View style={{ marginBottom: 10, paddingHorizontal: 2 }}>
+      <Text
+        style={{
+          fontFamily: 'Poppins',
+          fontSize: 13,
+          fontWeight: '600',
+          letterSpacing: 0.4,
+          color: colors.textSecondary,
+          textTransform: 'uppercase',
+        }}
+      >
+        {title}
+      </Text>
+      {subtitle ? (
+        <Text
+          style={{
+            fontFamily: 'Poppins',
+            fontSize: 13,
+            color: colors.textTertiary,
+            lineHeight: 18,
+            marginTop: 4,
+          }}
+        >
+          {subtitle}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function SectionCard({
+  children,
+  colors,
+  style,
+}: {
+  children: React.ReactNode;
+  colors: { card: string; border: string };
+  style?: object;
+}) {
+  return (
+    <View
+      style={[
+        {
+          borderRadius: 16,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          overflow: 'hidden',
+        },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
+
+function CardDivider({ color }: { color: string }) {
+  return <View style={{ height: 1, backgroundColor: color, marginHorizontal: 16 }} />;
+}
+
 function BackupActionButton({
   label,
   onPress,
@@ -55,6 +126,7 @@ function BackupActionButton({
   busy,
   colors,
   variant = 'default',
+  compact,
 }: {
   label: string;
   onPress: () => void;
@@ -66,34 +138,41 @@ function BackupActionButton({
     primary: string;
     primaryText: string;
     border: string;
+    surface: string;
   };
   variant?: 'default' | 'primary' | 'danger';
+  compact?: boolean;
 }) {
   const bg =
     variant === 'primary'
       ? colors.primary
       : variant === 'danger'
         ? colors.error + '18'
-        : colors.border + '55';
+        : colors.surface;
   const fg =
     variant === 'primary'
       ? colors.primaryText
       : variant === 'danger'
         ? colors.error
         : colors.text;
+  const bordered = variant === 'default';
 
   return (
     <TouchableOpacity
       onPress={onPress}
       disabled={disabled || busy}
       style={{
-        paddingVertical: 10,
+        flex: compact ? 1 : undefined,
+        paddingVertical: compact ? 12 : 13,
         paddingHorizontal: 14,
         borderRadius: 12,
         backgroundColor: bg,
+        borderWidth: bordered ? 1 : 0,
+        borderColor: bordered ? colors.border : 'transparent',
         opacity: disabled || busy ? 0.45 : 1,
-        marginBottom: 8,
         alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 44,
       }}
     >
       {busy ? (
@@ -102,10 +181,12 @@ function BackupActionButton({
         <Text
           style={{
             fontFamily: 'Poppins',
-            fontSize: 14,
+            fontSize: compact ? 13 : 14,
             fontWeight: '600',
             color: fg,
+            textAlign: 'center',
           }}
+          numberOfLines={2}
         >
           {label}
         </Text>
@@ -267,8 +348,8 @@ export default function StorageScreen({
         showAlert(
           'Exported',
           kind === 'chats'
-            ? `Saved ${result.chatCount} conversation${result.chatCount === 1 ? '' : 's'} as ${result.fileName}.\n\nChoose a safe place (Files, Drive, etc.) — never share raw chat backups.`
-            : `Saved full backup (${result.chatCount} chat${result.chatCount === 1 ? '' : 's'}, ${result.modelCount} model catalog entr${result.modelCount === 1 ? 'y' : 'ies'}) as ${result.fileName}.\n\nModels are re-downloaded on import (not embedded). HF tokens are never exported.`,
+            ? `Saved ${result.chatCount} conversation${result.chatCount === 1 ? '' : 's'} as ${result.fileName}.`
+            : `Saved full backup as ${result.fileName}. Model files aren’t included — they’ll download again on import.`,
           [{ text: 'OK' }],
           { textAlign: 'left' },
         );
@@ -370,7 +451,7 @@ export default function StorageScreen({
     if (exportBusy || importBusy) return;
     showAlert(
       'Import backup',
-      'Choose how to apply the selected backup.\n\nMerge keeps your current data and updates matching items.\nReplace overwrites chats and personas from the file (local-only items may be lost).',
+      'Merge keeps your data and updates matching items.\nReplace overwrites chats and personas from the file.',
       [
         {
           text: 'Merge',
@@ -403,22 +484,23 @@ export default function StorageScreen({
         { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
       ]}
     >
-      <Text style={[styles.settingsTitle, { marginBottom: 8 }]}>Storage</Text>
+      <Text style={[styles.settingsTitle, { marginBottom: 6 }]}>Storage</Text>
       <Text
         style={{
           fontFamily: 'Poppins',
           fontSize: 14,
           color: theme.colors.textSecondary,
-          marginBottom: 20,
+          marginBottom: 24,
           lineHeight: 20,
         }}
       >
-        Manage models and chat data on this device. Export backups to move to another phone.
+        Manage models and chats. Export a backup before clearing data.
       </Text>
 
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -431,315 +513,355 @@ export default function StorageScreen({
           />
         }
       >
-        <View
-          style={{
-            paddingVertical: 12,
-            paddingHorizontal: 14,
-            borderRadius: 14,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            backgroundColor: theme.colors.surface,
-            marginBottom: 16,
-          }}
-        >
-          <Text
-            style={{
-              fontFamily: 'Poppins',
-              fontSize: 12,
-              fontWeight: '600',
-              letterSpacing: 0.6,
-              color: theme.colors.textSecondary,
-              textTransform: 'uppercase',
-              marginBottom: 6,
-            }}
-          >
-            Models on device
-          </Text>
-          <Text
-            style={{
-              fontFamily: 'Poppins',
-              fontSize: 16,
-              color: theme.colors.text,
-            }}
-          >
-            {loading ? '…' : formatBytesShort(totalBytes)}
-            {!loading && models.length > 0
-              ? ` · ${models.length} file${models.length === 1 ? '' : 's'}`
-              : null}
-          </Text>
-          {freeBytes != null && (
+        {/* —— Models —— */}
+        <SectionHeader
+          title="Models"
+          subtitle="Downloaded GGUF files on this device"
+          colors={theme.colors}
+        />
+        <SectionCard colors={theme.colors} style={{ marginBottom: 32 }}>
+          <View style={{ padding: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontFamily: 'Poppins',
+                    fontSize: 28,
+                    fontWeight: '600',
+                    color: theme.colors.text,
+                    letterSpacing: -0.5,
+                  }}
+                >
+                  {loading ? '…' : formatBytesShort(totalBytes)}
+                </Text>
+                <Text
+                  style={{
+                    fontFamily: 'Poppins',
+                    fontSize: 14,
+                    color: theme.colors.textSecondary,
+                    marginTop: 2,
+                  }}
+                >
+                  {loading
+                    ? 'Calculating…'
+                    : models.length === 0
+                      ? 'No model files'
+                      : `${models.length} file${models.length === 1 ? '' : 's'}`}
+                </Text>
+              </View>
+              {freeBytes != null && !loading && (
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text
+                    style={{
+                      fontFamily: 'Poppins',
+                      fontSize: 12,
+                      color: theme.colors.textTertiary,
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.3,
+                    }}
+                  >
+                    Free space
+                  </Text>
+                  <Text
+                    style={{
+                      fontFamily: 'Poppins',
+                      fontSize: 16,
+                      fontWeight: '600',
+                      color: theme.colors.text,
+                      marginTop: 2,
+                    }}
+                  >
+                    {formatBytesShort(freeBytes)}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {loading ? (
+            <View style={{ paddingVertical: 28, alignItems: 'center' }}>
+              <ActivityIndicator color={theme.colors.text} />
+            </View>
+          ) : models.length === 0 ? (
+            <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+              <Text
+                style={{
+                  fontFamily: 'Poppins',
+                  fontSize: 14,
+                  color: theme.colors.textSecondary,
+                  lineHeight: 20,
+                }}
+              >
+                No model files yet. Download one from Models.
+              </Text>
+            </View>
+          ) : (
+            <>
+              <CardDivider color={theme.colors.border} />
+              {models.map((file, index) => {
+                const isActive = activeModelFileName === file.fileName;
+                const busy = busyFile === file.fileName;
+                const isLast = index === models.length - 1;
+                return (
+                  <View
+                    key={file.fileName}
+                    style={{
+                      paddingVertical: 14,
+                      paddingHorizontal: 16,
+                      borderBottomWidth: isLast ? 0 : 1,
+                      borderBottomColor: theme.colors.border,
+                    }}
+                  >
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <View style={{ flex: 1, paddingRight: 12, minWidth: 0 }}>
+                        <Text
+                          style={{
+                            fontFamily: 'Poppins',
+                            fontSize: 14,
+                            fontWeight: '600',
+                            color: theme.colors.text,
+                          }}
+                          numberOfLines={2}
+                        >
+                          {file.fileName}
+                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 8 }}>
+                          <Text
+                            style={{
+                              fontFamily: 'Poppins',
+                              fontSize: 13,
+                              color: theme.colors.textSecondary,
+                            }}
+                          >
+                            {formatBytesShort(file.sizeBytes)}
+                          </Text>
+                          {isActive && (
+                            <View
+                              style={{
+                                backgroundColor: theme.colors.primary + '22',
+                                paddingHorizontal: 8,
+                                paddingVertical: 2,
+                                borderRadius: 6,
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  fontFamily: 'Poppins',
+                                  fontSize: 11,
+                                  fontWeight: '600',
+                                  color: theme.colors.text,
+                                }}
+                              >
+                                Loaded
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => confirmDelete(file)}
+                        disabled={busy || backupLocked}
+                        accessibilityLabel={`Delete ${file.fileName}`}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={{
+                          paddingVertical: 8,
+                          paddingHorizontal: 12,
+                          borderRadius: 10,
+                          backgroundColor: theme.colors.error + '14',
+                          opacity: busy || backupLocked ? 0.5 : 1,
+                        }}
+                      >
+                        {busy ? (
+                          <ActivityIndicator size="small" color={theme.colors.error} />
+                        ) : (
+                          <Ionicons name="trash-outline" size={18} color={theme.colors.error} />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+            </>
+          )}
+        </SectionCard>
+
+        {/* —— Chat history —— */}
+        <SectionHeader
+          title="Chat history"
+          subtitle="Saved on this device only"
+          colors={theme.colors}
+        />
+        <SectionCard colors={theme.colors} style={{ marginBottom: 32 }}>
+          <View style={{ padding: 16 }}>
+            <Text
+              style={{
+                fontFamily: 'Poppins',
+                fontSize: 22,
+                fontWeight: '600',
+                color: theme.colors.text,
+              }}
+            >
+              {chatCountLoading
+                ? '…'
+                : chatCount === 0
+                  ? 'None'
+                  : `${chatCount}`}
+            </Text>
+            <Text
+              style={{
+                fontFamily: 'Poppins',
+                fontSize: 14,
+                color: theme.colors.textSecondary,
+                marginTop: 2,
+              }}
+            >
+              {chatCountLoading
+                ? 'Loading…'
+                : chatCount === 0
+                  ? 'No saved conversations'
+                  : `conversation${chatCount === 1 ? '' : 's'}`}
+            </Text>
             <Text
               style={{
                 fontFamily: 'Poppins',
                 fontSize: 13,
                 color: theme.colors.textTertiary,
-                marginTop: 4,
+                lineHeight: 18,
+                marginTop: 10,
               }}
             >
-              {formatBytesShort(freeBytes)} free
+              Export a backup below before clearing.
             </Text>
-          )}
-        </View>
-
-        {loading ? (
-          <View style={{ paddingVertical: 32, alignItems: 'center' }}>
-            <ActivityIndicator color={theme.colors.text} />
-          </View>
-        ) : models.length === 0 ? (
-          <Text
-            style={{
-              fontFamily: 'Poppins',
-              fontSize: 14,
-              color: theme.colors.textSecondary,
-              marginBottom: 8,
-            }}
-          >
-            No model files yet. Download one from Models.
-          </Text>
-        ) : (
-          models.map((file) => {
-            const isActive = activeModelFileName === file.fileName;
-            const busy = busyFile === file.fileName;
-            return (
-              <View
-                key={file.fileName}
-                style={{
-                  paddingVertical: 14,
-                  paddingHorizontal: 14,
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                  backgroundColor: theme.colors.card,
-                  marginBottom: 10,
-                }}
-              >
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'flex-start',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <View style={{ flex: 1, paddingRight: 12 }}>
-                    <Text
-                      style={{
-                        fontFamily: 'Poppins',
-                        fontSize: 15,
-                        fontWeight: '600',
-                        color: theme.colors.text,
-                      }}
-                      numberOfLines={2}
-                    >
-                      {file.fileName}
-                    </Text>
-                    <Text
-                      style={{
-                        fontFamily: 'Poppins',
-                        fontSize: 13,
-                        color: theme.colors.textSecondary,
-                        marginTop: 4,
-                      }}
-                    >
-                      {formatBytesShort(file.sizeBytes)}
-                      {isActive ? ' · Loaded' : ''}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => confirmDelete(file)}
-                    disabled={busy || backupLocked}
-                    accessibilityLabel={`Delete ${file.fileName}`}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            <TouchableOpacity
+              onPress={confirmClearChatHistory}
+              disabled={!canClearChats || backupLocked}
+              accessibilityLabel="Clear all chat history"
+              style={{
+                marginTop: 16,
+                alignSelf: 'flex-start',
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                borderRadius: 12,
+                backgroundColor: theme.colors.error + '14',
+                opacity: canClearChats && !backupLocked ? 1 : 0.45,
+              }}
+            >
+              {clearingChats ? (
+                <ActivityIndicator size="small" color={theme.colors.error} />
+              ) : (
+                <>
+                  <Ionicons
+                    name="trash-outline"
+                    size={18}
+                    color={theme.colors.error}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text
                     style={{
-                      paddingVertical: 8,
-                      paddingHorizontal: 12,
-                      borderRadius: 12,
-                      backgroundColor: theme.colors.error + '18',
-                      opacity: busy || backupLocked ? 0.5 : 1,
+                      fontFamily: 'Poppins',
+                      fontSize: 14,
+                      fontWeight: '600',
+                      color: theme.colors.error,
                     }}
                   >
-                    {busy ? (
-                      <ActivityIndicator size="small" color={theme.colors.error} />
-                    ) : (
-                      <Text
-                        style={{
-                          fontFamily: 'Poppins',
-                          fontSize: 14,
-                          fontWeight: '600',
-                          color: theme.colors.error,
-                        }}
-                      >
-                        Delete
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            );
-          })
-        )}
+                    Clear all history
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </SectionCard>
 
-        <View
-          style={{
-            marginTop: 24,
-            paddingVertical: 14,
-            paddingHorizontal: 14,
-            borderRadius: 14,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            backgroundColor: theme.colors.surface,
-          }}
-        >
-          <Text
-            style={{
-              fontFamily: 'Poppins',
-              fontSize: 12,
-              fontWeight: '600',
-              letterSpacing: 0.6,
-              color: theme.colors.textSecondary,
-              textTransform: 'uppercase',
-              marginBottom: 6,
-            }}
-          >
-            Chat history
-          </Text>
-          <Text
-            style={{
-              fontFamily: 'Poppins',
-              fontSize: 16,
-              color: theme.colors.text,
-              marginBottom: 4,
-            }}
-          >
-            {chatCountLoading
-              ? '…'
-              : chatCount === 0
-                ? 'No saved conversations'
-                : `${chatCount} conversation${chatCount === 1 ? '' : 's'}`}
-          </Text>
-          <Text
-            style={{
-              fontFamily: 'Poppins',
-              fontSize: 13,
-              color: theme.colors.textTertiary,
-              lineHeight: 18,
-              marginBottom: 14,
-            }}
-          >
-            Saved chats stay on this device only. Clearing removes every conversation
-            permanently. Use Backup & restore below to keep a copy first.
-          </Text>
-          <TouchableOpacity
-            onPress={confirmClearChatHistory}
-            disabled={!canClearChats || backupLocked}
-            accessibilityLabel="Clear all chat history"
-            style={{
-              alignSelf: 'flex-end',
-              paddingVertical: 8,
-              paddingHorizontal: 12,
-              borderRadius: 12,
-              backgroundColor: theme.colors.error + '18',
-              opacity: canClearChats && !backupLocked ? 1 : 0.45,
-            }}
-          >
-            {clearingChats ? (
-              <ActivityIndicator size="small" color={theme.colors.error} />
-            ) : (
-              <Text
-                style={{
-                  fontFamily: 'Poppins',
-                  fontSize: 14,
-                  fontWeight: '600',
-                  color: theme.colors.error,
-                }}
-              >
-                Clear all
-              </Text>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        <View
-          style={{
-            marginTop: 24,
-            paddingVertical: 14,
-            paddingHorizontal: 14,
-            borderRadius: 14,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            backgroundColor: theme.colors.surface,
-          }}
-        >
-          <Text
-            style={{
-              fontFamily: 'Poppins',
-              fontSize: 12,
-              fontWeight: '600',
-              letterSpacing: 0.6,
-              color: theme.colors.textSecondary,
-              textTransform: 'uppercase',
-              marginBottom: 6,
-            }}
-          >
-            Backup & restore
-          </Text>
-          <Text
-            style={{
-              fontFamily: 'Poppins',
-              fontSize: 13,
-              color: theme.colors.textTertiary,
-              lineHeight: 18,
-              marginBottom: 14,
-            }}
-          >
-            Export chats only, or everything (chats, personas, settings, model
-            catalog). Full backups use a ZIP with versioned JSON — GGUF files
-            re-download on import (smallest first, max 2 at a time). Hugging Face
-            tokens are never exported. You’ll pick where to save with the system
-            file picker.
-          </Text>
-
-          <BackupActionButton
-            label="Export chat history"
-            onPress={() => void runExport('chats')}
-            busy={exportBusy === 'chats'}
-            disabled={backupLocked && exportBusy !== 'chats'}
-            colors={theme.colors}
-            variant="default"
-          />
-          <BackupActionButton
-            label="Export full backup (ZIP)"
-            onPress={() => void runExport('full')}
-            busy={exportBusy === 'full'}
-            disabled={backupLocked && exportBusy !== 'full'}
-            colors={theme.colors}
-            variant="default"
-          />
-
-          <View style={{ height: 8 }} />
-
-          <BackupActionButton
-            label="Import backup"
-            onPress={confirmImport}
-            busy={importBusy}
-            disabled={backupLocked}
-            colors={theme.colors}
-            variant="primary"
-          />
-
-          {importStatus ? (
+        {/* —— Backup —— */}
+        <SectionHeader
+          title="Backup & restore"
+          subtitle="Model files re-download on restore; tokens are never included"
+          colors={theme.colors}
+        />
+        <SectionCard colors={theme.colors}>
+          <View style={{ padding: 16 }}>
             <Text
               style={{
                 fontFamily: 'Poppins',
-                fontSize: 12,
+                fontSize: 13,
+                fontWeight: '600',
                 color: theme.colors.textSecondary,
-                marginTop: 8,
-                lineHeight: 17,
+                marginBottom: 10,
+                textTransform: 'uppercase',
+                letterSpacing: 0.3,
               }}
             >
-              {importStatus}
+              Export
             </Text>
-          ) : null}
-        </View>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <BackupActionButton
+                label="Chats only"
+                onPress={() => void runExport('chats')}
+                busy={exportBusy === 'chats'}
+                disabled={backupLocked && exportBusy !== 'chats'}
+                colors={theme.colors}
+                variant="default"
+                compact
+              />
+              <BackupActionButton
+                label="Full backup"
+                onPress={() => void runExport('full')}
+                busy={exportBusy === 'full'}
+                disabled={backupLocked && exportBusy !== 'full'}
+                colors={theme.colors}
+                variant="default"
+                compact
+              />
+            </View>
+          </View>
+
+          <CardDivider color={theme.colors.border} />
+
+          <View style={{ padding: 16 }}>
+            <Text
+              style={{
+                fontFamily: 'Poppins',
+                fontSize: 13,
+                fontWeight: '600',
+                color: theme.colors.textSecondary,
+                marginBottom: 10,
+                textTransform: 'uppercase',
+                letterSpacing: 0.3,
+              }}
+            >
+              Import
+            </Text>
+            <BackupActionButton
+              label="Import backup"
+              onPress={confirmImport}
+              busy={importBusy}
+              disabled={backupLocked}
+              colors={theme.colors}
+              variant="primary"
+            />
+            {importStatus ? (
+              <Text
+                style={{
+                  fontFamily: 'Poppins',
+                  fontSize: 12,
+                  color: theme.colors.textSecondary,
+                  marginTop: 12,
+                  lineHeight: 17,
+                }}
+              >
+                {importStatus}
+              </Text>
+            ) : null}
+          </View>
+        </SectionCard>
       </ScrollView>
 
       <View

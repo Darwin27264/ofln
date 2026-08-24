@@ -236,7 +236,7 @@ export interface ParseOptions {
   /** Maximum pages to keep from PDF text split */
   maxPages?: number;
   /**
-   * Char budget for injected document/OCR text (S27).
+   * Char budget for injected document/OCR text.
    * Prefer `documentInjectCharBudget(n_ctx, n_predict)` from the active model.
    */
   maxChars?: number;

@@ -1,5 +1,5 @@
 /**
- * Chat history service (S12) — SQLite via op-sqlite, same public API.
+ * Chat history service — SQLite via op-sqlite, same public API.
  * One-time migrate from AsyncStorage `@chat_history` with backup key.
  */
 
@@ -366,7 +366,7 @@ class ChatHistoryService {
   }
 
   /**
-   * Bulk import for backup restore (S32).
+   * Bulk import for backup restore.
    * mode replace = clear then insert; merge = upsert by id (import wins).
    * @returns number of chats written (not necessarily net gain on merge)
    */
@@ -433,7 +433,7 @@ class ChatHistoryService {
   }
 
   /**
-   * Search title / custom title / preview / message JSON (S13).
+   * Search title / custom title / preview / message JSON.
    * Empty query → same as getAllChats. SQLite uses LIKE; AsyncStorage filters in JS.
    */
   async searchChats(query: string): Promise<ChatConversation[]> {

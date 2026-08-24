@@ -31,6 +31,12 @@ import {
 } from "react-native";
 import RNFS from "react-native-fs";
 import { hfAxiosGet } from "../services/hfTokenService";
+import {
+  buildQuantOptions,
+  filterMobileFriendlyGgufs,
+  parseHuggingFaceUrl,
+  pickPreferredGgufFile,
+} from "../services/hfModelHelpers";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
@@ -47,6 +53,7 @@ import { prettifyModelName, getQuantRecommendLabel } from "../utils/modelUtils";
 import {
   createCancellationToken,
   DownloadCancellationToken,
+  DownloadProgressInfo,
   discardPartialDownload,
   getPausedDownloadProgress,
   isDownloadPausedError,
@@ -70,6 +77,13 @@ import {
   diskPreflightAlertMessage,
   parseSizeToBytes,
 } from "../utils/diskPreflight";
+import {
+  STARTER_SHELF_SUBTITLE,
+  STARTER_SHELF_TITLE,
+  findStarterByFileName,
+  getAvailableStarterModels,
+} from "../services/starterModels";
+import { formatDownloadProgressLine } from "../utils/downloadProgressFormat";
 
 // Type for quantization options (used internally in this file)
 interface QuantizationOption {
@@ -85,9 +99,10 @@ interface ModelSelectionScreenProps {
   handleDownloadModel: (
     file: string,
     repoId: string,
-    onProgress: (progress: number) => void,
+    onProgress: (progress: number, info?: DownloadProgressInfo) => void,
     cancellationToken?: import("../api/model").DownloadCancellationToken,
     expectedBytes?: number | null,
+    revision?: string | null,
   ) => Promise<void>;
   setContext: (context: any) => void;
   setCurrentPage: (page: "modelSelection" | "conversation" | "settings" | "stages" | "modelSettings" | "hfToken") => void;
@@ -99,8 +114,10 @@ interface ModelSelectionScreenProps {
 
 // Removed utility functions - now imported from utils/modelUtils.ts
 
-// Reputable Hugging Face authors for GGUF models
-// Keep alphabetised blocks by type: mirror hubs first, then vendor-official.
+/**
+ * Curated shelf lives in `src/services/starterModels.ts` (Start here).
+ * Authors below are for Hugging Face browse ranking only.
+ */
 const REPUTABLE_AUTHORS = [
   "TheBloke",
   "bartowski",
@@ -121,110 +138,6 @@ const REPUTABLE_AUTHORS = [
   "google",
   "HuggingFaceTB",
 ];
-
-/**
- * Popular models optimized for mobile (pre-selected quantization).
- *
- * Selection principles:
- *  • Q4_0 is preferred for models whose runtime we can offload to
- *    OpenCL (Adreno 700+) / Hexagon NPU — the acceleration layer in
- *    `modelInfoService.isQuantAllowedForAndroidAccel` currently
- *    allow-lists Q4_0 and Q6_K.
- *  • Keep the curated list short (6) and cover distinct tiers:
- *    flagship thinking, flagship general, balanced, math, multilingual, ultra-light.
- *  • Community non-gated mirrors (Unsloth / bartowski) so downloads work
- *    without a HuggingFace auth token — the app's `downloadModel()`
- *    fetches the raw `resolve/main/...` URL unauthenticated.
- *  • Gemma 4 requires llama.rn ≥ 0.12.5 (Gemma MTP / gemma4 arch).
- *  • All repoIds and filenames here have been verified against the
- *    HuggingFace API — do not rename without re-verifying.
- */
-const POPULAR_MODELS: ModelInfo[] = [
-  {
-    id: "qwen35-08b-q40",
-    name: "Qwen3.5 0.8B Instruct (Q4_0)",
-    repoId: "unsloth/Qwen3.5-0.8B-GGUF",
-    fileName: "Qwen3.5-0.8B-Q4_0.gguf",
-    size: "0.51 GB",
-    description:
-      "Best for emulator / low-RAM testing (~0.5 GB). Loads on typical AVDs; Q4_0 acceleration-compatible on real devices.",
-    author: "unsloth",
-    tags: ["emulator", "low-ram", "q4_0", "instruct", "thinking"],
-  },
-  {
-    id: "qwen35-2b-q40",
-    name: "Qwen3.5 2B Instruct (Q4_0)",
-    repoId: "unsloth/Qwen3.5-2B-GGUF",
-    fileName: "Qwen3.5-2B-Q4_0.gguf",
-    size: "1.13 GB",
-    description:
-      "Balanced mobile pick. Thinking-capable and compact — good next step after 0.8B on phones or AVDs with 4GB+ RAM.",
-    author: "unsloth",
-    tags: ["instruct", "thinking", "small", "q4_0"],
-  },
-  {
-    id: "qwen35-4b-q40",
-    name: "Qwen3.5 4B Instruct (Q4_0)",
-    repoId: "unsloth/Qwen3.5-4B-GGUF",
-    fileName: "Qwen3.5-4B-Q4_0.gguf",
-    size: "2.41 GB",
-    description:
-      "Flagship thinking model. Hybrid reasoning toggle, strong at code and math. Needs ~3.5 GB RAM (too large for most emulators).",
-    author: "unsloth",
-    tags: ["instruct", "thinking", "code", "q4_0"],
-  },
-  {
-    id: "gemma4-e2b-q40",
-    name: "Gemma 4 E2B IT (Q4_0)",
-    repoId: "unsloth/gemma-4-E2B-it-GGUF",
-    fileName: "gemma-4-E2B-it-Q4_0.gguf",
-    size: "3.04 GB",
-    description:
-      "Flagship general-purpose. Google's on-device-first Gemma 4 efficient tier; Q4_0 enables OpenCL / Hexagon NPU offload. Text-only here (mmproj vision not auto-downloaded).",
-    author: "unsloth",
-    tags: ["instruct", "gemma4", "q4_0"],
-  },
-  {
-    id: "phi4-mini-q40",
-    name: "Phi-4 Mini Instruct (Q4_0)",
-    repoId: "bartowski/microsoft_Phi-4-mini-instruct-GGUF",
-    fileName: "microsoft_Phi-4-mini-instruct-Q4_0.gguf",
-    size: "2.33 GB",
-    description:
-      "Microsoft's 3.8B reasoning specialist. Strong math and logic; 128K context, native function calling. Q4_0 for Android acceleration.",
-    author: "bartowski",
-    tags: ["instruct", "reasoning", "math", "tools", "q4_0"],
-  },
-  {
-    id: "smollm3-3b-q40",
-    name: "SmolLM3 3B (Q4_0)",
-    repoId: "unsloth/SmolLM3-3B-GGUF",
-    fileName: "SmolLM3-3B-Q4_0.gguf",
-    size: "1.82 GB",
-    description:
-      "Compact daily driver from HuggingFace. Optional /think reasoning mode, 64K context, 8 languages. Successor to SmolLM2.",
-    author: "unsloth",
-    tags: ["instruct", "thinking", "multilingual", "q4_0"],
-  },
-];
-
-/**
- * Parse a HuggingFace URL into a repo ID and optional file name.
- * Supports formats:
- *   https://huggingface.co/author/model
- *   https://huggingface.co/author/model/tree/main
- *   https://huggingface.co/author/model/blob/main/file.gguf
- *   https://huggingface.co/author/model/resolve/main/file.gguf
- */
-function parseHuggingFaceUrl(url: string): { repoId: string; fileName?: string } | null {
-  url = url.trim();
-  const hfRegex = /^https?:\/\/huggingface\.co\/([^\/\s]+\/[^\/\s]+?)(?:\/(?:tree|blob|resolve)\/[^\/\s]+(?:\/(.+?))?)?(?:\?.*)?$/;
-  const match = url.match(hfRegex);
-  if (!match) return null;
-  const repoId = match[1];
-  const fileName = match[2]?.toLowerCase().endsWith('.gguf') ? match[2] : undefined;
-  return { repoId, fileName };
-}
 
 export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const { theme } = useTheme();
@@ -266,10 +179,14 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const [isFetchingHF, setIsFetchingHF] = useState<boolean>(false);
   const [hfModels, setHfModels] = useState<ModelInfo[]>([]);
   const [downloadProgress, setDownloadProgress] = useState<{ [key: string]: number }>({});
+  /** Secondary line under % (speed · ETA) while a download is active. */
+  const [downloadProgressDetail, setDownloadProgressDetail] = useState<{
+    [key: string]: string;
+  }>({});
   const [downloadCancellationTokens, setDownloadCancellationTokens] = useState<{ [key: string]: DownloadCancellationToken }>({});
   /** Paused partials — progress retained; tap download to resume. */
   const [pausedDownloads, setPausedDownloads] = useState<{ [key: string]: number }>({});
-  /** S09 — device total RAM for fit chips (null until read / unavailable). */
+  /** Device total RAM for fit chips (null until read / unavailable). */
   const [totalMemoryBytes, setTotalMemoryBytes] = useState<number | null>(null);
 
   useEffect(() => {
@@ -688,12 +605,12 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           
           // If no models found with search strategies, log for debugging
           if (modelBatch.length === 0) {
-            console.warn(`⚠️ No models found for author "${author}" after trying all search strategies`);
+            console.warn(`No models found for author "${author}" after trying all search strategies`);
             console.log(`Tried search terms: ${searchStrategies.join(', ')}`);
             // Continue to next author - the search might not work for all authors
             // This could be due to API limitations or author name variations
           } else {
-            console.log(`✅ Found ${modelBatch.length} total models for author "${author}"`);
+            console.log(`Found ${modelBatch.length} total models for author "${author}"`);
           }
           
           // Now process the filtered models
@@ -730,38 +647,75 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                 const errorMsg = fetchError?.response?.status 
                   ? `HTTP ${fetchError.response.status}` 
                   : fetchError?.message || 'Network error';
-                console.warn(`⚠️ Failed to fetch model files for ${modelId}: ${errorMsg}`);
+                console.warn(`Failed to fetch model files for ${modelId}: ${errorMsg}`);
                 continue; // Skip this model and continue to next
               }
               
               // Check for API errors (401, 403, 404, etc.)
               if (filesResponse?.status === 401 || filesResponse?.status === 403) {
-                // Model requires authentication - skip it
                 const modelId = model?.id || "unknown";
-                console.log(`🔒 Model ${modelId} requires authentication - skipping`);
+                console.log(`🔒 Model ${modelId} requires authentication — showing gated card`);
+                let repoName = modelId;
+                let prettyName = modelId;
+                try {
+                  repoName = modelId.split("/").pop() || modelId;
+                  prettyName = prettifyModelName(repoName);
+                } catch {
+                  // keep defaults
+                }
+                let author = "";
+                try {
+                  author = modelId.split("/")[0] || "";
+                } catch {
+                  author = "";
+                }
+                const gatedKey = `${modelId}:__needs_auth__`;
+                if (!existingModelKeys.has(gatedKey)) {
+                  const gatedInfo: ModelInfo = {
+                    id: modelId,
+                    name: prettyName || repoName,
+                    repoId: modelId,
+                    fileName: gatedKey,
+                    description: "Gated on Hugging Face. Add a token to download.",
+                    author,
+                    needsAuth: true,
+                    shelfHint: "Needs HF token",
+                    tags: Array.isArray(model.tags) ? model.tags : [],
+                    downloads: model.downloads || undefined,
+                  };
+                  newModels.push(gatedInfo);
+                  currentProcessed.add(model.id);
+                  existingModelIds.add(model.id);
+                  existingModelKeys.add(gatedKey);
+                  modelsFound++;
+                }
                 continue;
               }
               
               if (filesResponse?.status === 404) {
                 // Model not found - skip it
                 const modelId = model?.id || "unknown";
-                console.log(`❌ Model ${modelId} not found - skipping`);
+                console.log(`Model ${modelId} not found - skipping`);
                 continue;
               }
               
               // Validate response data exists
               if (!filesResponse?.data) {
                 const modelId = model?.id || "unknown";
-                console.warn(`⚠️ No data returned for model ${modelId} - skipping`);
+                console.warn(`No data returned for model ${modelId} - skipping`);
                 continue;
               }
               
               const siblings = filesResponse.data?.siblings || [];
+              const revision =
+                typeof filesResponse.data?.sha === "string"
+                  ? filesResponse.data.sha
+                  : undefined;
               
               // Validate siblings is an array
               if (!Array.isArray(siblings)) {
                 const modelId = model?.id || "unknown";
-                console.warn(`⚠️ Invalid siblings data for model ${modelId} - skipping`);
+                console.warn(`Invalid siblings data for model ${modelId} - skipping`);
                 continue;
               }
               
@@ -778,36 +732,14 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
               }
               
               try {
-                // Filter for mobile-friendly quantizations
-                const mobileQuants = allGgufFiles.filter((f: any) => {
-                  if (!f || !f.rfilename) return false;
-                  const filename = f.rfilename.toLowerCase() || "";
-                  return filename.includes("q4_k_m") || filename.includes("q4_k_s") || 
-                         filename.includes("q5_k_m") || filename.includes("q8_0") ||
-                         filename.includes("q3_k_m") || filename.includes("q2_k") ||
-                         filename.includes("q4_0") || filename.includes("q5_0");
-                });
-
-                // If no mobile-friendly quants, use all GGUF files
-                const ggufFiles = mobileQuants.length > 0 ? mobileQuants : allGgufFiles;
-
-                // Prefer Q4_K_M for mobile, then Q4_K_S, then Q5_K_M, then Q8_0, then Q3_K_M
-                const preferredFile = ggufFiles.find((f: any) => 
-                  f?.rfilename?.toLowerCase().includes("q4_k_m")
-                ) || ggufFiles.find((f: any) => 
-                  f?.rfilename?.toLowerCase().includes("q4_k_s")
-                ) || ggufFiles.find((f: any) => 
-                  f?.rfilename?.toLowerCase().includes("q5_k_m")
-                ) || ggufFiles.find((f: any) => 
-                  f?.rfilename?.toLowerCase().includes("q8_0")
-                ) || ggufFiles.find((f: any) => 
-                  f?.rfilename?.toLowerCase().includes("q3_k_m")
-                ) || ggufFiles[0];
+                // Prefer Accel (Q4_0 / Q6_K), then other phone-friendly quants
+                const ggufFiles = filterMobileFriendlyGgufs(allGgufFiles);
+                const preferredFile = pickPreferredGgufFile(ggufFiles);
 
                 // Validate preferredFile exists and has required properties
                 if (!preferredFile || !preferredFile.rfilename) {
                   const modelId = model?.id || "unknown";
-                  console.warn(`⚠️ No valid file found for model ${modelId} - skipping`);
+                  console.warn(`No valid file found for model ${modelId} - skipping`);
                   continue;
                 }
 
@@ -819,45 +751,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   continue;
                 }
 
-                // Extract quantization info from all GGUF files with error handling
-                let availableQuants: QuantizationOption[] = [];
-                try {
-                  const quantOptions: (QuantizationOption | null)[] = ggufFiles
-                    .filter((f: any) => f && f.rfilename) // Filter out invalid files
-                    .map((f: any) => {
-                      try {
-                        const filename = f.rfilename || "";
-                        // Extract quantization from filename
-                        const quantMatch = filename.match(/(q[0-9]_[km]|q[0-9]_[0-9]|q[0-9]k_[ms]|q[0-9]k_m|q[0-9]k_s)/i);
-                        const quantization = quantMatch ? quantMatch[0].toUpperCase() : "UNKNOWN";
-                        
-                        return {
-                          fileName: f.rfilename,
-                          size: f.size || 0,
-                          quantization: quantization,
-                        } as QuantizationOption;
-                      } catch (quantError) {
-                        // Skip invalid quantization entries
-                        return null;
-                      }
-                    });
-                  
-                  // Filter out null values and sort
-                  availableQuants = quantOptions
-                    .filter((q): q is QuantizationOption => q !== null)
-                    .sort((a: QuantizationOption, b: QuantizationOption) => {
-                      // Sort by quantization quality (rough estimate)
-                      const quantOrder: { [key: string]: number } = {
-                        "Q2_K": 1, "Q3_K_M": 2, "Q3_K_S": 2, "Q4_0": 3, "Q4_K_S": 4,
-                        "Q4_K_M": 5, "Q5_0": 6, "Q5_K_S": 6, "Q5_K_M": 7, "Q8_0": 8
-                      };
-                      return (quantOrder[b.quantization] || 0) - (quantOrder[a.quantization] || 0);
-                    });
-                } catch (quantError) {
-                  // If quantization extraction fails, use empty array
-                  console.warn(`⚠️ Failed to extract quantization info for model ${model.id}`);
-                  availableQuants = [];
-                }
+                const availableQuants = buildQuantOptions(ggufFiles);
 
                 const fileSize = preferredFile.size || 0;
                 const sizeGB = fileSize > 0 ? (fileSize / 1024 / 1024 / 1024).toFixed(2) : undefined;
@@ -894,6 +788,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   availableQuants: availableQuants,
                   downloads: model.downloads || undefined,
                   tags: Array.isArray(model.tags) ? model.tags : [],
+                  revision,
                 };
                 
                 newModels.push(modelInfo);
@@ -904,7 +799,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
               } catch (processingError) {
                 // Handle errors during model processing
                 const modelId = model?.id || "unknown";
-                console.warn(`⚠️ Error processing model ${modelId}:`, processingError);
+                console.warn(`Error processing model ${modelId}:`, processingError);
                 continue; // Skip this model and continue
               }
             } catch (error: any) {
@@ -913,7 +808,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
               const errorMsg = error?.response?.status 
                 ? `HTTP ${error.response.status}` 
                 : error?.message || 'Unknown error';
-              console.warn(`⚠️ Error fetching model ${modelId}: ${errorMsg}`);
+              console.warn(`Error fetching model ${modelId}: ${errorMsg}`);
               // Continue to next model - don't crash the app
               continue;
             }
@@ -923,7 +818,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           const errorMsg = error?.response?.status 
             ? `HTTP ${error.response.status}` 
             : error?.message || 'Unknown error';
-          console.warn(`⚠️ Error fetching models from author "${author}": ${errorMsg}`);
+          console.warn(`Error fetching models from author "${author}": ${errorMsg}`);
           // Continue to next author - don't crash the app
         }
 
@@ -970,13 +865,28 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       if (reset) {
         try {
           const activeAuthor = authorOverride !== undefined ? authorOverride : selectedAuthor;
-          showAlert(
-            "Error", 
-            activeAuthor 
-              ? `No models found for author "${activeAuthor}". Please check the author name and try again.`
-              : "Failed to fetch models from HuggingFace. Please check your internet connection and try again.",
-            [{ text: "OK" }]
-          );
+          const status = error?.response?.status;
+          const uf =
+            typeof status === "number"
+              ? userFacingHttpError(status)
+              : {
+                  title: "Couldn't load models",
+                  message: activeAuthor
+                    ? `No models found for author "${activeAuthor}". Check the name and try again.`
+                    : "Couldn't reach Hugging Face. Check your connection and try again.",
+                  kind: "network" as const,
+                };
+          if (uf.kind === "auth" || status === 401 || status === 403) {
+            showAlert(uf.title, uf.message, [
+              { text: "OK", style: "cancel" },
+              {
+                text: "Add token",
+                onPress: () => setCurrentPage("hfToken"),
+              },
+            ]);
+          } else {
+            showAlert(uf.title, uf.message, [{ text: "OK" }]);
+          }
         } catch (alertError) {
           // If alert fails, just log it - don't crash
           console.error("Failed to show error alert:", alertError);
@@ -993,7 +903,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         console.error("Failed to reset loading states:", stateError);
       }
     }
-  }, [selectedAuthor]);
+  }, [selectedAuthor, setCurrentPage]);
 
   // Handle "Load More" button press
   const handleLoadMore = useCallback(() => {
@@ -1028,7 +938,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     const progressSnap = downloadProgress[file] ?? pausedDownloads[file] ?? 0;
     if (cancellationToken) {
       try {
-        // Pause: keep .partial for resume (S06).
+        // Pause: keep .partial for resume.
         await cancellationToken.cancel('pause');
         console.log(`Download paused for: ${file}`);
       } catch (error) {
@@ -1038,6 +948,11 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           const newProgress = { ...prev };
           delete newProgress[file];
           return newProgress;
+        });
+        setDownloadProgressDetail(prev => {
+          const next = { ...prev };
+          delete next[file];
+          return next;
         });
         setDownloadCancellationTokens(prev => {
           const newTokens = { ...prev };
@@ -1062,6 +977,11 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       return next;
     });
     setDownloadProgress(prev => {
+      const next = { ...prev };
+      delete next[file];
+      return next;
+    });
+    setDownloadProgressDetail(prev => {
       const next = { ...prev };
       delete next[file];
       return next;
@@ -1108,8 +1028,8 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       if (!pick || typeof pick !== 'function') {
         console.error('pick function is not available. Package may need native linking. Please rebuild the app.');
         showAlert(
-          "Setup Required", 
-          "Document picker needs to be properly linked. Please rebuild the app:\n\n1. Stop the Metro bundler\n2. Run: npm install\n3. For Android: npx react-native run-android\n4. For iOS: cd ios && pod install && cd .. && npx react-native run-ios", 
+          "Setup Required",
+          "File import isn’t available in this build. Reinstall the app and try again.",
           [{ text: "OK" }]
         );
         return;
@@ -1353,13 +1273,24 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         await handleDownloadModel(
           fileNameToDownload,
           model.repoId,
-          (progress) => {
+          (progress, info) => {
             if (!cancellationToken.isCancelled()) {
               setDownloadProgress((prev) => ({ ...prev, [fileNameToDownload]: progress }));
+              const line = info ? formatDownloadProgressLine(info) : '';
+              setDownloadProgressDetail((prev) => {
+                if (!line) {
+                  if (!(fileNameToDownload in prev)) return prev;
+                  const next = { ...prev };
+                  delete next[fileNameToDownload];
+                  return next;
+                }
+                return { ...prev, [fileNameToDownload]: line };
+              });
             }
           },
           cancellationToken,
           expectedBytes,
+          model.revision,
         );
 
         if (!cancellationToken.isCancelled()) {
@@ -1378,6 +1309,11 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
             delete next[fileNameToDownload];
             return next;
           });
+          setDownloadProgressDetail((prev) => {
+            const next = { ...prev };
+            delete next[fileNameToDownload];
+            return next;
+          });
           await checkDownloadedModels();
         } else if (cancellationToken.getMode() !== 'discard') {
           // App may swallow pause/cancel without throwing — keep UI in sync.
@@ -1387,6 +1323,11 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
             0;
           setPausedDownloads((prev) => ({ ...prev, [fileNameToDownload]: pausedPct }));
           setDownloadProgress((prev) => {
+            const next = { ...prev };
+            delete next[fileNameToDownload];
+            return next;
+          });
+          setDownloadProgressDetail((prev) => {
             const next = { ...prev };
             delete next[fileNameToDownload];
             return next;
@@ -1419,6 +1360,11 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
             delete newProgress[fileNameToDownload];
             return newProgress;
           });
+          setDownloadProgressDetail((prev) => {
+            const next = { ...prev };
+            delete next[fileNameToDownload];
+            return next;
+          });
           setDownloadCancellationTokens((prev) => {
             const newTokens = { ...prev };
             delete newTokens[fileNameToDownload];
@@ -1429,6 +1375,11 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
             const newProgress = { ...prev };
             delete newProgress[fileNameToDownload];
             return newProgress;
+          });
+          setDownloadProgressDetail((prev) => {
+            const next = { ...prev };
+            delete next[fileNameToDownload];
+            return next;
           });
           setDownloadCancellationTokens((prev) => {
             const newTokens = { ...prev };
@@ -1490,6 +1441,18 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   );
 
   const handleModelDownload = useCallback(async (model: ModelInfo) => {
+    if (model.needsAuth) {
+      const uf = userFacingHttpError(403);
+      showAlert(uf.title, uf.message, [
+        { text: "OK", style: "cancel" },
+        {
+          text: "Add token",
+          onPress: () => setCurrentPage("hfToken"),
+        },
+      ]);
+      return;
+    }
+
     const isDownloaded = downloadedModels.includes(model.fileName);
     
     if (isDownloaded) {
@@ -1605,59 +1568,46 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       }
 
       const siblings = response.data.siblings || [];
-      const ggufFiles = siblings.filter((f: any) =>
+      const revision =
+        parsed.revision ||
+        (typeof response.data.sha === "string" ? response.data.sha : undefined);
+      const allGgufFiles = siblings.filter((f: any) =>
         f?.rfilename?.toLowerCase().endsWith('.gguf')
       );
 
-      if (ggufFiles.length === 0) {
+      if (allGgufFiles.length === 0) {
         showAlert("No GGUF Files", "This repository does not contain any GGUF model files.", [{ text: "OK" }]);
         return;
       }
 
+      const ggufFiles = filterMobileFriendlyGgufs(allGgufFiles);
       const repoName = parsed.repoId.split("/").pop() || parsed.repoId;
       const author = parsed.repoId.split("/")[0] || "";
 
-      const availableQuants: QuantizationOption[] = ggufFiles
-        .filter((f: any) => f && f.rfilename)
-        .map((f: any) => {
-          const filename = f.rfilename || "";
-          const quantMatch = filename.match(/(q[0-9]_[km]|q[0-9]_[0-9]|q[0-9]k_[ms]|q[0-9]k_m|q[0-9]k_s)/i);
-          const quantization = quantMatch ? quantMatch[0].toUpperCase() : "UNKNOWN";
-          return { fileName: f.rfilename, size: f.size || 0, quantization };
-        })
-        .sort((a: QuantizationOption, b: QuantizationOption) => {
-          const quantOrder: { [key: string]: number } = {
-            "Q2_K": 1, "Q3_K_M": 2, "Q3_K_S": 2, "Q4_0": 3, "Q4_K_S": 4,
-            "Q4_K_M": 5, "Q5_0": 6, "Q5_K_S": 6, "Q5_K_M": 7, "Q8_0": 8
-          };
-          return (quantOrder[b.quantization] || 0) - (quantOrder[a.quantization] || 0);
-        });
+      const availableQuants = buildQuantOptions(ggufFiles);
 
       let targetFileName: string;
       let showQuants: QuantizationOption[] | undefined;
 
       if (parsed.fileName) {
-        const matchedFile = ggufFiles.find((f: any) => f.rfilename === parsed.fileName);
+        const matchedFile = allGgufFiles.find((f: any) => f.rfilename === parsed.fileName);
         if (matchedFile) {
           targetFileName = matchedFile.rfilename;
           showQuants = undefined;
         } else {
-          const preferredFile = ggufFiles.find((f: any) => f.rfilename?.toLowerCase().includes("q4_k_m"))
-            || ggufFiles.find((f: any) => f.rfilename?.toLowerCase().includes("q4_k_s"))
-            || ggufFiles[0];
+          const preferredFile = pickPreferredGgufFile(ggufFiles) || ggufFiles[0];
           targetFileName = preferredFile.rfilename;
           showQuants = availableQuants.length > 1 ? availableQuants : undefined;
         }
       } else {
-        const preferredFile = ggufFiles.find((f: any) => f.rfilename?.toLowerCase().includes("q4_k_m"))
-          || ggufFiles.find((f: any) => f.rfilename?.toLowerCase().includes("q4_k_s"))
-          || ggufFiles.find((f: any) => f.rfilename?.toLowerCase().includes("q5_k_m"))
-          || ggufFiles[0];
+        const preferredFile = pickPreferredGgufFile(ggufFiles) || ggufFiles[0];
         targetFileName = preferredFile.rfilename;
         showQuants = availableQuants.length > 1 ? availableQuants : undefined;
       }
 
-      const targetFile = ggufFiles.find((f: any) => f.rfilename === targetFileName);
+      const targetFile =
+        allGgufFiles.find((f: any) => f.rfilename === targetFileName) ||
+        ggufFiles.find((f: any) => f.rfilename === targetFileName);
       const fileSize = targetFile?.size || 0;
       const sizeGB = fileSize > 0 ? (fileSize / 1024 / 1024 / 1024).toFixed(2) : undefined;
 
@@ -1669,6 +1619,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         size: sizeGB ? `${sizeGB}GB` : undefined,
         author: author,
         availableQuants: showQuants,
+        revision,
       };
 
       closeCustomUrlModal(false);
@@ -1723,6 +1674,9 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         isDownloading={isDownloading}
         isPaused={isPaused}
         progress={progress}
+        progressDetail={
+          isDownloading ? downloadProgressDetail[model.fileName] : undefined
+        }
         isLoading={isLoading}
         onDownload={() => handleModelDownload(model)}
         onDelete={() => handleDeleteModel(model.fileName)}
@@ -1736,18 +1690,14 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         ramFit={ramFit}
       />
     );
-  }, [downloadProgress, pausedDownloads, loadingModelFile, isLoadingModel, expandedModelId, handleModelDownload, handleDeleteModel, handleCancelDownload, handleDiscardPausedDownload, handleOpenSettings, isInitialAnimationPhase, animatedModelIds, totalMemoryBytes]);
-
-  // ModelCard component has been moved to src/components/ModelCard.tsx
-  // This improves code organization and reusability
+  }, [downloadProgress, downloadProgressDetail, pausedDownloads, loadingModelFile, isLoadingModel, expandedModelId, handleModelDownload, handleDeleteModel, handleCancelDownload, handleDiscardPausedDownload, handleOpenSettings, isInitialAnimationPhase, animatedModelIds, totalMemoryBytes]);
 
   // Memoize downloaded models info to avoid recalculation on every render
   const downloadedModelsInfo = useMemo(() => {
     return downloadedModels
       .map((fileName) => {
-        // Try to find in popular models first
-        const popularModel = POPULAR_MODELS.find((m) => m.fileName === fileName);
-        if (popularModel) return popularModel;
+        const starter = findStarterByFileName(fileName);
+        if (starter) return starter as ModelInfo;
 
         // Otherwise create a basic info object
         return {
@@ -1760,9 +1710,9 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       .filter((m) => m !== null) as ModelInfo[];
   }, [downloadedModels]);
 
-  // Memoize filtered popular models to avoid recalculation
+  // Memoize filtered starter shelf models
   const availablePopularModels = useMemo(() => {
-    return POPULAR_MODELS.filter((model) => !downloadedModels.includes(model.fileName));
+    return getAvailableStarterModels(downloadedModels);
   }, [downloadedModels]);
 
   return (
@@ -1975,7 +1925,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           </View>
         )}
 
-        {/* Popular Models Section */}
+        {/* Start here — curated shelf */}
         <View>
           <Text
             style={{
@@ -1986,7 +1936,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
               marginBottom: 12,
             }}
           >
-            Popular Models
+            {STARTER_SHELF_TITLE}
           </Text>
           <Text
             style={{
@@ -1997,7 +1947,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
               marginBottom: 12,
             }}
           >
-            Curated GGUFs for phones. Prefer Q4_0 for Android GPU/NPU. On emulator/VM start with Qwen3.5 0.8B (~0.5 GB).
+            {STARTER_SHELF_SUBTITLE}
           </Text>
           {availablePopularModels.map((model, index) => {
             return (

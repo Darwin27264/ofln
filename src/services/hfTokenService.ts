@@ -1,5 +1,5 @@
 /**
- * Hugging Face access token (Keychain) — S08.
+ * Hugging Face access token (Keychain).
  * Bearer is attached only for huggingface.co hosts.
  */
 

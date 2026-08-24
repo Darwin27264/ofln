@@ -55,7 +55,7 @@ export type ConversationTrimResult<T extends TrimableMessage> = {
   droppedCount: number;
 };
 
-/** Same trim as `trimConversation`, plus drop metadata for UI honesty (S15). */
+/** Same trim as `trimConversation`, plus drop metadata for UI honesty. */
 export function applyConversationTrim<T extends TrimableMessage>(
   messages: T[],
   n_ctx: number,

@@ -1,5 +1,6 @@
 import {
   formatAccelLogDisplay,
+  formatTokensPerSecondLabel,
   type AccelStatusSnapshotLike,
 } from '../src/utils/accelChipDisplay';
 
@@ -88,5 +89,28 @@ describe('formatAccelLogDisplay', () => {
       }),
     );
     expect(d.shortLabel).toBe('Accel');
+  });
+
+  it('includes a calm detailMessage for alerts', () => {
+    const d = formatAccelLogDisplay(
+      snap({
+        on: false,
+        onLabel: 'Off (CPU)',
+        available: true,
+        availableKind: 'opencl',
+        availableLabel: 'OpenCL GPU',
+      }),
+    );
+    expect(d.detailMessage).toContain('Off (CPU)');
+    expect(d.detailMessage).toContain('Q4_0');
+  });
+});
+
+describe('formatTokensPerSecondLabel', () => {
+  it('formats calm tok/s labels', () => {
+    expect(formatTokensPerSecondLabel(12.34)).toBe('12.3 tok/s');
+    expect(formatTokensPerSecondLabel(150.2)).toBe('150 tok/s');
+    expect(formatTokensPerSecondLabel(0)).toBe('');
+    expect(formatTokensPerSecondLabel(-1)).toBe('');
   });
 });

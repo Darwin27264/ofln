@@ -1,5 +1,5 @@
 /**
- * Soft context-fullness notice (S14).
+ * Soft context-fullness notice.
  * Dismiss + New chat only — no n_ctx reload in this step.
  */
 

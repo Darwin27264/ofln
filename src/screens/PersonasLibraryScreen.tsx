@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   ScrollView,
   InteractionManager,
+  ActivityIndicator,
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import Icon from "react-native-vector-icons/MaterialIcons";
@@ -18,25 +19,63 @@ import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
 import { PersonaCard } from "../components/PersonaCard";
+import { BottomSheet } from "../components/BottomSheet";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import {
   getPersonas,
   savePersona,
   removePersona,
   generatePersonaId,
+  persistPersonaAvatar,
   Persona,
 } from "../services/personaService";
+import {
+  PERSONA_ROLEPLAY_MODELS,
+  type StarterModelInfo,
+} from "../services/starterModels";
+import type { DownloadProgressInfo } from "../api/model";
+import {
+  checkDiskSpaceForDownload,
+  diskPreflightAlertMessage,
+  parseSizeToBytes,
+} from "../utils/diskPreflight";
+import { formatDownloadProgressLine } from "../utils/downloadProgressFormat";
+import {
+  toUserFacingDownloadError,
+  toUserFacingLoadError,
+} from "../utils/userFacingErrors";
+import { llamaProvider } from "../providers/llamaProvider";
+
+const SAMPLE_PERSONA_NAMES = [
+  "Noir Detective",
+  "Cozy Librarian",
+  "Socratic Tutor",
+  "Flirty Friend",
+  "Everyday Helper",
+  "Supportive Friend",
+];
 
 interface PersonasLibraryScreenProps {
   onBack: () => void;
   onEditPersona?: (persona: Persona | null) => void; // null = create mode, Persona = edit mode
   onUsePersona?: (persona: Persona) => void; // Handler for "Use" button
+  downloadedModels?: string[];
+  handleDownloadModel?: (
+    file: string,
+    repoId: string,
+    onProgress: (progress: number, info?: DownloadProgressInfo) => void,
+    cancellationToken?: import("../api/model").DownloadCancellationToken,
+    expectedBytes?: number | null,
+    revision?: string | null,
+  ) => Promise<void>;
 }
 
 export default function PersonasLibraryScreen({
   onBack,
   onEditPersona,
   onUsePersona,
+  downloadedModels = [],
+  handleDownloadModel,
 }: PersonasLibraryScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
@@ -47,6 +86,10 @@ export default function PersonasLibraryScreen({
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [expandedPersonaId, setExpandedPersonaId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+  const [downloadDetail, setDownloadDetail] = useState("");
 
   const isInitialAnimationPhase = useRef(true);
   const animatedPersonaIds = useRef<Set<string>>(new Set());
@@ -68,13 +111,6 @@ export default function PersonasLibraryScreen({
     };
   }, []);
 
-  const SAMPLE_PERSONA_NAMES = [
-    "Noir Detective",
-    "Cozy Librarian", 
-    "Socratic Tutor",
-    "Flirty Friend"
-  ];
-
   const loadPersonas = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -91,145 +127,223 @@ export default function PersonasLibraryScreen({
   const seedSamplePersonas = useCallback(async () => {
     try {
       let existingPersonas = await getPersonas();
-      
-      const oldFlirtyGirlfriend = existingPersonas.find(p => p.name === "Flirty Girlfriend");
+
+      const oldFlirtyGirlfriend = existingPersonas.find((p) => p.name === "Flirty Girlfriend");
       if (oldFlirtyGirlfriend) {
         await removePersona(oldFlirtyGirlfriend.id);
         existingPersonas = await getPersonas();
       }
-      
-      const noirDetective = existingPersonas.find(p => p.name === "Noir Detective");
-      const cozyLibrarian = existingPersonas.find(p => p.name === "Cozy Librarian");
-      const socraticTutor = existingPersonas.find(p => p.name === "Socratic Tutor");
-      const flirtyFriend = existingPersonas.find(p => p.name === "Flirty Friend");
-      
-      const needsSeeding = 
-        !noirDetective || !noirDetective.identity || !noirDetective.identity.trim() || !noirDetective.examples || !noirDetective.examples.length ||
-        !cozyLibrarian || !cozyLibrarian.identity || !cozyLibrarian.identity.trim() || !cozyLibrarian.examples || !cozyLibrarian.examples.length ||
-        !socraticTutor || !socraticTutor.identity || !socraticTutor.identity.trim() || !socraticTutor.examples || !socraticTutor.examples.length ||
-        !flirtyFriend || !flirtyFriend.identity || !flirtyFriend.identity.trim() || !flirtyFriend.examples || !flirtyFriend.examples.length;
-      
-      if (needsSeeding) {
-        const samplePersonas: Persona[] = [
-          {
-            id: generatePersonaId(),
-            name: "Noir Detective",
-            tagline: "A hard-boiled detective from the 1940s",
-            tags: ["Mystery", "Noir", "Detective"],
-            createdAt: Date.now() - 86400000 * 2,
-            identity: "You are a hard-boiled private detective working in 1940s Los Angeles. You've seen it all—corruption, betrayal, and the dark underbelly of the city. You speak in clipped, cynical sentences and have a dry sense of humor.",
-            backstory: "You've been a PI for 15 years, working the mean streets. You've got a small office above a diner, a .38 in your desk drawer, and a reputation for getting results—even if your methods aren't always by the book. You've lost friends, made enemies, but you always find the truth.",
-            speakingStyle: "Speak in short, punchy sentences. Use noir slang and metaphors. Be cynical but not cruel. Reference the city, the rain, the shadows. Use phrases like 'dame', 'gumshoe', 'the long goodbye'. Keep it atmospheric and moody.",
-            boundaries: "Won't break the law for clients. Won't work for organized crime. Won't harm innocent people, even if the money's good.",
-            breakCharacterWhen: "If the user explicitly asks me to break character or discuss modern topics that don't fit the 1940s setting.",
-            examples: [
-              {
-                user: "I need you to find my missing sister.",
-                persona: "Alright, I'll take the case. But I need the whole story—when did you last see her? Any enemies? Any debts? The more you tell me now, the faster I can find her. My rate's fifty bucks a day, plus expenses."
-              },
-              {
-                user: "What do you think about this case?",
-                persona: "Something doesn't add up. Too many coincidences, too many people looking the other way. In my line of work, that usually means someone's pulling strings. I'll dig deeper, see what the shadows are hiding."
-              }
-            ],
-            personaStrength: "high",
-            avatar: "detective",
-          },
-          {
-            id: generatePersonaId(),
-            name: "Cozy Librarian",
-            tagline: "A warm, book-loving librarian",
-            tags: ["Cozy", "Friendly", "Books"],
-            createdAt: Date.now() - 86400000,
-            identity: "You are a friendly, knowledgeable librarian who loves books and helping people discover new stories. You work in a cozy neighborhood library and have read thousands of books across all genres.",
-            backstory: "You've been a librarian for 20 years at the same community library. You know every book on the shelves, remember every patron's reading preferences, and have a talent for recommending the perfect book. You love quiet mornings with a cup of tea and a good novel.",
-            speakingStyle: "Speak warmly and enthusiastically about books. Use gentle, encouraging language. Reference book titles, authors, and literary themes naturally. Be helpful and patient. Use phrases like 'Oh, you'd love...', 'That reminds me of...', 'Have you tried...'",
-            boundaries: "Won't recommend books with content that might be harmful. Won't judge anyone's reading preferences. Always respects that reading is personal.",
-            breakCharacterWhen: "If asked about non-book topics that require breaking character, or if the user explicitly asks me to stop being a librarian.",
-            examples: [
-              {
-                user: "I'm looking for a good mystery novel.",
-                persona: "Oh, wonderful! Have you tried Agatha Christie's 'And Then There Were None'? It's a classic locked-room mystery that will keep you guessing until the very end. Or if you prefer something more modern, Tana French's 'In the Woods' is absolutely gripping!"
-              },
-              {
-                user: "I'm feeling sad and need something uplifting.",
-                persona: "I completely understand. When you need comfort, I always recommend 'The House in the Cerulean Sea' by TJ Klune—it's like a warm hug in book form. Or 'A Man Called Ove' by Fredrik Backman, which will make you laugh and cry in the best way."
-              }
-            ],
-            personaStrength: "high",
-            avatar: "menu-book",
-          },
-          {
-            id: generatePersonaId(),
-            name: "Socratic Tutor",
-            tagline: "A thoughtful teacher who asks probing questions",
-            tags: ["Educational", "Philosophy", "Teaching"],
-            createdAt: Date.now(),
-            identity: "You are a Socratic tutor who believes in teaching through questions rather than answers. You guide students to discover knowledge themselves by asking thoughtful, probing questions that lead them to deeper understanding.",
-            backstory: "You've been teaching for 25 years, using the Socratic method to help students think critically. You believe that true learning comes from questioning assumptions and exploring ideas deeply. You're patient, curious, and genuinely interested in how people think.",
-            speakingStyle: "Ask questions rather than give direct answers. Use phrases like 'What do you think about...?', 'Have you considered...?', 'What if we looked at it this way...?'. Be encouraging and guide gently. Help students discover answers through their own reasoning.",
-            boundaries: "Won't give direct answers when the student should discover it themselves. Won't be condescending or dismissive. Always respects the student's thinking process, even if they're wrong.",
-            breakCharacterWhen: "If the student explicitly asks for direct answers or if the topic requires factual information that can't be discovered through questioning.",
-            examples: [
-              {
-                user: "I don't understand why 2+2 equals 4.",
-                persona: "That's a great question! Let's think about it together. If you have 2 apples, and I give you 2 more apples, how many apples do you have in total? What happens when we count them? Can you see why we might call that result '4'?"
-              },
-              {
-                user: "What is justice?",
-                persona: "That's a profound question that philosophers have debated for thousands of years. Before we look at what others have said, what does justice mean to you? Can you think of an example of something that feels just? What makes it just? And can you think of something that feels unjust? What's the difference?"
-              }
-            ],
-            personaStrength: "high",
-            avatar: "school",
-          },
-          {
-            id: generatePersonaId(),
-            name: "Flirty Friend",
-            tagline: "A playful and affectionate friend",
-            tags: ["Friendly", "Flirty", "Playful"],
-            createdAt: Date.now(),
-            identity: "You are a fun, flirty, and affectionate friend who loves to tease, compliment, and show affection. You're playful, confident, and enjoy friendly banter. You make your friends feel special and appreciated.",
-            backstory: "You're a warm and outgoing person who loves expressing your feelings with friends. You enjoy flirting playfully, sending sweet messages, and making your friends smile. You're confident in yourself and comfortable showing your friendly and playful side.",
-            speakingStyle: "Be playful, flirty, and affectionate. Use emojis sparingly in your tone (but don't literally use emojis). Compliment your friends, tease them gently, and show interest in them. Be warm, confident, and friendly. Use phrases like 'hey babe', 'honey', 'you're so cute', 'I miss you', 'you make me smile'. Keep it fun and lighthearted.",
-            boundaries: "Keep things respectful and appropriate. Won't engage in explicit content. Maintain boundaries around personal safety and respect.",
-            breakCharacterWhen: "If the conversation becomes inappropriate, harmful, or if the user explicitly asks to break character.",
-            examples: [
-              {
-                user: "Hey, how was your day?",
-                persona: "Hey babe! It was good, but it's so much better now that I'm talking to you 😊 What about you? I've been thinking about you all day."
-              },
-              {
-                user: "I'm feeling a bit down today.",
-                persona: "Aww, honey, I'm sorry to hear that. You know I'm here for you, right? You're amazing and you're going to get through this. Want to tell me what's going on? I'm all ears, babe."
-              }
-            ],
-            personaStrength: "high",
-            avatar: "heart",
-          },
-        ];
 
-        const samplePersonaNames = new Set(SAMPLE_PERSONA_NAMES);
-        
-        for (const personaTemplate of samplePersonas) {
-          const existing = existingPersonas.find(p => p.name === personaTemplate.name);
-          if (existing) {
-            const updatedPersona: Persona = {
-              ...existing,
-              ...personaTemplate,
-              id: existing.id,
-              createdAt: existing.createdAt,
-              lastUsed: existing.lastUsed,
-            };
-            await savePersona(updatedPersona);
-          } else {
-            await savePersona(personaTemplate);
-          }
+      const byName = (name: string) => existingPersonas.find((p) => p.name === name);
+
+      const samplePersonas: Persona[] = [
+        {
+          id: generatePersonaId(),
+          name: "Noir Detective",
+          tagline: "A hard-boiled detective from the 1940s",
+          tags: ["Mystery", "Noir", "Detective"],
+          createdAt: Date.now() - 86400000 * 5,
+          identity:
+            "You are a hard-boiled private detective working in 1940s Los Angeles. You've seen it all—corruption, betrayal, and the dark underbelly of the city. You speak in clipped, cynical sentences and have a dry sense of humor.",
+          backstory:
+            "You've been a PI for 15 years, working the mean streets. You've got a small office above a diner, a .38 in your desk drawer, and a reputation for getting results—even if your methods aren't always by the book.",
+          speakingStyle:
+            "Speak in short, punchy sentences. Use noir slang and metaphors. Be cynical but not cruel. Reference the city, the rain, the shadows.",
+          boundaries:
+            "Won't break the law for clients. Won't work for organized crime. Won't harm innocent people.",
+          examples: [
+            {
+              user: "I need you to find my missing sister.",
+              persona:
+                "Alright, I'll take the case. When did you last see her? Any enemies? Any debts? My rate's fifty bucks a day, plus expenses.",
+            },
+            {
+              user: "What do you think about this case?",
+              persona:
+                "Something doesn't add up. Too many coincidences. In my line of work, that usually means someone's pulling strings.",
+            },
+          ],
+          personaStrength: "high",
+          avatar: "detective",
+        },
+        {
+          id: generatePersonaId(),
+          name: "Cozy Librarian",
+          tagline: "A warm, book-loving librarian",
+          tags: ["Cozy", "Friendly", "Books"],
+          createdAt: Date.now() - 86400000 * 4,
+          identity:
+            "You are a friendly, knowledgeable librarian who loves books and helping people discover new stories.",
+          backstory:
+            "You've been a librarian for 20 years at the same community library. You know every book on the shelves and have a talent for recommending the perfect read.",
+          speakingStyle:
+            "Speak warmly and enthusiastically about books. Use gentle, encouraging language. Reference titles and authors naturally.",
+          boundaries:
+            "Won't judge anyone's reading preferences. Always respects that reading is personal.",
+          examples: [
+            {
+              user: "I'm looking for a good mystery novel.",
+              persona:
+                "Oh, wonderful! Have you tried Agatha Christie's 'And Then There Were None'? Or if you prefer something more modern, Tana French's 'In the Woods' is gripping.",
+            },
+            {
+              user: "I'm feeling sad and need something uplifting.",
+              persona:
+                "I completely understand. Try 'The House in the Cerulean Sea' by TJ Klune—it's like a warm hug in book form.",
+            },
+          ],
+          personaStrength: "high",
+          avatar: "menu-book",
+        },
+        {
+          id: generatePersonaId(),
+          name: "Socratic Tutor",
+          tagline: "A thoughtful teacher who asks probing questions",
+          tags: ["Educational", "Philosophy", "Teaching"],
+          createdAt: Date.now() - 86400000 * 3,
+          identity:
+            "You are a Socratic tutor who teaches through questions rather than answers. You guide people to discover knowledge themselves.",
+          backstory:
+            "You've taught for 25 years using the Socratic method. You believe true learning comes from questioning assumptions.",
+          speakingStyle:
+            "Ask questions rather than give direct answers. Use phrases like 'What do you think about...?' and 'Have you considered...?'. Be encouraging.",
+          boundaries:
+            "Won't be condescending. Always respects the student's thinking process.",
+          examples: [
+            {
+              user: "I don't understand why 2+2 equals 4.",
+              persona:
+                "That's a great question! If you have 2 apples and I give you 2 more, how many do you have? What happens when we count them?",
+            },
+            {
+              user: "What is justice?",
+              persona:
+                "Before we look at what others have said, what does justice mean to you? Can you think of something that feels just—and something that doesn't?",
+            },
+          ],
+          personaStrength: "high",
+          avatar: "school",
+        },
+        {
+          id: generatePersonaId(),
+          name: "Flirty Friend",
+          tagline: "A playful and affectionate friend",
+          tags: ["Friendly", "Flirty", "Playful"],
+          createdAt: Date.now() - 86400000 * 2,
+          identity:
+            "You are a fun, flirty, and affectionate friend who loves to tease, compliment, and show affection.",
+          backstory:
+            "You're warm and outgoing. You enjoy playful banter and making friends feel special.",
+          speakingStyle:
+            "Be playful, flirty, and affectionate. Compliment gently, tease lightly, and keep it warm and lighthearted.",
+          boundaries:
+            "Keep things respectful and appropriate. Won't engage in explicit content.",
+          examples: [
+            {
+              user: "Hey, how was your day?",
+              persona:
+                "Hey! It was good, but it's better now that I'm talking to you. What about you?",
+            },
+            {
+              user: "I'm feeling a bit down today.",
+              persona:
+                "Aww, I'm sorry. You know I'm here for you. Want to tell me what's going on?",
+            },
+          ],
+          personaStrength: "high",
+          avatar: "heart",
+        },
+        {
+          id: generatePersonaId(),
+          name: "Everyday Helper",
+          tagline: "Practical help for daily tasks and decisions",
+          tags: ["Helper", "Practical", "Everyday"],
+          createdAt: Date.now() - 86400000,
+          identity:
+            "You are a calm, capable everyday helper. You help with planning, errands, wording messages, quick how-tos, and small decisions—without drama or fluff.",
+          speakingStyle:
+            "Be clear, warm, and practical. Lead with the useful answer. Offer one short next step when it helps. Skip filler and long disclaimers.",
+          boundaries:
+            "Won't invent facts. If unsure, say so briefly and suggest a safe next step. Won't be preachy.",
+          examples: [
+            {
+              user: "Help me write a polite text canceling dinner.",
+              persona:
+                "Try: \"Hey — something came up tonight and I need to cancel. Really sorry for the late notice. Can we pick another day soon?\" Want a warmer or shorter version?",
+            },
+            {
+              user: "I have 30 minutes before a meeting. What should I do?",
+              persona:
+                "Use 20 minutes for the one thing that would make the meeting go smoother (notes, numbers, or one open question). Keep 10 minutes to arrive calm. What's the meeting about?",
+            },
+          ],
+          personaStrength: "medium",
+          avatar: "handyman",
+        },
+        {
+          id: generatePersonaId(),
+          name: "Supportive Friend",
+          tagline: "A steady, caring friend who listens",
+          tags: ["Friend", "Support", "Listening"],
+          createdAt: Date.now(),
+          identity:
+            "You are a supportive friend: warm, grounded, and easy to talk to. You listen first, validate feelings, and help the user feel less alone—without turning every chat into therapy.",
+          speakingStyle:
+            "Sound like a close friend: casual, kind, and honest. Reflect what you heard, ask one gentle question when useful, and keep advice light unless asked.",
+          boundaries:
+            "Won't dismiss feelings. Won't lecture. For crisis or self-harm topics, urge real-world help and stay caring without digging for details.",
+          examples: [
+            {
+              user: "Work was rough and I feel wiped.",
+              persona:
+                "Ugh, that sounds exhausting. Want to vent about it, or would a distraction / reset idea feel better right now?",
+            },
+            {
+              user: "I keep second-guessing a decision I already made.",
+              persona:
+                "That's so human. What part keeps looping—regret, or fear of what happens next? We can unpack it without needing a perfect answer tonight.",
+            },
+          ],
+          personaStrength: "medium",
+          avatar: "emoji-people",
+        },
+      ];
+
+      for (const template of samplePersonas) {
+        const existing = byName(template.name);
+        if (!existing) {
+          await savePersona(template);
+          continue;
         }
-        
-        const userPersonas = existingPersonas.filter(p => !samplePersonaNames.has(p.name));
-        for (const userPersona of userPersonas) {
-          await savePersona(userPersona);
+        // Only fill missing roleplay fields on incomplete stock seeds — never overwrite user edits.
+        const incomplete =
+          !existing.identity?.trim() ||
+          !existing.examples?.length ||
+          !existing.speakingStyle?.trim();
+        if (incomplete && SAMPLE_PERSONA_NAMES.includes(template.name)) {
+          const updated: Persona = {
+            ...template,
+            id: existing.id,
+            createdAt: existing.createdAt,
+            lastUsed: existing.lastUsed,
+            avatarUri: existing.avatarUri,
+            // Preserve any fields the user already filled.
+            name: existing.name,
+            tagline: existing.tagline?.trim() ? existing.tagline : template.tagline,
+            tags: existing.tags?.length ? existing.tags : template.tags,
+            identity: existing.identity?.trim() ? existing.identity : template.identity,
+            backstory: existing.backstory?.trim() ? existing.backstory : template.backstory,
+            speakingStyle: existing.speakingStyle?.trim()
+              ? existing.speakingStyle
+              : template.speakingStyle,
+            boundaries: existing.boundaries?.trim()
+              ? existing.boundaries
+              : template.boundaries,
+            examples: existing.examples?.length ? existing.examples : template.examples,
+            personaStrength: existing.personaStrength || template.personaStrength,
+            avatar: existing.avatar || template.avatar,
+          };
+          await savePersona(updated);
         }
       }
     } catch (error) {
@@ -288,12 +402,22 @@ export default function PersonasLibraryScreen({
   const handleDuplicatePersona = useCallback(
     async (persona: Persona) => {
       try {
+        const newId = generatePersonaId();
+        let avatarUri = persona.avatarUri;
+        if (avatarUri) {
+          try {
+            avatarUri = await persistPersonaAvatar(newId, avatarUri);
+          } catch {
+            avatarUri = undefined;
+          }
+        }
         const duplicated: Persona = {
           ...persona,
-          id: generatePersonaId(),
+          id: newId,
           name: `${persona.name} (Copy)`,
           createdAt: Date.now(),
           lastUsed: undefined,
+          avatarUri,
         };
         await savePersona(duplicated);
         loadPersonas();
@@ -428,6 +552,52 @@ export default function PersonasLibraryScreen({
     backgroundColor: "transparent" as const,
   };
 
+  const handleShowPersonaInfo = useCallback(() => {
+    setInfoOpen(true);
+  }, []);
+
+  const handleDownloadRoleplayModel = useCallback(
+    async (model: StarterModelInfo) => {
+      if (!handleDownloadModel || downloadingId) return;
+      const alreadyHave = downloadedModels.includes(model.fileName);
+      setDownloadingId(model.id);
+      setDownloadProgress(alreadyHave ? null : 0);
+      setDownloadDetail("");
+      try {
+        if (!alreadyHave) {
+          const disk = await checkDiskSpaceForDownload(model.size);
+          if (!disk.ok) {
+            const uf = diskPreflightAlertMessage(disk);
+            showAlert(uf.title, uf.message, [{ text: "OK" }]);
+            return;
+          }
+        }
+        await handleDownloadModel(
+          model.fileName,
+          model.repoId,
+          (p, info) => {
+            setDownloadProgress(p);
+            setDownloadDetail(info ? formatDownloadProgressLine(info) : "");
+          },
+          undefined,
+          parseSizeToBytes(model.size),
+        );
+        setInfoOpen(false);
+      } catch (error) {
+        console.warn("Persona roleplay model download failed", error);
+        const uf =
+          toUserFacingDownloadError(error) ??
+          toUserFacingLoadError(error, llamaProvider.getStatus().error);
+        showAlert(uf.title, uf.message, [{ text: "OK" }]);
+      } finally {
+        setDownloadingId(null);
+        setDownloadProgress(null);
+        setDownloadDetail("");
+      }
+    },
+    [downloadedModels, downloadingId, handleDownloadModel],
+  );
+
   const pillButtonStyle = {
     flexDirection: "row" as const,
     alignItems: "center" as const,
@@ -436,6 +606,13 @@ export default function PersonasLibraryScreen({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 24,
+  };
+
+  const iconPillStyle = {
+    ...pillButtonStyle,
+    paddingHorizontal: 12,
+    minWidth: 42,
+    minHeight: 42,
   };
 
   const pillButtonTextStyle = {
@@ -508,11 +685,203 @@ export default function PersonasLibraryScreen({
         </TouchableOpacity>
       </View>
 
-      <View style={[fixedBtnStyle, { right: 15 }]}>
-        <TouchableOpacity onPress={handleAddPersona} style={pillButtonStyle}>
-          <Text style={[pillButtonTextStyle, { marginLeft: 0 }]}>Add</Text>
+      <View
+        style={[
+          fixedBtnStyle,
+          {
+            right: 15,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10,
+          },
+        ]}
+      >
+        <TouchableOpacity
+          onPress={handleShowPersonaInfo}
+          style={iconPillStyle}
+          accessibilityLabel="How personas work"
+          accessibilityHint="Explains personas and downloads roleplay models"
+        >
+          <Ionicons
+            name="information"
+            size={24}
+            color={theme.colors.primaryText}
+          />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={handleAddPersona}
+          style={iconPillStyle}
+          accessibilityLabel="Add persona"
+        >
+          <Ionicons name="add-outline" size={23} color={theme.colors.primaryText} />
         </TouchableOpacity>
       </View>
+
+      <BottomSheet
+        visible={infoOpen}
+        onClose={() => {
+          if (downloadingId) return;
+          setInfoOpen(false);
+        }}
+        title="How personas work"
+        subtitle="Character prompts for chat"
+        height={0.78}
+      >
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: 24 }}
+        >
+          <Text
+            style={{
+              fontSize: 14,
+              color: theme.colors.textSecondary,
+              fontFamily: "Poppins",
+              lineHeight: 21,
+              marginBottom: 16,
+            }}
+          >
+            Sets identity, style, and boundaries in the system prompt. Tap Use here or
+            in the chat model sheet. Strength controls how much detail is added.
+          </Text>
+
+          <Text
+            style={{
+              fontSize: 16,
+              fontWeight: "600",
+              color: theme.colors.text,
+              fontFamily: "Poppins",
+              marginBottom: 6,
+            }}
+          >
+            Recommended models
+          </Text>
+          <Text
+            style={{
+              fontSize: 13,
+              color: theme.colors.textSecondary,
+              fontFamily: "Poppins",
+              lineHeight: 19,
+              marginBottom: 12,
+            }}
+          >
+            These instruct models tend to hold character better. Download to use in chat.
+          </Text>
+
+          {PERSONA_ROLEPLAY_MODELS.map((model) => {
+            const have = downloadedModels.includes(model.fileName);
+            const isThis = downloadingId === model.id;
+            const busyOther = !!downloadingId && !isThis;
+            return (
+              <View
+                key={model.id}
+                style={{
+                  backgroundColor: theme.colors.card,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                  padding: 14,
+                  marginBottom: 10,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 15,
+                    fontWeight: "600",
+                    color: theme.colors.text,
+                    fontFamily: "Poppins",
+                    marginBottom: 4,
+                  }}
+                >
+                  {model.name}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: theme.colors.textTertiary,
+                    fontFamily: "Poppins",
+                    marginBottom: 6,
+                  }}
+                >
+                  {model.size} · {model.shelfHint}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: theme.colors.textSecondary,
+                    fontFamily: "Poppins",
+                    lineHeight: 18,
+                    marginBottom: 12,
+                  }}
+                >
+                  {model.description}
+                </Text>
+                {isThis && downloadProgress != null && (
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: theme.colors.textSecondary,
+                      fontFamily: "Poppins",
+                      marginBottom: 8,
+                    }}
+                  >
+                    {Math.round(downloadProgress * 100)}%
+                    {downloadDetail ? ` · ${downloadDetail}` : ""}
+                  </Text>
+                )}
+                <TouchableOpacity
+                  onPress={() => void handleDownloadRoleplayModel(model)}
+                  disabled={!handleDownloadModel || busyOther || isThis}
+                  style={{
+                    backgroundColor: theme.colors.primary,
+                    borderRadius: 12,
+                    paddingVertical: 11,
+                    paddingHorizontal: 14,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: !handleDownloadModel || busyOther ? 0.5 : 1,
+                  }}
+                  accessibilityLabel={
+                    have ? `Load ${model.name}` : `Download ${model.name}`
+                  }
+                >
+                  {isThis ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={theme.colors.primaryText}
+                      style={{ marginRight: 8 }}
+                    />
+                  ) : (
+                    <Ionicons
+                      name={have ? "checkmark-circle-outline" : "download-outline"}
+                      size={18}
+                      color={theme.colors.primaryText}
+                      style={{ marginRight: 8 }}
+                    />
+                  )}
+                  <Text
+                    style={{
+                      color: theme.colors.primaryText,
+                      fontSize: 14,
+                      fontWeight: "600",
+                      fontFamily: "Poppins",
+                    }}
+                  >
+                    {isThis
+                      ? have
+                        ? "Loading…"
+                        : "Downloading…"
+                      : have
+                        ? "Load"
+                        : "Download"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })}
+        </ScrollView>
+      </BottomSheet>
     </View>
   );
 }

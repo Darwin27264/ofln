@@ -1,7 +1,7 @@
 /**
- * Backup / restore service (S32).
+ * Backup / restore service.
  *
- * Industry approach (ChatGPT-style):
+ * Portable offline device transfer:
  * - Versioned JSON with magic `format: ofln-backup`
  * - Chats-only: single `.json`
  * - Full: `.zip` of JSON parts (not multi-GB GGUFs)

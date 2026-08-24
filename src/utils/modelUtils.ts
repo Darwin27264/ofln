@@ -34,6 +34,9 @@ export interface ModelInfo {
   downloads?: number;
   tags?: string[];
   publishedDate?: string;
+  shelfHint?: string;
+  revision?: string;
+  needsAuth?: boolean;
 }
 
 /**

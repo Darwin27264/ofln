@@ -1,5 +1,5 @@
 /**
- * Hugging Face access token sub-page (S08).
+ * Hugging Face access token sub-page.
  * Opened from Settings — keeps the token form off the main Settings grid.
  */
 
@@ -148,8 +148,7 @@ export default function HfTokenScreen({ onBack }: Props) {
                 lineHeight: 20,
               }}
             >
-              Secure storage isn’t linked in this build yet. Do a full native rebuild
-              (not Metro Reload), then reopen this page.
+              Secure storage isn’t linked in this build. Reinstall the app, then reopen this page.
             </Text>
           </View>
         )}

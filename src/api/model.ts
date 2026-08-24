@@ -1,7 +1,7 @@
 /**
  * Model download API.
- * S06: resumable downloads via react-native-blob-util → `.gguf.partial` + AsyncStorage meta.
- * S07: size verify on complete before rename/activate.
+ * Resumable downloads via react-native-blob-util → `.gguf.partial` + AsyncStorage meta.
+ * Verifies on-disk size before rename/activate.
  * Feature flag: USE_RESUMABLE_DOWNLOADS (legacy RNFS path when false).
  */
 
@@ -9,6 +9,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNFS from 'react-native-fs';
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import { hfAuthHeaders } from '../services/hfTokenService';
+import {
+  buildDownloadProgressInfo,
+  pushDownloadSample,
+  type DownloadProgressInfo,
+  type DownloadProgressSample,
+} from '../utils/downloadProgressFormat';
 
 /** Flip false to force legacy RNFS one-shot download (no resume). */
 export const USE_RESUMABLE_DOWNLOADS = true;
@@ -19,6 +25,8 @@ const SIZE_TOLERANCE_BYTES = 64 * 1024; // 64 KB
 
 export type CancelMode = 'pause' | 'discard';
 
+export type { DownloadProgressInfo };
+
 export interface DownloadCancellationToken {
   /** pause = keep .partial; discard = delete partial + meta. Default pause when resumable. */
   cancel: (mode?: CancelMode) => Promise<void>;
@@ -26,9 +34,14 @@ export interface DownloadCancellationToken {
   getMode: () => CancelMode | null;
 }
 
+export type DownloadProgressCallback = (
+  progress: number,
+  info?: DownloadProgressInfo,
+) => void;
+
 export type DownloadModelOptions = {
   expectedBytes?: number | null;
-  onProgress?: (progress: number) => void;
+  onProgress?: DownloadProgressCallback;
   cancellationToken?: DownloadCancellationToken;
 };
 
@@ -171,7 +184,7 @@ function assertNotPartialPath(path: string) {
   }
 }
 
-/** S07 — compare on-disk size to expected Content-Length / known size. */
+/** Compare on-disk size to expected Content-Length / known size. */
 export function sizesMatch(
   actualBytes: number,
   expectedBytes: number | null | undefined,
@@ -202,10 +215,33 @@ async function verifyAndActivate(
   return destPath;
 }
 
+function emitProgress(
+  onProgress: DownloadProgressCallback | undefined,
+  samples: DownloadProgressSample[],
+  bytesWritten: number,
+  totalBytes: number | null,
+): void {
+  if (!onProgress) return;
+  pushDownloadSample(samples, bytesWritten);
+  const info = buildDownloadProgressInfo({
+    bytesWritten,
+    totalBytes,
+    samples,
+  });
+  // Prefer computed percent when total known; otherwise leave at last known.
+  const pct =
+    totalBytes != null && totalBytes > 0
+      ? info.percent
+      : bytesWritten > 0
+        ? 1
+        : 0;
+  onProgress(pct, { ...info, percent: pct });
+}
+
 export const downloadModel = async (
   modelName: string,
   modelUrl: string,
-  onProgressOrOpts?: ((progress: number) => void) | DownloadModelOptions,
+  onProgressOrOpts?: DownloadProgressCallback | DownloadModelOptions,
   cancellationTokenMaybe?: DownloadCancellationToken,
 ): Promise<string> => {
   // Back-compat: (name, url, onProgress, token) or (name, url, options)
@@ -293,7 +329,7 @@ async function downloadModelResumable(
     headers.Range = `bytes=${existingBytes}-`;
   }
 
-  // S08 — Bearer only for huggingface.co (never for other hosts).
+  // Bearer only for huggingface.co (never for other hosts).
   Object.assign(headers, await hfAuthHeaders(modelUrl));
 
   // Fresh downloads write straight to .partial.
@@ -321,6 +357,11 @@ async function downloadModelResumable(
     mode: null,
   });
 
+  const speedSamples: DownloadProgressSample[] = [];
+  if (existingBytes > 0) {
+    pushDownloadSample(speedSamples, existingBytes);
+  }
+
   task.progress({ count: 20, interval: 250 }, (received, total) => {
     const info = activeDownloads.get(downloadKey);
     if (info?.mode || cancellationToken?.isCancelled()) return;
@@ -335,8 +376,7 @@ async function downloadModelResumable(
       if (overallTotal > 0) expectedBytes = overallTotal;
     }
     if (overallTotal > 0) {
-      const pct = Math.min(99, Math.floor((written / overallTotal) * 100));
-      onProgress?.(pct);
+      emitProgress(onProgress, speedSamples, written, overallTotal);
     }
   });
 
@@ -385,8 +425,14 @@ async function downloadModelResumable(
     const activated = await verifyAndActivate(partialPath, destPath, expectedBytes);
     await clearMeta(modelName);
     activeDownloads.delete(downloadKey);
-    onProgress?.(100);
-    // Persist download URL so full-device backups can re-fetch on another phone (S32).
+    onProgress?.(100, {
+      percent: 100,
+      bytesWritten: expectedBytes ?? 0,
+      totalBytes: expectedBytes,
+      bytesPerSecond: null,
+      etaSeconds: null,
+    });
+    // Persist download URL so full-device backups can re-fetch on another phone.
     try {
       const { registerModelSource } = await import(
         '../services/modelCatalogService'
@@ -431,7 +477,7 @@ async function downloadModelResumable(
       throw new Error('Download was cancelled');
     }
 
-    // Network / other failure: keep partial for resume (S06 mid-fail resume).
+    // Network / other failure: keep partial for resume.
     try {
       if (await RNFS.exists(partialPath)) {
         const st = await RNFS.stat(partialPath);
@@ -481,6 +527,7 @@ async function downloadModelLegacy(
   }
 
   const authHeaders = await hfAuthHeaders(modelUrl);
+  const legacySamples: DownloadProgressSample[] = [];
   const downloadJob = RNFS.downloadFile({
     fromUrl: modelUrl,
     toFile: destPath,
@@ -506,7 +553,7 @@ async function downloadModelLegacy(
     progress: ({ bytesWritten, contentLength }) => {
       if (cancellationToken?.isCancelled()) return;
       if (contentLength > 0) {
-        onProgress?.(Math.floor((bytesWritten / contentLength) * 100));
+        emitProgress(onProgress, legacySamples, bytesWritten, contentLength);
       }
     },
   });
@@ -532,7 +579,14 @@ async function downloadModelLegacy(
         `Download size mismatch: expected ~${expectedBytes} bytes, got ${st.size}`,
       );
     }
-    onProgress?.(100);
+    const finalBytes = Number(st.size) || 0;
+    onProgress?.(100, {
+      percent: 100,
+      bytesWritten: finalBytes,
+      totalBytes: expectedBytes ?? (finalBytes > 0 ? finalBytes : null),
+      bytesPerSecond: null,
+      etaSeconds: null,
+    });
     try {
       const { registerModelSource } = await import(
         '../services/modelCatalogService'
