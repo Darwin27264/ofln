@@ -11,7 +11,6 @@ import {
   TouchableOpacity,
   ScrollView,
   InteractionManager,
-  ActivityIndicator,
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import Icon from "react-native-vector-icons/MaterialIcons";
@@ -29,22 +28,6 @@ import {
   persistPersonaAvatar,
   Persona,
 } from "../services/personaService";
-import {
-  PERSONA_ROLEPLAY_MODELS,
-  type StarterModelInfo,
-} from "../services/starterModels";
-import type { DownloadProgressInfo } from "../api/model";
-import {
-  checkDiskSpaceForDownload,
-  diskPreflightAlertMessage,
-  parseSizeToBytes,
-} from "../utils/diskPreflight";
-import { formatDownloadProgressLine } from "../utils/downloadProgressFormat";
-import {
-  toUserFacingDownloadError,
-  toUserFacingLoadError,
-} from "../utils/userFacingErrors";
-import { llamaProvider } from "../providers/llamaProvider";
 
 const SAMPLE_PERSONA_NAMES = [
   "Noir Detective",
@@ -59,23 +42,14 @@ interface PersonasLibraryScreenProps {
   onBack: () => void;
   onEditPersona?: (persona: Persona | null) => void; // null = create mode, Persona = edit mode
   onUsePersona?: (persona: Persona) => void; // Handler for "Use" button
-  downloadedModels?: string[];
-  handleDownloadModel?: (
-    file: string,
-    repoId: string,
-    onProgress: (progress: number, info?: DownloadProgressInfo) => void,
-    cancellationToken?: import("../api/model").DownloadCancellationToken,
-    expectedBytes?: number | null,
-    revision?: string | null,
-  ) => Promise<void>;
+  onBrowsePersonaModels?: () => void;
 }
 
 export default function PersonasLibraryScreen({
   onBack,
   onEditPersona,
   onUsePersona,
-  downloadedModels = [],
-  handleDownloadModel,
+  onBrowsePersonaModels,
 }: PersonasLibraryScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
@@ -87,9 +61,6 @@ export default function PersonasLibraryScreen({
   const [expandedPersonaId, setExpandedPersonaId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [infoOpen, setInfoOpen] = useState(false);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
-  const [downloadDetail, setDownloadDetail] = useState("");
 
   const isInitialAnimationPhase = useRef(true);
   const animatedPersonaIds = useRef<Set<string>>(new Set());
@@ -556,47 +527,10 @@ export default function PersonasLibraryScreen({
     setInfoOpen(true);
   }, []);
 
-  const handleDownloadRoleplayModel = useCallback(
-    async (model: StarterModelInfo) => {
-      if (!handleDownloadModel || downloadingId) return;
-      const alreadyHave = downloadedModels.includes(model.fileName);
-      setDownloadingId(model.id);
-      setDownloadProgress(alreadyHave ? null : 0);
-      setDownloadDetail("");
-      try {
-        if (!alreadyHave) {
-          const disk = await checkDiskSpaceForDownload(model.size);
-          if (!disk.ok) {
-            const uf = diskPreflightAlertMessage(disk);
-            showAlert(uf.title, uf.message, [{ text: "OK" }]);
-            return;
-          }
-        }
-        await handleDownloadModel(
-          model.fileName,
-          model.repoId,
-          (p, info) => {
-            setDownloadProgress(p);
-            setDownloadDetail(info ? formatDownloadProgressLine(info) : "");
-          },
-          undefined,
-          parseSizeToBytes(model.size),
-        );
-        setInfoOpen(false);
-      } catch (error) {
-        console.warn("Persona roleplay model download failed", error);
-        const uf =
-          toUserFacingDownloadError(error) ??
-          toUserFacingLoadError(error, llamaProvider.getStatus().error);
-        showAlert(uf.title, uf.message, [{ text: "OK" }]);
-      } finally {
-        setDownloadingId(null);
-        setDownloadProgress(null);
-        setDownloadDetail("");
-      }
-    },
-    [downloadedModels, downloadingId, handleDownloadModel],
-  );
+  const handleBrowsePersonaModels = useCallback(() => {
+    setInfoOpen(false);
+    onBrowsePersonaModels?.();
+  }, [onBrowsePersonaModels]);
 
   const pillButtonStyle = {
     flexDirection: "row" as const,
@@ -700,7 +634,7 @@ export default function PersonasLibraryScreen({
           onPress={handleShowPersonaInfo}
           style={iconPillStyle}
           accessibilityLabel="How personas work"
-          accessibilityHint="Explains personas and downloads roleplay models"
+          accessibilityHint="Explains personas and links to recommended models"
         >
           <Ionicons
             name="information"
@@ -719,168 +653,55 @@ export default function PersonasLibraryScreen({
 
       <BottomSheet
         visible={infoOpen}
-        onClose={() => {
-          if (downloadingId) return;
-          setInfoOpen(false);
-        }}
+        onClose={() => setInfoOpen(false)}
         title="How personas work"
         subtitle="Character prompts for chat"
-        height={0.78}
+        fitContent
       >
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 24 }}
+        <Text
+          style={{
+            fontSize: 14,
+            color: theme.colors.textSecondary,
+            fontFamily: "Poppins",
+            lineHeight: 21,
+            marginBottom: 16,
+          }}
         >
-          <Text
-            style={{
-              fontSize: 14,
-              color: theme.colors.textSecondary,
-              fontFamily: "Poppins",
-              lineHeight: 21,
-              marginBottom: 16,
-            }}
-          >
-            Sets identity, style, and boundaries in the system prompt. Tap Use here or
-            in the chat model sheet. Strength controls how much detail is added.
-          </Text>
+          Sets identity, style, and boundaries in the system prompt. Tap Use here or
+          in the chat model sheet. Strength controls how much detail is added.
+        </Text>
 
+        <TouchableOpacity
+          onPress={handleBrowsePersonaModels}
+          style={{
+            backgroundColor: theme.colors.primary,
+            borderRadius: 12,
+            paddingVertical: 13,
+            paddingHorizontal: 14,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          accessibilityLabel="Browse persona models"
+          accessibilityHint="Opens Models with the Personas tab selected"
+        >
+          <Ionicons
+            name="arrow-forward-circle-outline"
+            size={20}
+            color={theme.colors.primaryText}
+            style={{ marginRight: 8 }}
+          />
           <Text
             style={{
-              fontSize: 16,
+              color: theme.colors.primaryText,
+              fontSize: 15,
               fontWeight: "600",
-              color: theme.colors.text,
               fontFamily: "Poppins",
-              marginBottom: 6,
             }}
           >
-            Recommended models
+            Browse persona models
           </Text>
-          <Text
-            style={{
-              fontSize: 13,
-              color: theme.colors.textSecondary,
-              fontFamily: "Poppins",
-              lineHeight: 19,
-              marginBottom: 12,
-            }}
-          >
-            These instruct models tend to hold character better. Download to use in chat.
-          </Text>
-
-          {PERSONA_ROLEPLAY_MODELS.map((model) => {
-            const have = downloadedModels.includes(model.fileName);
-            const isThis = downloadingId === model.id;
-            const busyOther = !!downloadingId && !isThis;
-            return (
-              <View
-                key={model.id}
-                style={{
-                  backgroundColor: theme.colors.card,
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                  padding: 14,
-                  marginBottom: 10,
-                }}
-              >
-                <Text
-                  style={{
-                    fontSize: 15,
-                    fontWeight: "600",
-                    color: theme.colors.text,
-                    fontFamily: "Poppins",
-                    marginBottom: 4,
-                  }}
-                >
-                  {model.name}
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 12,
-                    color: theme.colors.textTertiary,
-                    fontFamily: "Poppins",
-                    marginBottom: 6,
-                  }}
-                >
-                  {model.size} · {model.shelfHint}
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 13,
-                    color: theme.colors.textSecondary,
-                    fontFamily: "Poppins",
-                    lineHeight: 18,
-                    marginBottom: 12,
-                  }}
-                >
-                  {model.description}
-                </Text>
-                {isThis && downloadProgress != null && (
-                  <Text
-                    style={{
-                      fontSize: 12,
-                      color: theme.colors.textSecondary,
-                      fontFamily: "Poppins",
-                      marginBottom: 8,
-                    }}
-                  >
-                    {Math.round(downloadProgress * 100)}%
-                    {downloadDetail ? ` · ${downloadDetail}` : ""}
-                  </Text>
-                )}
-                <TouchableOpacity
-                  onPress={() => void handleDownloadRoleplayModel(model)}
-                  disabled={!handleDownloadModel || busyOther || isThis}
-                  style={{
-                    backgroundColor: theme.colors.primary,
-                    borderRadius: 12,
-                    paddingVertical: 11,
-                    paddingHorizontal: 14,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    opacity: !handleDownloadModel || busyOther ? 0.5 : 1,
-                  }}
-                  accessibilityLabel={
-                    have ? `Load ${model.name}` : `Download ${model.name}`
-                  }
-                >
-                  {isThis ? (
-                    <ActivityIndicator
-                      size="small"
-                      color={theme.colors.primaryText}
-                      style={{ marginRight: 8 }}
-                    />
-                  ) : (
-                    <Ionicons
-                      name={have ? "checkmark-circle-outline" : "download-outline"}
-                      size={18}
-                      color={theme.colors.primaryText}
-                      style={{ marginRight: 8 }}
-                    />
-                  )}
-                  <Text
-                    style={{
-                      color: theme.colors.primaryText,
-                      fontSize: 14,
-                      fontWeight: "600",
-                      fontFamily: "Poppins",
-                    }}
-                  >
-                    {isThis
-                      ? have
-                        ? "Loading…"
-                        : "Downloading…"
-                      : have
-                        ? "Load"
-                        : "Download"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            );
-          })}
-        </ScrollView>
+        </TouchableOpacity>
       </BottomSheet>
     </View>
   );

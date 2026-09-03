@@ -128,6 +128,30 @@ export const STARTER_SHELF_TITLE = 'Start here';
 
 export const STARTER_SHELF_SUBTITLE = 'Phone-friendly Q4_0 picks.';
 
+export type StarterShelfTabId = 'general' | 'personas' | 'coding';
+
+export const STARTER_SHELF_TABS: {
+  id: StarterShelfTabId;
+  label: string;
+  subtitle: string;
+}[] = [
+  {
+    id: 'general',
+    label: 'General',
+    subtitle: STARTER_SHELF_SUBTITLE,
+  },
+  {
+    id: 'personas',
+    label: 'Personas',
+    subtitle: 'Uncensored instruct models that stay in character.',
+  },
+  {
+    id: 'coding',
+    label: 'Coding',
+    subtitle: 'Code-specialized models for fixes, scripts, and snippets.',
+  },
+];
+
 /**
  * Curated roleplay / persona shelf — uncensored or abliterated instruct GGUFs.
  * Prefer Q4_0 when available (Android OpenCL/Hexagon allowlist). Filenames verified on HF.
@@ -168,6 +192,57 @@ export const PERSONA_ROLEPLAY_MODELS: StarterModelInfo[] = [
   },
 ];
 
+/**
+ * Curated coding shelf — Qwen Coder instruct GGUFs (Q4_0 for Android accel).
+ * Filenames verified on Hugging Face — re-check before renaming.
+ */
+export const CODING_STARTER_MODELS: StarterModelInfo[] = [
+  {
+    id: 'qwen25-coder-15b-q40',
+    name: 'Qwen2.5 Coder 1.5B Instruct (Q4_0)',
+    repoId: 'bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF',
+    fileName: 'Qwen2.5-Coder-1.5B-Instruct-Q4_0.gguf',
+    size: '0.94 GB',
+    description: 'Lightweight code model for quick fixes on most phones.',
+    author: 'bartowski',
+    tags: ['coder', 'code', 'qwen', 'q4_0', 'small'],
+    shelfHint: 'Code · low RAM',
+  },
+  {
+    id: 'qwen25-coder-3b-q40',
+    name: 'Qwen2.5 Coder 3B Instruct (Q4_0)',
+    repoId: 'bartowski/Qwen2.5-Coder-3B-Instruct-GGUF',
+    fileName: 'Qwen2.5-Coder-3B-Instruct-Q4_0.gguf',
+    size: '1.70 GB',
+    description: 'Stronger completions and refactors; needs more RAM.',
+    author: 'bartowski',
+    tags: ['coder', 'code', 'qwen', 'q4_0'],
+    shelfHint: 'Stronger code · mid RAM',
+  },
+  {
+    id: 'qwen25-coder-7b-q40',
+    name: 'Qwen2.5 Coder 7B Instruct (Q4_0)',
+    repoId: 'bartowski/Qwen2.5-Coder-7B-Instruct-GGUF',
+    fileName: 'Qwen2.5-Coder-7B-Instruct-Q4_0.gguf',
+    size: '4.14 GB',
+    description: 'Best code quality in this shelf; flagship RAM only.',
+    author: 'bartowski',
+    tags: ['coder', 'code', 'qwen', 'q4_0'],
+    shelfHint: 'Flagship code · high RAM',
+  },
+];
+
+const STARTER_SHELF_CATALOGS: Record<StarterShelfTabId, StarterModelInfo[]> = {
+  general: STARTER_MODELS,
+  personas: PERSONA_ROLEPLAY_MODELS,
+  coding: CODING_STARTER_MODELS,
+};
+
+/** Catalog for a Start here tab. */
+export function getStarterShelfCatalog(tab: StarterShelfTabId): StarterModelInfo[] {
+  return STARTER_SHELF_CATALOGS[tab];
+}
+
 /** Starters not yet on disk (by final .gguf file name). */
 export function getAvailableStarterModels(
   downloadedFileNames: string[],
@@ -179,7 +254,14 @@ export function getAvailableStarterModels(
 
 export function findStarterByFileName(
   fileName: string,
-  catalog: StarterModelInfo[] = STARTER_MODELS,
+  catalog?: StarterModelInfo[],
 ): StarterModelInfo | undefined {
-  return catalog.find((m) => m.fileName === fileName);
+  const catalogs = catalog
+    ? [catalog]
+    : [STARTER_MODELS, PERSONA_ROLEPLAY_MODELS, CODING_STARTER_MODELS];
+  for (const shelf of catalogs) {
+    const found = shelf.find((m) => m.fileName === fileName);
+    if (found) return found;
+  }
+  return undefined;
 }

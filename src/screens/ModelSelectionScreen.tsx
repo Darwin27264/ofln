@@ -17,17 +17,12 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   ActivityIndicator,
-  Dimensions,
-  Animated,
-  Pressable,
   BackHandler,
-  Easing,
   ScrollView,
-  Modal,
   InteractionManager,
   Platform,
+  StyleSheet,
 } from "react-native";
 import RNFS from "react-native-fs";
 import { hfAxiosGet } from "../services/hfTokenService";
@@ -43,6 +38,7 @@ import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
 import { BottomSheet } from "../components/BottomSheet";
+import { SegmentedTabBar } from "../components/SegmentedTabBar";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import { pick, isErrorWithCode, errorCodes } from "@react-native-documents/picker";
 import { saveLocalModel, removeLocalModel, LocalModelInfo } from "../services/localModelService";
@@ -60,7 +56,6 @@ import {
   isDownloadCancelledError,
   listPausedDownloadNames,
 } from "../api/model";
-import { EASING, OVERLAY_MOTION } from "../utils/animationConfig";
 import {
   isDownloadCancelled,
   toUserFacingDownloadError,
@@ -78,10 +73,12 @@ import {
   parseSizeToBytes,
 } from "../utils/diskPreflight";
 import {
-  STARTER_SHELF_SUBTITLE,
   STARTER_SHELF_TITLE,
+  STARTER_SHELF_TABS,
   findStarterByFileName,
   getAvailableStarterModels,
+  getStarterShelfCatalog,
+  type StarterShelfTabId,
 } from "../services/starterModels";
 import { formatDownloadProgressLine } from "../utils/downloadProgressFormat";
 
@@ -110,6 +107,9 @@ interface ModelSelectionScreenProps {
   selectedGGUF: string | null;
   setSelectedGGUF: (gguf: string | null) => void;
   onOpenModelSettings?: (model: ModelInfo) => void;
+  /** When set, opens Start here on this tab (consumed once on mount). */
+  initialStarterShelfTab?: StarterShelfTabId;
+  onStarterShelfTabConsumed?: () => void;
 }
 
 // Removed utility functions - now imported from utils/modelUtils.ts
@@ -156,7 +156,30 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     selectedGGUF,
     setSelectedGGUF,
     onOpenModelSettings,
+    initialStarterShelfTab,
+    onStarterShelfTabConsumed,
   } = props;
+
+  const [infoSheet, setInfoSheet] = useState<{
+    title: string;
+    subtitle?: string;
+    message: string;
+    action?: { label: string; onPress: () => void };
+  } | null>(null);
+
+  const showInfoSheet = useCallback(
+    (
+      title: string,
+      message: string,
+      subtitle?: string,
+      action?: { label: string; onPress: () => void },
+    ) => {
+      setInfoSheet({ title, message, subtitle, action });
+    },
+    [],
+  );
+
+  const closeInfoSheet = useCallback(() => setInfoSheet(null), []);
 
   /** Returns false (and shows an alert) when free space is too low for this file. */
   const ensureDiskForDownload = useCallback(
@@ -166,10 +189,10 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       const result = await checkDiskSpaceForDownload(sizeHint);
       if (result.ok) return true;
       const uf = diskPreflightAlertMessage(result);
-      showAlert(uf.title, uf.message, [{ text: "OK" }]);
+      showInfoSheet(uf.title, uf.message, "Storage");
       return false;
     },
-    [],
+    [showInfoSheet],
   );
 
   // State declarations
@@ -188,6 +211,57 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const [pausedDownloads, setPausedDownloads] = useState<{ [key: string]: number }>({});
   /** Device total RAM for fit chips (null until read / unavailable). */
   const [totalMemoryBytes, setTotalMemoryBytes] = useState<number | null>(null);
+  const [starterShelfTab, setStarterShelfTab] = useState<StarterShelfTabId>("general");
+
+  useEffect(() => {
+    if (!initialStarterShelfTab) return;
+    setStarterShelfTab(initialStarterShelfTab);
+    onStarterShelfTabConsumed?.();
+  }, [initialStarterShelfTab, onStarterShelfTabConsumed]);
+
+  const starterShelfFrost = useMemo(() => {
+    const dark = theme.mode === "dark";
+    return {
+      chrome: dark ? "rgba(0, 0, 0, 0.32)" : "rgba(15, 23, 42, 0.06)",
+      rowBorder: dark ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.08)",
+    };
+  }, [theme.mode]);
+
+  const starterShelfChromeOuter = useMemo(
+    () => ({
+      borderRadius: 12,
+      padding: 4,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: starterShelfFrost.rowBorder,
+      backgroundColor: starterShelfFrost.chrome,
+    }),
+    [starterShelfFrost.rowBorder, starterShelfFrost.chrome],
+  );
+
+  const starterShelfChromeInner = useMemo(
+    () => ({
+      paddingVertical: 10,
+      borderRadius: 8,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+    }),
+    [],
+  );
+
+  const starterShelfChromeLabel = useMemo(
+    () => ({
+      fontSize: 14,
+      lineHeight: 20,
+      fontWeight: "600" as const,
+      fontFamily: "Poppins",
+    }),
+    [],
+  );
+
+  const activeStarterShelfTab = useMemo(
+    () => STARTER_SHELF_TABS.find((tab) => tab.id === starterShelfTab) ?? STARTER_SHELF_TABS[0],
+    [starterShelfTab],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -232,11 +306,19 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const [customAuthor, setCustomAuthor] = useState<string>("");
   const [showAuthorInput, setShowAuthorInput] = useState<boolean>(false);
 
-  // Custom URL modal state
+  // Custom URL sheet state
   const [showCustomUrlModal, setShowCustomUrlModal] = useState(false);
-  const [isCustomUrlModalExiting, setIsCustomUrlModalExiting] = useState(false);
   const [customUrlInput, setCustomUrlInput] = useState("");
   const [isFetchingCustomUrl, setIsFetchingCustomUrl] = useState(false);
+
+  // Local file import choice sheet
+  const [addModelSheetOpen, setAddModelSheetOpen] = useState(false);
+  const [pendingLocalFile, setPendingLocalFile] = useState<{
+    fileName: string;
+    filePath: string;
+    fileSize: number;
+  } | null>(null);
+  const [addModelBusy, setAddModelBusy] = useState(false);
   
   // Use filtering hook for optimized model filtering
   const { filteredModels: filteredHfModels } = useModelFilter({
@@ -268,113 +350,73 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   
   // Quantization selector state
   const [showQuantSelector, setShowQuantSelector] = useState<boolean>(false);
-  const [isQuantModalExiting, setIsQuantModalExiting] = useState(false);
   const [selectedModelForDownload, setSelectedModelForDownload] = useState<ModelInfo | null>(null);
 
-  // Quantization modal — page-style fade + scale (no spring bounce)
-  const quantModalOpacity = useRef(new Animated.Value(0)).current;
-  const quantModalScale = useRef(new Animated.Value(OVERLAY_MOTION.FROM_SCALE)).current;
+  const closeQuantSelector = useCallback(() => {
+    setShowQuantSelector(false);
+  }, []);
 
-  const customUrlModalOpacity = useRef(new Animated.Value(0)).current;
-  const customUrlModalScale = useRef(new Animated.Value(OVERLAY_MOTION.FROM_SCALE)).current;
+  const closeCustomUrlModal = useCallback(() => {
+    setShowCustomUrlModal(false);
+  }, []);
 
-  useEffect(() => {
-    if (showQuantSelector && !isQuantModalExiting) {
-      quantModalOpacity.setValue(0);
-      quantModalScale.setValue(OVERLAY_MOTION.FROM_SCALE);
-      Animated.parallel([
-        Animated.timing(quantModalOpacity, {
-          toValue: 1,
-          duration: OVERLAY_MOTION.FADE_IN_MS,
-          easing: EASING.EASE_OUT,
-          useNativeDriver: true,
-        }),
-        Animated.timing(quantModalScale, {
-          toValue: 1,
-          duration: OVERLAY_MOTION.SCALE_IN_MS,
-          easing: EASING.EASE_OUT,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else if (isQuantModalExiting) {
-      Animated.parallel([
-        Animated.timing(quantModalOpacity, {
-          toValue: 0,
-          duration: OVERLAY_MOTION.FADE_OUT_MS,
-          easing: EASING.EASE_IN,
-          useNativeDriver: true,
-        }),
-        Animated.timing(quantModalScale, {
-          toValue: OVERLAY_MOTION.FROM_SCALE,
-          duration: OVERLAY_MOTION.SCALE_OUT_MS,
-          easing: EASING.EASE_IN,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        setShowQuantSelector(false);
-        setIsQuantModalExiting(false);
-      });
+  const closeAddModelSheet = useCallback(() => {
+    if (addModelBusy) return;
+    setAddModelSheetOpen(false);
+    setPendingLocalFile(null);
+  }, [addModelBusy]);
+
+  const handleUseExternalModel = useCallback(async () => {
+    if (!pendingLocalFile || addModelBusy) return;
+    setAddModelBusy(true);
+    try {
+      const localModelInfo: LocalModelInfo = {
+        fileName: pendingLocalFile.fileName,
+        filePath: pendingLocalFile.filePath,
+        addedDate: new Date().toISOString(),
+        fileSize: pendingLocalFile.fileSize,
+      };
+      await saveLocalModel(localModelInfo);
+      await checkDownloadedModels();
+      closeAddModelSheet();
+      showInfoSheet(
+        "Added",
+        `Model "${pendingLocalFile.fileName}" has been added as an external model.\n\nIf loading fails, try importing it into app storage instead.`,
+        "External model",
+      );
+    } finally {
+      setAddModelBusy(false);
     }
-  }, [showQuantSelector, isQuantModalExiting, quantModalOpacity, quantModalScale]);
+  }, [addModelBusy, checkDownloadedModels, closeAddModelSheet, pendingLocalFile, showInfoSheet]);
 
-  const closeQuantSelector = useCallback((animate = true) => {
-    if (showQuantSelector && !isQuantModalExiting) {
-      if (animate) {
-        setIsQuantModalExiting(true);
-      } else {
-        setShowQuantSelector(false);
+  const handleImportIntoApp = useCallback(async () => {
+    if (!pendingLocalFile || addModelBusy) return;
+    setAddModelBusy(true);
+    try {
+      const { fileName, filePath } = pendingLocalFile;
+      const destPath = `${RNFS.DocumentDirectoryPath}/${fileName}`;
+      const existsInApp = await RNFS.exists(destPath);
+      if (!existsInApp) {
+        await RNFS.copyFile(filePath, destPath);
       }
+      await checkDownloadedModels();
+      closeAddModelSheet();
+      showInfoSheet(
+        "Imported",
+        `Model "${fileName}" has been copied into app storage.\nYou can now load it from the Downloaded list.`,
+        "App storage",
+      );
+    } catch (copyError) {
+      console.error("Error importing model into app storage:", copyError);
+      showAlert(
+        "Import failed",
+        "Could not copy the model into app storage. You can still try using it as an external model.",
+        [{ text: "OK" }],
+      );
+    } finally {
+      setAddModelBusy(false);
     }
-  }, [showQuantSelector, isQuantModalExiting]);
-
-  useEffect(() => {
-    if (showCustomUrlModal && !isCustomUrlModalExiting) {
-      customUrlModalOpacity.setValue(0);
-      customUrlModalScale.setValue(OVERLAY_MOTION.FROM_SCALE);
-      Animated.parallel([
-        Animated.timing(customUrlModalOpacity, {
-          toValue: 1,
-          duration: OVERLAY_MOTION.FADE_IN_MS,
-          easing: EASING.EASE_OUT,
-          useNativeDriver: true,
-        }),
-        Animated.timing(customUrlModalScale, {
-          toValue: 1,
-          duration: OVERLAY_MOTION.SCALE_IN_MS,
-          easing: EASING.EASE_OUT,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else if (isCustomUrlModalExiting) {
-      Animated.parallel([
-        Animated.timing(customUrlModalOpacity, {
-          toValue: 0,
-          duration: OVERLAY_MOTION.FADE_OUT_MS,
-          easing: EASING.EASE_IN,
-          useNativeDriver: true,
-        }),
-        Animated.timing(customUrlModalScale, {
-          toValue: OVERLAY_MOTION.FROM_SCALE,
-          duration: OVERLAY_MOTION.SCALE_OUT_MS,
-          easing: EASING.EASE_IN,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        setShowCustomUrlModal(false);
-        setIsCustomUrlModalExiting(false);
-      });
-    }
-  }, [showCustomUrlModal, isCustomUrlModalExiting, customUrlModalOpacity, customUrlModalScale]);
-
-  const closeCustomUrlModal = useCallback((animate = true) => {
-    if (showCustomUrlModal && !isCustomUrlModalExiting) {
-      if (animate) {
-        setIsCustomUrlModalExiting(true);
-      } else {
-        setShowCustomUrlModal(false);
-      }
-    }
-  }, [showCustomUrlModal, isCustomUrlModalExiting]);
+  }, [addModelBusy, checkDownloadedModels, closeAddModelSheet, pendingLocalFile, showInfoSheet]);
 
   // Dropdown state for model cards
   const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
@@ -411,12 +453,16 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
 
   // Android system back: close nested panels/modals before leaving the screen.
   const handleBackPress = useCallback(() => {
-    if (showCustomUrlModal && !isCustomUrlModalExiting) {
+    if (addModelSheetOpen) {
+      closeAddModelSheet();
+      return true;
+    }
+    if (showCustomUrlModal) {
       closeCustomUrlModal();
       return true;
     }
-    if (showQuantSelector && !isQuantModalExiting) {
-      setIsQuantModalExiting(true);
+    if (showQuantSelector) {
+      closeQuantSelector();
       return true;
     }
     if (isHFPanelOpen) {
@@ -427,11 +473,12 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     setCurrentPage("settings");
     return true;
   }, [
+    addModelSheetOpen,
+    closeAddModelSheet,
     showCustomUrlModal,
-    isCustomUrlModalExiting,
     closeCustomUrlModal,
     showQuantSelector,
-    isQuantModalExiting,
+    closeQuantSelector,
     isHFPanelOpen,
     setCurrentPage,
   ]);
@@ -877,15 +924,15 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   kind: "network" as const,
                 };
           if (uf.kind === "auth" || status === 401 || status === 403) {
-            showAlert(uf.title, uf.message, [
-              { text: "OK", style: "cancel" },
-              {
-                text: "Add token",
-                onPress: () => setCurrentPage("hfToken"),
+            showInfoSheet(uf.title, uf.message, "Hugging Face", {
+              label: "Add token",
+              onPress: () => {
+                closeInfoSheet();
+                setCurrentPage("hfToken");
               },
-            ]);
+            });
           } else {
-            showAlert(uf.title, uf.message, [{ text: "OK" }]);
+            showInfoSheet(uf.title, uf.message, "Models");
           }
         } catch (alertError) {
           // If alert fails, just log it - don't crash
@@ -903,7 +950,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         console.error("Failed to reset loading states:", stateError);
       }
     }
-  }, [selectedAuthor, setCurrentPage]);
+  }, [selectedAuthor, setCurrentPage, showInfoSheet, closeInfoSheet]);
 
   // Handle "Load More" button press
   const handleLoadMore = useCallback(() => {
@@ -1073,60 +1120,12 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         }
 
         // Ask user whether to import into app storage (recommended) or keep external reference
-        showAlert(
-          "Add Model",
-          'How would you like to use this model?\n\n"Import into app" copies the file into the app\'s private storage (more reliable, recommended).\n"Use external" keeps the file at its current location.',
-          [
-            {
-              text: "Use external",
-              onPress: async () => {
-                const localModelInfo: LocalModelInfo = {
-                  fileName: fileName,
-                  filePath: filePath,
-                  addedDate: new Date().toISOString(),
-                  fileSize: stat.size,
-                };
-
-                await saveLocalModel(localModelInfo);
-                await checkDownloadedModels();
-
-                showAlert(
-                  "Added",
-                  `Model "${fileName}" has been added as an external model.\n\nIf loading fails, try importing it into app storage instead.`,
-                  [{ text: "OK" }]
-                );
-              },
-            },
-            {
-              text: "Import into app",
-              style: "default",
-              onPress: async () => {
-                try {
-                  const destPath = `${RNFS.DocumentDirectoryPath}/${fileName}`;
-                  const existsInApp = await RNFS.exists(destPath);
-                  if (!existsInApp) {
-                    await RNFS.copyFile(filePath, destPath);
-                  }
-
-                  showAlert(
-                    "Imported",
-                    `Model "${fileName}" has been copied into app storage.\nYou can now load it from the Downloaded list.`,
-                    [{ text: "OK" }]
-                  );
-                  await checkDownloadedModels();
-                } catch (copyError) {
-                  console.error("Error importing model into app storage:", copyError);
-                  showAlert(
-                    "Import failed",
-                    "Could not copy the model into app storage. You can still try using it as an external model.",
-                    [{ text: "OK" }]
-                  );
-                }
-              },
-            },
-          ],
-          true
-        );
+        setPendingLocalFile({
+          fileName,
+          filePath,
+          fileSize: stat.size,
+        });
+        setAddModelSheetOpen(true);
       }
     } catch (error: any) {
       // Handle different error types
@@ -1528,10 +1527,10 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     const parsed = parseHuggingFaceUrl(customUrlInput);
 
     if (!parsed) {
-      showAlert(
+      showInfoSheet(
         "Invalid URL",
         "Please enter a valid HuggingFace model URL.\n\nExamples:\nhttps://huggingface.co/author/model\nhttps://huggingface.co/author/model/blob/main/file.gguf",
-        [{ text: "OK" }]
+        "Import from URL",
       );
       return;
     }
@@ -1546,19 +1545,19 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
 
       if (response.status === 401 || response.status === 403) {
         const uf = userFacingHttpError(response.status);
-        showAlert(uf.title, uf.message, [
-          { text: "OK", style: "cancel" },
-          {
-            text: "Add token",
-            onPress: () => setCurrentPage("hfToken"),
+        showInfoSheet(uf.title, uf.message, "Hugging Face", {
+          label: "Add token",
+          onPress: () => {
+            closeInfoSheet();
+            setCurrentPage("hfToken");
           },
-        ]);
+        });
         return;
       }
 
       if (response.status === 404) {
         const uf = userFacingHttpError(404);
-        showAlert(uf.title, uf.message, [{ text: "OK" }]);
+        showInfoSheet(uf.title, uf.message, "Import from URL");
         return;
       }
 
@@ -1576,7 +1575,11 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       );
 
       if (allGgufFiles.length === 0) {
-        showAlert("No GGUF Files", "This repository does not contain any GGUF model files.", [{ text: "OK" }]);
+        showInfoSheet(
+          "No GGUF Files",
+          "This repository does not contain any GGUF model files.",
+          "Import from URL",
+        );
         return;
       }
 
@@ -1622,7 +1625,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         revision,
       };
 
-      closeCustomUrlModal(false);
+      closeCustomUrlModal();
       setCustomUrlInput("");
       handleModelDownload(modelInfo);
     } catch (error: any) {
@@ -1636,20 +1639,20 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
               kind: 'generic_download' as const,
             });
       if (uf.kind === 'auth' || status === 401 || status === 403) {
-        showAlert(uf.title, uf.message, [
-          { text: "OK", style: "cancel" },
-          {
-            text: "Add token",
-            onPress: () => setCurrentPage("hfToken"),
+        showInfoSheet(uf.title, uf.message, "Hugging Face", {
+          label: "Add token",
+          onPress: () => {
+            closeInfoSheet();
+            setCurrentPage("hfToken");
           },
-        ]);
+        });
       } else {
-        showAlert(uf.title, uf.message, [{ text: "OK" }]);
+        showInfoSheet(uf.title, uf.message, "Import from URL");
       }
     } finally {
       setIsFetchingCustomUrl(false);
     }
-  }, [customUrlInput, closeCustomUrlModal, handleModelDownload, setCurrentPage]);
+  }, [customUrlInput, closeCustomUrlModal, closeInfoSheet, handleModelDownload, setCurrentPage, showInfoSheet]);
 
   /**
    * Render a model card with proper props
@@ -1710,10 +1713,13 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       .filter((m) => m !== null) as ModelInfo[];
   }, [downloadedModels]);
 
-  // Memoize filtered starter shelf models
-  const availablePopularModels = useMemo(() => {
-    return getAvailableStarterModels(downloadedModels);
-  }, [downloadedModels]);
+  // Memoize filtered starter shelf models for the active tab
+  const availableStarterShelfModels = useMemo(() => {
+    return getAvailableStarterModels(
+      downloadedModels,
+      getStarterShelfCatalog(starterShelfTab),
+    );
+  }, [downloadedModels, starterShelfTab]);
 
   return (
     <View style={[styles.container, { padding: 20, flex: 1, backgroundColor: theme.colors.background }]}>
@@ -1938,24 +1944,55 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           >
             {STARTER_SHELF_TITLE}
           </Text>
-          <Text
-            style={{
-              fontSize: 13,
-              color: theme.colors.textSecondary,
-              fontFamily: "Poppins",
-              lineHeight: 20,
-              marginBottom: 12,
-            }}
-          >
-            {STARTER_SHELF_SUBTITLE}
-          </Text>
-          {availablePopularModels.map((model, index) => {
-            return (
-              <View key={`${model.id}:${model.fileName}:${downloadedModelsInfo.length + index}`}>
-                {renderModelCard(model, false, downloadedModelsInfo.length + index)}
-              </View>
-            );
-          })}
+
+          <SegmentedTabBar
+            tabs={STARTER_SHELF_TABS}
+            activeId={starterShelfTab}
+            onChange={(id) => setStarterShelfTab(id as StarterShelfTabId)}
+            chromeOuter={[
+              starterShelfChromeOuter,
+              { marginBottom: 12 },
+            ]}
+            chromeInner={starterShelfChromeInner}
+            labelStyle={starterShelfChromeLabel}
+            activeLabelColor={theme.colors.primaryText}
+            inactiveLabelColor={theme.colors.text}
+            activePillColor={theme.colors.primary}
+          />
+
+          <View>
+            <Text
+              style={{
+                fontSize: 13,
+                color: theme.colors.textSecondary,
+                fontFamily: "Poppins",
+                lineHeight: 20,
+                marginBottom: 12,
+              }}
+            >
+              {activeStarterShelfTab.subtitle}
+            </Text>
+
+            {availableStarterShelfModels.length === 0 ? (
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: theme.colors.textSecondary,
+                  fontFamily: "Poppins",
+                  lineHeight: 20,
+                  marginBottom: 8,
+                }}
+              >
+                All models in this tab are already downloaded. See Local above.
+              </Text>
+            ) : (
+              availableStarterShelfModels.map((model, index) => (
+                <View key={`${model.id}:${model.fileName}:${downloadedModelsInfo.length + index}`}>
+                  {renderModelCard(model, false, downloadedModelsInfo.length + index)}
+                </View>
+              ))
+            )}
+          </View>
         </View>
 
         {/* Add Models Buttons */}
@@ -2436,356 +2473,412 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
               </ScrollView>
       </BottomSheet>
 
-      {/* Quantization Selector Modal - pop-in animation like CustomAlert */}
-      <Modal
-        visible={showQuantSelector || isQuantModalExiting}
-        transparent={true}
-        animationType="none"
-        onRequestClose={closeQuantSelector}
-      >
-        <TouchableWithoutFeedback onPress={closeQuantSelector}>
-          <Animated.View
-            style={{
-              flex: 1,
-              backgroundColor: "rgba(0, 0, 0, 0.5)",
-              opacity: quantModalOpacity,
-              justifyContent: "center",
-              alignItems: "center",
-              padding: 20,
-            }}
+      {/* Quantization selector */}
+      <BottomSheet
+        visible={showQuantSelector}
+        onClose={closeQuantSelector}
+        title="Select Quantization"
+        height={0.65}
+        headerRight={
+          <TouchableOpacity
+            onPress={closeQuantSelector}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <TouchableWithoutFeedback onPress={() => {}}>
-              <Animated.View
-                style={{
-                  backgroundColor: theme.colors.card,
-                  borderRadius: 20,
-                  padding: 24,
-                  width: "100%",
-                  maxWidth: 500,
-                  maxHeight: "80%",
-                  opacity: quantModalOpacity,
-                  transform: [{ scale: quantModalScale }],
-                }}
-              >
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <Icon name="close" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+        }
+      >
+        {selectedModelForDownload && (
+          <>
+            <Text
+              style={{
+                fontSize: 16,
+                fontWeight: "500",
+                color: theme.colors.text,
+                fontFamily: "Poppins",
+                marginBottom: 8,
+              }}
+            >
+              {selectedModelForDownload.name}
+            </Text>
+            {selectedModelForDownload.author && (
               <Text
                 style={{
-                  fontSize: 20,
-                  fontWeight: "600",
+                  fontSize: 12,
+                  color: theme.colors.textSecondary,
+                  fontFamily: "Poppins",
+                  marginBottom: 16,
+                }}
+              >
+                by {selectedModelForDownload.author}
+              </Text>
+            )}
+
+            <ScrollView
+              style={{ flex: 1 }}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {selectedModelForDownload.availableQuants && selectedModelForDownload.availableQuants.length > 0 ? (
+                selectedModelForDownload.availableQuants.map((quant, index) => {
+                  const sizeGB = quant.size > 0 ? (quant.size / 1024 / 1024 / 1024).toFixed(2) : "Unknown";
+                  const recommendLabel = getQuantRecommendLabel(quant.quantization);
+                  const isRecommended = recommendLabel != null;
+
+                  return (
+                    <TouchableOpacity
+                      key={`${quant.fileName}-${index}`}
+                      onPress={async () => {
+                        closeQuantSelector();
+                        const fileNameToDownload = quant.fileName;
+
+                        showAlert(
+                          "Confirm Download",
+                          `Download ${selectedModelForDownload.name} (${quant.quantization})?\nSize: ${sizeGB}GB` +
+                            (recommendLabel === "Accel"
+                              ? "\n\nThis quant can use Android GPU/NPU offload when available."
+                              : ""),
+                          [
+                            {
+                              text: "Cancel",
+                              style: "cancel",
+                            },
+                            {
+                              text: "Download",
+                              onPress: () => {
+                                void startModelFileDownload(
+                                  selectedModelForDownload,
+                                  fileNameToDownload,
+                                ).then(() => setSelectedModelForDownload(null));
+                              },
+                            },
+                          ],
+                          false
+                        );
+                      }}
+                      style={{
+                        backgroundColor: theme.colors.surface,
+                        borderRadius: 12,
+                        padding: 16,
+                        marginBottom: 12,
+                        borderWidth: 1,
+                        borderColor: isRecommended ? theme.colors.accent + "40" : theme.colors.border,
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
+                            <Text
+                              style={{
+                                fontSize: 16,
+                                fontWeight: "600",
+                                color: theme.colors.text,
+                                fontFamily: "Poppins",
+                                marginRight: 8,
+                              }}
+                            >
+                              {quant.quantization}
+                            </Text>
+                            {isRecommended && (
+                              <View
+                                style={{
+                                  backgroundColor: theme.colors.accent + "20",
+                                  paddingHorizontal: 6,
+                                  paddingVertical: 2,
+                                  borderRadius: 4,
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    fontSize: 10,
+                                    color: theme.colors.accent,
+                                    fontFamily: "Poppins",
+                                    fontWeight: "600",
+                                  }}
+                                >
+                                  {recommendLabel}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              color: theme.colors.textSecondary,
+                              fontFamily: "Poppins",
+                            }}
+                          >
+                            {sizeGB}GB
+                          </Text>
+                        </View>
+                        <Icon name="download" size={24} color={theme.colors.text} />
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              ) : (
+                <Text
+                  style={{
+                    fontSize: 14,
+                    color: theme.colors.textSecondary,
+                    fontFamily: "Poppins",
+                    textAlign: "center",
+                    padding: 20,
+                  }}
+                >
+                  No quantization options available
+                </Text>
+              )}
+            </ScrollView>
+          </>
+        )}
+      </BottomSheet>
+
+      {/* Custom URL import */}
+      <BottomSheet
+        visible={showCustomUrlModal}
+        onClose={closeCustomUrlModal}
+        title="Import from URL"
+        subtitle="Paste a HuggingFace model URL to browse and download GGUF files."
+        fitContent
+        headerRight={
+          <TouchableOpacity
+            onPress={closeCustomUrlModal}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Icon name="close" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+        }
+      >
+        <TextInput
+          style={{
+            backgroundColor: theme.colors.surface,
+            borderRadius: 12,
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            color: theme.colors.text,
+            fontFamily: "Poppins",
+            fontSize: 14,
+            marginBottom: 12,
+          }}
+          placeholder="https://huggingface.co/author/model-name"
+          placeholderTextColor={theme.colors.textTertiary}
+          value={customUrlInput}
+          onChangeText={setCustomUrlInput}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+          onSubmitEditing={handleCustomUrlSubmit}
+          editable={!isFetchingCustomUrl}
+        />
+
+        <Text
+          style={{
+            fontSize: 11,
+            color: theme.colors.textTertiary,
+            fontFamily: "Poppins",
+            marginBottom: 16,
+            lineHeight: 16,
+          }}
+        >
+          Supports repo URLs and direct file links:{"\n"}
+          huggingface.co/author/model{"\n"}
+          huggingface.co/author/model/blob/main/file.gguf
+        </Text>
+
+        <TouchableOpacity
+          onPress={handleCustomUrlSubmit}
+          disabled={!customUrlInput.trim() || isFetchingCustomUrl}
+          style={{
+            backgroundColor: customUrlInput.trim() && !isFetchingCustomUrl
+              ? theme.colors.primary
+              : theme.colors.surface,
+            borderRadius: 12,
+            paddingVertical: 14,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: !customUrlInput.trim() || isFetchingCustomUrl ? 0.5 : 1,
+          }}
+        >
+          {isFetchingCustomUrl ? (
+            <>
+              <ActivityIndicator size="small" color={theme.colors.text} style={{ marginRight: 8 }} />
+              <Text
+                style={{
                   color: theme.colors.text,
+                  fontSize: 16,
+                  fontWeight: "600",
                   fontFamily: "Poppins",
                 }}
               >
-                Select Quantization
+                Fetching...
               </Text>
-              <TouchableOpacity
-                onPress={closeQuantSelector}
-                style={{ padding: 4 }}
-              >
-                <Icon name="close" size={24} color={theme.colors.text} />
-              </TouchableOpacity>
-            </View>
-
-            {selectedModelForDownload && (
-              <>
-                <Text
-                  style={{
-                    fontSize: 16,
-                    fontWeight: "500",
-                    color: theme.colors.text,
-                    fontFamily: "Poppins",
-                    marginBottom: 8,
-                  }}
-                >
-                  {selectedModelForDownload.name}
-                </Text>
-                {selectedModelForDownload.author && (
-                  <Text
-                    style={{
-                      fontSize: 12,
-                      color: theme.colors.textSecondary,
-                      fontFamily: "Poppins",
-                      marginBottom: 16,
-                    }}
-                  >
-                    by {selectedModelForDownload.author}
-                  </Text>
-                )}
-
-                <ScrollView style={{ maxHeight: 400 }}>
-                  {selectedModelForDownload.availableQuants && selectedModelForDownload.availableQuants.length > 0 ? (
-                    selectedModelForDownload.availableQuants.map((quant, index) => {
-                      const sizeGB = quant.size > 0 ? (quant.size / 1024 / 1024 / 1024).toFixed(2) : "Unknown";
-                      const recommendLabel = getQuantRecommendLabel(quant.quantization);
-                      const isRecommended = recommendLabel != null;
-                      
-                      return (
-                        <TouchableOpacity
-                          key={`${quant.fileName}-${index}`}
-                          onPress={async () => {
-                            closeQuantSelector(false);
-                            const fileNameToDownload = quant.fileName;
-                            
-                            showAlert(
-                              "Confirm Download",
-                              `Download ${selectedModelForDownload.name} (${quant.quantization})?\nSize: ${sizeGB}GB` +
-                                (recommendLabel === "Accel"
-                                  ? "\n\nThis quant can use Android GPU/NPU offload when available."
-                                  : ""),
-                              [
-                                {
-                                  text: "Cancel",
-                                  style: "cancel",
-                                },
-                                {
-                                  text: "Download",
-                                  onPress: () => {
-                                    void startModelFileDownload(
-                                      selectedModelForDownload,
-                                      fileNameToDownload,
-                                    ).then(() => setSelectedModelForDownload(null));
-                                  },
-                                },
-                              ],
-                              false
-                            );
-                          }}
-                          style={{
-                            backgroundColor: theme.colors.surface,
-                            borderRadius: 12,
-                            padding: 16,
-                            marginBottom: 12,
-                            borderWidth: 1,
-                            borderColor: isRecommended ? theme.colors.accent + "40" : theme.colors.border,
-                          }}
-                        >
-                          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                            <View style={{ flex: 1 }}>
-                              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
-                                <Text
-                                  style={{
-                                    fontSize: 16,
-                                    fontWeight: "600",
-                                    color: theme.colors.text,
-                                    fontFamily: "Poppins",
-                                    marginRight: 8,
-                                  }}
-                                >
-                                  {quant.quantization}
-                                </Text>
-                                {isRecommended && (
-                                  <View
-                                    style={{
-                                      backgroundColor: theme.colors.accent + "20",
-                                      paddingHorizontal: 6,
-                                      paddingVertical: 2,
-                                      borderRadius: 4,
-                                    }}
-                                  >
-                                    <Text
-                                      style={{
-                                        fontSize: 10,
-                                        color: theme.colors.accent,
-                                        fontFamily: "Poppins",
-                                        fontWeight: "600",
-                                      }}
-                                    >
-                                      {recommendLabel}
-                                    </Text>
-                                  </View>
-                                )}
-                              </View>
-                              <Text
-                                style={{
-                                  fontSize: 12,
-                                  color: theme.colors.textSecondary,
-                                  fontFamily: "Poppins",
-                                }}
-                              >
-                                {sizeGB}GB
-                              </Text>
-                            </View>
-                            <Icon name="download" size={24} color={theme.colors.text} />
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })
-                  ) : (
-                    <Text
-                      style={{
-                        fontSize: 14,
-                        color: theme.colors.textSecondary,
-                        fontFamily: "Poppins",
-                        textAlign: "center",
-                        padding: 20,
-                      }}
-                    >
-                      No quantization options available
-                    </Text>
-                  )}
-                </ScrollView>
-              </>
-            )}
-              </Animated.View>
-            </TouchableWithoutFeedback>
-          </Animated.View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      {/* Custom URL Modal */}
-      <Modal
-        visible={showCustomUrlModal || isCustomUrlModalExiting}
-        transparent={true}
-        animationType="none"
-        onRequestClose={closeCustomUrlModal}
-      >
-        <TouchableWithoutFeedback onPress={closeCustomUrlModal}>
-          <Animated.View
-            style={{
-              flex: 1,
-              backgroundColor: "rgba(0, 0, 0, 0.5)",
-              opacity: customUrlModalOpacity,
-              justifyContent: "center",
-              alignItems: "center",
-              padding: 20,
-            }}
-          >
-            <TouchableWithoutFeedback onPress={() => {}}>
-              <Animated.View
+            </>
+          ) : (
+            <>
+              <Icon
+                name="search"
+                size={20}
+                color={customUrlInput.trim() ? theme.colors.primaryText : theme.colors.text}
+              />
+              <Text
                 style={{
-                  backgroundColor: theme.colors.card,
-                  borderRadius: 20,
-                  padding: 24,
-                  width: "100%",
-                  maxWidth: 500,
-                  opacity: customUrlModalOpacity,
-                  transform: [{ scale: customUrlModalScale }],
+                  color: customUrlInput.trim() ? theme.colors.primaryText : theme.colors.text,
+                  fontSize: 16,
+                  fontWeight: "600",
+                  fontFamily: "Poppins",
+                  marginLeft: 8,
                 }}
               >
-                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                  <Text
-                    style={{
-                      fontSize: 20,
-                      fontWeight: "600",
-                      color: theme.colors.text,
-                      fontFamily: "Poppins",
-                    }}
-                  >
-                    Import from URL
-                  </Text>
-                  <TouchableOpacity
-                    onPress={closeCustomUrlModal}
-                    style={{ padding: 4 }}
-                  >
-                    <Icon name="close" size={24} color={theme.colors.text} />
-                  </TouchableOpacity>
-                </View>
+                Fetch Model
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </BottomSheet>
 
-                <Text
-                  style={{
-                    fontSize: 13,
-                    color: theme.colors.textSecondary,
-                    fontFamily: "Poppins",
-                    marginBottom: 16,
-                    lineHeight: 20,
-                  }}
-                >
-                  Paste a HuggingFace model URL to browse and download GGUF files.
-                </Text>
+      {/* Local file import choice */}
+      <BottomSheet
+        visible={addModelSheetOpen}
+        onClose={closeAddModelSheet}
+        title="Add Model"
+        subtitle={pendingLocalFile?.fileName}
+        fitContent
+      >
+        <Text
+          style={{
+            fontSize: 14,
+            color: theme.colors.textSecondary,
+            fontFamily: "Poppins",
+            lineHeight: 21,
+            marginBottom: 16,
+          }}
+        >
+          Import into app copies the file into private storage (recommended). Use external keeps it at its current location.
+        </Text>
+        <TouchableOpacity
+          onPress={() => void handleImportIntoApp()}
+          disabled={addModelBusy}
+          style={{
+            backgroundColor: theme.colors.primary,
+            borderRadius: 12,
+            paddingVertical: 14,
+            alignItems: "center",
+            marginBottom: 10,
+            opacity: addModelBusy ? 0.5 : 1,
+          }}
+        >
+          {addModelBusy ? (
+            <ActivityIndicator size="small" color={theme.colors.primaryText} />
+          ) : (
+            <Text
+              style={{
+                color: theme.colors.primaryText,
+                fontSize: 15,
+                fontWeight: "600",
+                fontFamily: "Poppins",
+              }}
+            >
+              Import into app
+            </Text>
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => void handleUseExternalModel()}
+          disabled={addModelBusy}
+          style={{
+            backgroundColor: theme.colors.surface,
+            borderRadius: 12,
+            paddingVertical: 14,
+            alignItems: "center",
+            marginBottom: 10,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            opacity: addModelBusy ? 0.5 : 1,
+          }}
+        >
+          <Text
+            style={{
+              color: theme.colors.text,
+              fontSize: 15,
+              fontWeight: "600",
+              fontFamily: "Poppins",
+            }}
+          >
+            Use external
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={closeAddModelSheet}
+          disabled={addModelBusy}
+          style={{
+            backgroundColor: theme.colors.surface,
+            borderRadius: 12,
+            paddingVertical: 14,
+            alignItems: "center",
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            opacity: addModelBusy ? 0.5 : 1,
+          }}
+        >
+          <Text
+            style={{
+              color: theme.colors.textSecondary,
+              fontSize: 15,
+              fontWeight: "600",
+              fontFamily: "Poppins",
+            }}
+          >
+            Cancel
+          </Text>
+        </TouchableOpacity>
+      </BottomSheet>
 
-                <TextInput
-                  style={{
-                    backgroundColor: theme.colors.surface,
-                    borderRadius: 12,
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
-                    borderWidth: 1,
-                    borderColor: theme.colors.border,
-                    color: theme.colors.text,
-                    fontFamily: "Poppins",
-                    fontSize: 14,
-                    marginBottom: 12,
-                  }}
-                  placeholder="https://huggingface.co/author/model-name"
-                  placeholderTextColor={theme.colors.textTertiary}
-                  value={customUrlInput}
-                  onChangeText={setCustomUrlInput}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="url"
-                  onSubmitEditing={handleCustomUrlSubmit}
-                  editable={!isFetchingCustomUrl}
-                />
-
-                <Text
-                  style={{
-                    fontSize: 11,
-                    color: theme.colors.textTertiary,
-                    fontFamily: "Poppins",
-                    marginBottom: 16,
-                    lineHeight: 16,
-                  }}
-                >
-                  Supports repo URLs and direct file links:{"\n"}
-                  huggingface.co/author/model{"\n"}
-                  huggingface.co/author/model/blob/main/file.gguf
-                </Text>
-
-                <TouchableOpacity
-                  onPress={handleCustomUrlSubmit}
-                  disabled={!customUrlInput.trim() || isFetchingCustomUrl}
-                  style={{
-                    backgroundColor: customUrlInput.trim() && !isFetchingCustomUrl
-                      ? theme.colors.primary
-                      : theme.colors.surface,
-                    borderRadius: 12,
-                    paddingVertical: 14,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    opacity: !customUrlInput.trim() || isFetchingCustomUrl ? 0.5 : 1,
-                  }}
-                >
-                  {isFetchingCustomUrl ? (
-                    <>
-                      <ActivityIndicator size="small" color={theme.colors.text} style={{ marginRight: 8 }} />
-                      <Text
-                        style={{
-                          color: theme.colors.text,
-                          fontSize: 16,
-                          fontWeight: "600",
-                          fontFamily: "Poppins",
-                        }}
-                      >
-                        Fetching...
-                      </Text>
-                    </>
-                  ) : (
-                    <>
-                      <Icon
-                        name="search"
-                        size={20}
-                        color={customUrlInput.trim() ? theme.colors.primaryText : theme.colors.text}
-                      />
-                      <Text
-                        style={{
-                          color: customUrlInput.trim() ? theme.colors.primaryText : theme.colors.text,
-                          fontSize: 16,
-                          fontWeight: "600",
-                          fontFamily: "Poppins",
-                          marginLeft: 8,
-                        }}
-                      >
-                        Fetch Model
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </Animated.View>
-            </TouchableWithoutFeedback>
-          </Animated.View>
-        </TouchableWithoutFeedback>
-      </Modal>
+      <BottomSheet
+        visible={infoSheet !== null}
+        onClose={closeInfoSheet}
+        title={infoSheet?.title ?? ""}
+        subtitle={infoSheet?.subtitle}
+        fitContent
+      >
+        <Text
+          style={{
+            fontSize: 14,
+            color: theme.colors.textSecondary,
+            fontFamily: "Poppins",
+            lineHeight: 21,
+            marginBottom: infoSheet?.action ? 16 : 0,
+          }}
+        >
+          {infoSheet?.message ?? ""}
+        </Text>
+        {infoSheet?.action ? (
+          <TouchableOpacity
+            onPress={infoSheet.action.onPress}
+            style={{
+              backgroundColor: theme.colors.primary,
+              borderRadius: 12,
+              paddingVertical: 14,
+              alignItems: "center",
+            }}
+          >
+            <Text
+              style={{
+                color: theme.colors.primaryText,
+                fontSize: 15,
+                fontWeight: "600",
+                fontFamily: "Poppins",
+              }}
+            >
+              {infoSheet.action.label}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+      </BottomSheet>
 
     </View>
   );

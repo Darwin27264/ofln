@@ -55,6 +55,7 @@ import { ModelInfo } from "./src/components/ModelCard";
 import { checkFileExists } from "./src/services/llamaService";
 import { validateLocalModels, LocalModelInfo } from "./src/services/localModelService";
 import { shouldShowOnboardingOnLaunch } from "./src/services/onboardingService";
+import type { StarterShelfTabId } from "./src/services/starterModels";
 import { toUserFacingLoadError } from "./src/utils/userFacingErrors";
 
 // Vercel AI SDK integration layer
@@ -67,6 +68,11 @@ type Message = {
   showThought?: boolean;
   tokensPerSecond?: number;
   attachments?: Array<{ type: "image"; uri: string; width?: number; height?: number; fileName?: string }>;
+  personaId?: string;
+  personaName?: string;
+  personaTagline?: string;
+  personaAvatar?: string;
+  personaAvatarUri?: string;
 };
 
 function AppContent(): React.JSX.Element {
@@ -174,6 +180,9 @@ function AppContent(): React.JSX.Element {
     | "hfToken"
     | "storage";
   const [currentPage, setCurrentPage] = useState<PageType>("conversation");
+  const [modelSelectionStarterTab, setModelSelectionStarterTab] = useState<
+    StarterShelfTabId | undefined
+  >();
   /** False until `@has_completed_onboarding` is read — avoids flashing chat for new users. */
   const [bootstrapped, setBootstrapped] = useState(false);
   /** Skip from onboarding returns here (About review → info; first-run → conversation). */
@@ -627,6 +636,8 @@ function AppContent(): React.JSX.Element {
             setSelectedModelForSettings(model);
             setCurrentPage("modelSettings");
           }}
+          initialStarterShelfTab={modelSelectionStarterTab}
+          onStarterShelfTabConsumed={() => setModelSelectionStarterTab(undefined)}
           />
         </PageFadeIn>
       )}
@@ -709,6 +720,7 @@ function AppContent(): React.JSX.Element {
         <PageFadeIn key="diagnostics">
           <DiagnosticsScreen
             onBack={() => setCurrentPage("settings")}
+            onGoToModels={() => setCurrentPage("modelSelection")}
             modelPath={
               selectedGGUF
                 ? `${RNFS.DocumentDirectoryPath}/${selectedGGUF}`
@@ -742,8 +754,10 @@ function AppContent(): React.JSX.Element {
               void updatePersonaLastUsed(persona.id);
               setCurrentPage("settings");
             }}
-            downloadedModels={downloadedModels}
-            handleDownloadModel={handleDownloadModel}
+            onBrowsePersonaModels={() => {
+              setModelSelectionStarterTab("personas");
+              setCurrentPage("modelSelection");
+            }}
           />
         </PageFadeIn>
       )}

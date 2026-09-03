@@ -23,7 +23,7 @@
  * - Uses centralized animation configuration
  */
 
-import React, { useRef, useEffect, useMemo } from "react";
+import React, { useRef, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -39,7 +39,7 @@ import { ANIMATION_CONFIG, EASING, getStaggeredDelay } from "../utils/animationC
 import { isThinkingModel, getQuantRecommendLabel } from "../utils/modelUtils";
 import type { RamFitResult } from "../services/ramFitService";
 import { explainRamFit, RAM_FIT_LABELS } from "../services/ramFitService";
-import { showAlert } from "./CustomAlert";
+import { BottomSheet } from "./BottomSheet";
 
 // Types
 export interface ModelInfo {
@@ -194,10 +194,15 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
           ? theme.colors.error
           : null;
 
+  const [ramFitInfoOpen, setRamFitInfoOpen] = useState(false);
+  const ramFitInfo = useMemo(() => {
+    if (!ramFit) return null;
+    return explainRamFit(ramFit);
+  }, [ramFit]);
+
   const showRamFitDetails = () => {
     if (!ramFit) return;
-    const { title, message } = explainRamFit(ramFit);
-    showAlert(title, message, [{ text: "OK" }], { textAlign: "left" });
+    setRamFitInfoOpen(true);
   };
   
   // Animation values - use refs to avoid re-creation on re-renders
@@ -350,6 +355,7 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
   }, [model.publishedDate]);
 
   return (
+    <>
     <Animated.View
       style={{
         opacity: cardOpacity,
@@ -1003,6 +1009,26 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
         )}
       </View>
     </Animated.View>
+
+    <BottomSheet
+      visible={ramFitInfoOpen}
+      onClose={() => setRamFitInfoOpen(false)}
+      title={ramFitInfo?.title ?? ""}
+      subtitle="Device memory fit"
+      fitContent
+    >
+      <Text
+        style={{
+          fontSize: 14,
+          color: theme.colors.textSecondary,
+          fontFamily: "Poppins",
+          lineHeight: 21,
+        }}
+      >
+        {ramFitInfo?.message}
+      </Text>
+    </BottomSheet>
+    </>
   );
 }, (prevProps, nextProps) => {
   // Custom comparison function for better memoization

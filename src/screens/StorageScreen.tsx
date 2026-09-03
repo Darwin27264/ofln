@@ -18,6 +18,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { createStyles } from '../styles/styles';
 import { useTheme } from '../context/ThemeContext';
 import { showAlert } from '../components/CustomAlert';
+import { BottomSheet } from '../components/BottomSheet';
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from '../utils/layoutInsets';
 import { formatBytesShort } from '../utils/diskPreflight';
 import {
@@ -219,6 +220,8 @@ export default function StorageScreen({
   const [exportBusy, setExportBusy] = useState<'chats' | 'full' | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [importSheetOpen, setImportSheetOpen] = useState(false);
+  const [clearHistorySheetOpen, setClearHistorySheetOpen] = useState(false);
 
   const loadChatStats = useCallback(async () => {
     try {
@@ -299,44 +302,38 @@ export default function StorageScreen({
     [activeModelFileName, load, onModelsChanged, onUnloadIfActive],
   );
 
-  const confirmClearChatHistory = useCallback(() => {
+  const openClearHistorySheet = useCallback(() => {
     if (chatCount === 0 || clearingChats) return;
+    setClearHistorySheetOpen(true);
+  }, [chatCount, clearingChats]);
 
-    const countLabel =
-      chatCount === 1 ? '1 saved conversation' : `${chatCount} saved conversations`;
+  const closeClearHistorySheet = useCallback(() => {
+    setClearHistorySheetOpen(false);
+  }, []);
 
-    showAlert(
-      'Clear all chat history?',
-      `Permanently delete ${countLabel} from this device. The current chat will also be reset. This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear all',
-          style: 'destructive',
-          onPress: async () => {
-            setClearingChats(true);
-            try {
-              const ok = await chatHistoryService.clearAllChats();
-              if (!ok) {
-                throw new Error('clearAllChats returned false');
-              }
-              setChatCount(0);
-              onChatHistoryCleared?.();
-            } catch {
-              showAlert(
-                'Clear failed',
-                'Chat history could not be cleared. Try again.',
-                [{ text: 'OK' }],
-              );
-            } finally {
-              setClearingChats(false);
-            }
-          },
-        },
-      ],
-      { textAlign: 'left' },
-    );
-  }, [chatCount, clearingChats, onChatHistoryCleared]);
+  const handleClearAllChats = useCallback(async () => {
+    closeClearHistorySheet();
+    setClearingChats(true);
+    try {
+      const ok = await chatHistoryService.clearAllChats();
+      if (!ok) {
+        throw new Error('clearAllChats returned false');
+      }
+      setChatCount(0);
+      onChatHistoryCleared?.();
+    } catch {
+      showAlert(
+        'Clear failed',
+        'Chat history could not be cleared. Try again.',
+        [{ text: 'OK' }],
+      );
+    } finally {
+      setClearingChats(false);
+    }
+  }, [closeClearHistorySheet, onChatHistoryCleared]);
+
+  const clearHistoryCountLabel =
+    chatCount === 1 ? '1 saved conversation' : `${chatCount} saved conversations`;
 
   const runExport = useCallback(
     async (kind: 'chats' | 'full') => {
@@ -447,31 +444,22 @@ export default function StorageScreen({
     ],
   );
 
-  const confirmImport = useCallback(() => {
+  const openImportSheet = useCallback(() => {
     if (exportBusy || importBusy) return;
-    showAlert(
-      'Import backup',
-      'Merge keeps your data and updates matching items.\nReplace overwrites chats and personas from the file.',
-      [
-        {
-          text: 'Merge',
-          style: 'default',
-          onPress: () => {
-            void performImport('merge');
-          },
-        },
-        {
-          text: 'Replace',
-          style: 'destructive',
-          onPress: () => {
-            void performImport('replace');
-          },
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ],
-      { textAlign: 'left' },
-    );
-  }, [exportBusy, importBusy, performImport]);
+    setImportSheetOpen(true);
+  }, [exportBusy, importBusy]);
+
+  const closeImportSheet = useCallback(() => {
+    setImportSheetOpen(false);
+  }, []);
+
+  const handleImportMode = useCallback(
+    (mode: BackupImportMode) => {
+      closeImportSheet();
+      void performImport(mode);
+    },
+    [closeImportSheet, performImport],
+  );
 
   const totalBytes = sumStoredModelBytes(models);
   const canClearChats = chatCount > 0 && !clearingChats && !chatCountLoading;
@@ -739,7 +727,7 @@ export default function StorageScreen({
               Export a backup below before clearing.
             </Text>
             <TouchableOpacity
-              onPress={confirmClearChatHistory}
+              onPress={openClearHistorySheet}
               disabled={!canClearChats || backupLocked}
               accessibilityLabel="Clear all chat history"
               style={{
@@ -841,7 +829,7 @@ export default function StorageScreen({
             </Text>
             <BackupActionButton
               label="Import backup"
-              onPress={confirmImport}
+              onPress={openImportSheet}
               busy={importBusy}
               disabled={backupLocked}
               colors={theme.colors}
@@ -863,6 +851,167 @@ export default function StorageScreen({
           </View>
         </SectionCard>
       </ScrollView>
+
+      <BottomSheet
+        visible={importSheetOpen}
+        onClose={closeImportSheet}
+        title="Import backup"
+        subtitle="Choose how to apply the file"
+        fitContent
+      >
+        <Text
+          style={{
+            fontFamily: 'Poppins',
+            fontSize: 14,
+            color: theme.colors.textSecondary,
+            lineHeight: 21,
+            marginBottom: 16,
+          }}
+        >
+          Merge keeps your data and updates matching items.{'\n'}
+          Replace overwrites chats and personas from the file.
+        </Text>
+        <TouchableOpacity
+          onPress={() => handleImportMode('merge')}
+          style={{
+            backgroundColor: theme.colors.primary,
+            borderRadius: 12,
+            paddingVertical: 14,
+            alignItems: 'center',
+            marginBottom: 10,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: 'Poppins',
+              fontSize: 15,
+              fontWeight: '600',
+              color: theme.colors.primaryText,
+            }}
+          >
+            Merge
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => handleImportMode('replace')}
+          style={{
+            backgroundColor: theme.colors.error + '18',
+            borderRadius: 12,
+            paddingVertical: 14,
+            alignItems: 'center',
+            marginBottom: 10,
+            borderWidth: 1,
+            borderColor: theme.colors.error + '40',
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: 'Poppins',
+              fontSize: 15,
+              fontWeight: '600',
+              color: theme.colors.error,
+            }}
+          >
+            Replace
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={closeImportSheet}
+          style={{
+            backgroundColor: theme.colors.surface,
+            borderRadius: 12,
+            paddingVertical: 14,
+            alignItems: 'center',
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: 'Poppins',
+              fontSize: 15,
+              fontWeight: '600',
+              color: theme.colors.text,
+            }}
+          >
+            Cancel
+          </Text>
+        </TouchableOpacity>
+      </BottomSheet>
+
+      <BottomSheet
+        visible={clearHistorySheetOpen}
+        onClose={closeClearHistorySheet}
+        title="Clear all history"
+        subtitle="Permanent deletion"
+        fitContent
+      >
+        <Text
+          style={{
+            fontFamily: 'Poppins',
+            fontSize: 14,
+            color: theme.colors.textSecondary,
+            lineHeight: 21,
+            marginBottom: 16,
+          }}
+        >
+          Permanently delete {clearHistoryCountLabel} from this device. The current
+          chat will also be reset. This cannot be undone.
+        </Text>
+        <TouchableOpacity
+          onPress={() => void handleClearAllChats()}
+          disabled={clearingChats}
+          style={{
+            backgroundColor: theme.colors.error + '18',
+            borderRadius: 12,
+            paddingVertical: 14,
+            alignItems: 'center',
+            marginBottom: 10,
+            borderWidth: 1,
+            borderColor: theme.colors.error + '40',
+            opacity: clearingChats ? 0.45 : 1,
+          }}
+        >
+          {clearingChats ? (
+            <ActivityIndicator size="small" color={theme.colors.error} />
+          ) : (
+            <Text
+              style={{
+                fontFamily: 'Poppins',
+                fontSize: 15,
+                fontWeight: '600',
+                color: theme.colors.error,
+              }}
+            >
+              Clear all
+            </Text>
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={closeClearHistorySheet}
+          disabled={clearingChats}
+          style={{
+            backgroundColor: theme.colors.surface,
+            borderRadius: 12,
+            paddingVertical: 14,
+            alignItems: 'center',
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            opacity: clearingChats ? 0.45 : 1,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: 'Poppins',
+              fontSize: 15,
+              fontWeight: '600',
+              color: theme.colors.text,
+            }}
+          >
+            Cancel
+          </Text>
+        </TouchableOpacity>
+      </BottomSheet>
 
       <View
         style={{

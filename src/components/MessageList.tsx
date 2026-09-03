@@ -22,10 +22,19 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { MessageMarkdown } from './MessageMarkdown';
 import { StreamingMessageText } from './StreamingMessageText';
 import { FrostedGlass } from './FrostedGlass';
+import { PersonaAvatar } from './PersonaAvatar';
+import { BottomSheet } from './BottomSheet';
 import { useTheme } from '../context/ThemeContext';
 import { createStyles } from '../styles/styles';
 import { ANIMATION_DURATIONS, EASING } from '../utils/animationConfig';
 import { formatTokensPerSecondLabel } from '../utils/accelChipDisplay';
+import type { Persona } from '../services/personaService';
+import {
+  hasPersonaAttribution,
+  resolveMessagePersonaForDisplay,
+  resolveMessagePersonaForSummary,
+  type MessagePersonaFields,
+} from '../utils/personaAttribution';
 
 /** Match MessageMarkdown defaults so enter/exit edit does not change type size. */
 const USER_MSG_FONT_SIZE = 16;
@@ -33,6 +42,15 @@ const USER_MSG_LINE_HEIGHT = 24;
 const USER_MSG_FONT_FAMILY = 'Poppins';
 /** messageBubble maxWidth share of scroll content width. */
 const BUBBLE_MAX_WIDTH_RATIO = 0.8;
+/** WhatsApp-style persona avatar beside assistant bubbles. */
+const PERSONA_AVATAR_SIZE = 32;
+const PERSONA_AVATAR_GAP = 8;
+
+const PERSONA_STRENGTH_LABELS: Record<NonNullable<Persona['personaStrength']>, string> = {
+  low: 'Subtle',
+  medium: 'Balanced',
+  high: 'Strong',
+};
 
 export type MessageListAttachment = {
   type: 'image' | 'pdf';
@@ -50,7 +68,7 @@ export type MessageListItem = {
   showThought?: boolean;
   tokensPerSecond?: number;
   attachments?: MessageListAttachment[];
-};
+} & MessagePersonaFields;
 
 const ThinkingIndicator: React.FC<{ theme: { colors: Record<string, string> } }> = React.memo(
   ({ theme }) => {
@@ -117,6 +135,180 @@ const ThinkingIndicator: React.FC<{ theme: { colors: Record<string, string> } }>
 );
 ThinkingIndicator.displayName = 'ThinkingIndicator';
 
+const PulsingPersonaAvatar: React.FC<{
+  persona: Persona;
+  isPulsing: boolean;
+  onPress: () => void;
+  backgroundColor: string;
+  iconColor: string;
+}> = React.memo(({ persona, isPulsing, onPress, backgroundColor, iconColor }) => {
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!isPulsing) {
+      pulse.stopAnimation();
+      pulse.setValue(0);
+      return;
+    }
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: ANIMATION_DURATIONS.SLOW,
+          easing: EASING.STANDARD,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: ANIMATION_DURATIONS.SLOW,
+          easing: EASING.STANDARD,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [isPulsing, pulse]);
+
+  const animatedStyle = isPulsing
+    ? {
+        opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 0.55] }),
+        transform: [
+          { scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 0.94] }) },
+        ],
+      }
+    : undefined;
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.85}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      accessibilityRole="button"
+      accessibilityLabel={`${persona.name} persona details`}
+    >
+      <Animated.View style={animatedStyle}>
+        <PersonaAvatar
+          persona={persona}
+          size={PERSONA_AVATAR_SIZE}
+          borderRadius={10}
+          backgroundColor={backgroundColor}
+          iconColor={iconColor}
+        />
+      </Animated.View>
+    </TouchableOpacity>
+  );
+});
+PulsingPersonaAvatar.displayName = 'PulsingPersonaAvatar';
+
+function PersonaSummaryBody({
+  persona,
+  textColor,
+  textSecondary,
+  borderColor,
+  surfaceColor,
+}: {
+  persona: Persona;
+  textColor: string;
+  textSecondary: string;
+  borderColor: string;
+  surfaceColor: string;
+}) {
+  const sections: Array<{ label: string; body: string }> = [];
+  if (persona.identity?.trim()) {
+    sections.push({ label: 'Identity', body: persona.identity.trim() });
+  }
+  if (persona.speakingStyle?.trim()) {
+    sections.push({ label: 'Speaking style', body: persona.speakingStyle.trim() });
+  }
+  if (persona.backstory?.trim()) {
+    sections.push({ label: 'Backstory', body: persona.backstory.trim() });
+  }
+
+  return (
+    <View>
+      <View style={{ alignItems: 'center', marginBottom: 16 }}>
+        <PersonaAvatar
+          persona={persona}
+          size={72}
+          borderRadius={16}
+          backgroundColor={surfaceColor}
+          iconColor={textColor}
+        />
+      </View>
+      {persona.personaStrength ? (
+        <Text
+          style={{
+            fontSize: 13,
+            fontFamily: 'Poppins',
+            color: textSecondary,
+            textAlign: 'center',
+            marginBottom: 12,
+          }}
+        >
+          Character strength: {PERSONA_STRENGTH_LABELS[persona.personaStrength]}
+        </Text>
+      ) : null}
+      {persona.tags && persona.tags.length > 0 ? (
+        <View
+          style={{
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            justifyContent: 'center',
+            gap: 6,
+            marginBottom: sections.length > 0 ? 16 : 0,
+          }}
+        >
+          {persona.tags.map((tag) => (
+            <View
+              key={tag}
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor,
+                backgroundColor: surfaceColor,
+              }}
+            >
+              <Text style={{ fontSize: 12, fontFamily: 'Poppins', color: textSecondary }}>
+                {tag}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {sections.map((section) => (
+        <View key={section.label} style={{ marginBottom: 14 }}>
+          <Text
+            style={{
+              fontSize: 12,
+              fontFamily: 'Poppins',
+              fontWeight: '600',
+              color: textSecondary,
+              marginBottom: 4,
+              textTransform: 'uppercase',
+              letterSpacing: 0.4,
+            }}
+          >
+            {section.label}
+          </Text>
+          <Text
+            style={{
+              fontSize: 14,
+              fontFamily: 'Poppins',
+              color: textColor,
+              lineHeight: 21,
+            }}
+          >
+            {section.body}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export type MessageListProps = {
   conversation: MessageListItem[];
   scrollViewRef: React.RefObject<ScrollView | null>;
@@ -161,6 +353,10 @@ export type MessageListProps = {
   onPresetMessage: (preset: string) => void;
   /** Calm one-liner when context trim dropped older turns. */
   showTrimNotice?: boolean;
+  /** Persona library — used to resolve per-message attribution and summary sheets. */
+  availablePersonas?: Persona[];
+  /** Active persona for streaming placeholder before stamp (usually same as message snapshot). */
+  selectedPersona?: Persona | null;
 };
 
 /** Instant (non-animated) viewport pin to newest messages. */
@@ -213,11 +409,15 @@ export function MessageList({
   presetIcons,
   onPresetMessage,
   showTrimNotice = false,
+  availablePersonas = [],
+  selectedPersona = null,
 }: MessageListProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
   const visible = conversation.slice(1);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [personaSheetOpen, setPersonaSheetOpen] = useState(false);
+  const [personaSheetPersona, setPersonaSheetPersona] = useState<Persona | null>(null);
   const [editDraft, setEditDraft] = useState('');
   /** Content Y of each visible message wrapper (for scroll-into-view on edit). */
   const messageOffsetsRef = useRef<Record<number, number>>({});
@@ -451,6 +651,16 @@ export function MessageList({
     menuOpacity.setValue(0);
     onEditingChange?.(false);
   }, [isGenerating, menuOpacity, onEditingChange]);
+
+  const openPersonaSheet = useCallback(
+    (msg: MessageListItem) => {
+      const persona = resolveMessagePersonaForSummary(msg, availablePersonas);
+      if (!persona) return;
+      setPersonaSheetPersona(persona);
+      setPersonaSheetOpen(true);
+    },
+    [availablePersonas],
+  );
 
   const scrollEditingIntoView = useCallback(
     (visibleIndex: number, animated = true) => {
@@ -709,6 +919,169 @@ export function MessageList({
               }
             : null;
 
+          const showPersonaAvatar =
+            msg.role === 'assistant' &&
+            (hasPersonaAttribution(msg) ||
+              (isStreamingMessage && !!selectedPersona));
+          const displayPersona =
+            msg.role === 'assistant'
+              ? hasPersonaAttribution(msg)
+                ? resolveMessagePersonaForDisplay(msg, availablePersonas)
+                : isStreamingMessage && selectedPersona
+                  ? selectedPersona
+                  : null
+              : null;
+
+          const bubbleNode =
+            hasBubbleContent &&
+            (msg.role === 'user' && editingIndex !== index ? (
+              <TouchableOpacity
+                activeOpacity={0.9}
+                disabled={isGenerating}
+                delayLongPress={350}
+                onLongPress={(e) => openUserMenu(e, index, msg.content)}
+                style={[containerStyle]}
+              >
+                {bubbleBody}
+              </TouchableOpacity>
+            ) : (
+              <View
+                style={[
+                  containerStyle,
+                  isAssistantDirect ? { maxWidth: '100%' } : {},
+                  editBubbleWidthStyle,
+                ]}
+              >
+                {bubbleBody}
+              </View>
+            ));
+
+          const thinkingNode =
+            msg.thought && msg.role === 'assistant' ? (
+              <TouchableOpacity
+                onPress={() => onToggleThought(index + 1)}
+                style={styles.toggleButton}
+              >
+                <Text style={styles.toggleText}>
+                  {msg.showThought ? '▼ Hide Thinking' : '▶ Show Thinking'}
+                </Text>
+              </TouchableOpacity>
+            ) : null;
+
+          const thoughtNode =
+            msg.showThought && msg.thought ? (
+              <View style={styles.thoughtContainer}>
+                <Text style={styles.thoughtTitle}>Thinking Process:</Text>
+                <View style={{ width: '100%', maxWidth: '100%', flexShrink: 1 }}>
+                  <Text style={styles.thoughtText}>
+                    {msg.thought.replace(/^(?:\s*Thinking Process:\s*)+/i, '').trim()}
+                  </Text>
+                </View>
+              </View>
+            ) : null;
+
+          const actionsNode =
+            msg.role === 'assistant' &&
+            msg.content.trim().length > 0 &&
+            !isStreamingMessage ? (
+              <View
+                style={{
+                  width: '100%',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  marginTop: 12,
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    flexShrink: 1,
+                    gap: 8,
+                  }}
+                >
+                  <TouchableOpacity
+                    onPress={() => onCopyMessage(msg.content)}
+                    style={{
+                      padding: 6,
+                      borderRadius: 16,
+                      backgroundColor: theme.colors.glass,
+                      borderWidth: 1,
+                      borderColor: theme.colors.border,
+                    }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityLabel="Copy message"
+                  >
+                    <Ionicons name="copy-outline" size={16} color={theme.colors.text} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => onRegenerateMessage(index)}
+                    disabled={isGenerating}
+                    style={{
+                      padding: 6,
+                      borderRadius: 16,
+                      backgroundColor: theme.colors.glass,
+                      borderWidth: 1,
+                      borderColor: theme.colors.border,
+                      opacity: isGenerating ? 0.5 : 1,
+                    }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityLabel="Regenerate message"
+                  >
+                    <Ionicons name="refresh-outline" size={16} color={theme.colors.text} />
+                  </TouchableOpacity>
+                  {(() => {
+                    const assistantTurnIndex =
+                      conversation
+                        .slice(1, index + 2)
+                        .filter((m) => m.role === 'assistant').length - 1;
+                    const turnTps =
+                      typeof msg.tokensPerSecond === 'number'
+                        ? msg.tokensPerSecond
+                        : assistantTurnIndex >= 0
+                          ? tokensPerSecond[assistantTurnIndex]
+                          : undefined;
+                    return typeof turnTps === 'number' && turnTps > 0 ? (
+                      <Text style={[styles.tokenInfo, { marginTop: 0 }]}>
+                        {formatTokensPerSecondLabel(turnTps)}
+                      </Text>
+                    ) : null;
+                  })()}
+                </View>
+                {onSpeakMessage && (
+                  <>
+                    <View style={{ flex: 1, minWidth: 24 }} />
+                    <TouchableOpacity
+                      onPress={() => onSpeakMessage(msg.content, index)}
+                      disabled={isGenerating}
+                      style={{
+                        padding: 6,
+                        borderRadius: 16,
+                        backgroundColor: theme.colors.glass,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        opacity: isGenerating ? 0.5 : 1,
+                      }}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      accessibilityLabel={
+                        speakingVisibleIndex === index ? 'Stop speaking' : 'Speak message'
+                      }
+                    >
+                      <Ionicons
+                        name={
+                          speakingVisibleIndex === index
+                            ? 'stop-outline'
+                            : 'volume-medium-outline'
+                        }
+                        size={16}
+                        color={theme.colors.text}
+                      />
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            ) : null;
+
           return (
             <View
               key={index}
@@ -717,114 +1090,62 @@ export function MessageList({
                 messageOffsetsRef.current[index] = e.nativeEvent.layout.y;
               }}
             >
-              {hasBubbleContent &&
-                (msg.role === 'user' && editingIndex !== index ? (
-                  <TouchableOpacity
-                    activeOpacity={0.9}
-                    disabled={isGenerating}
-                    delayLongPress={350}
-                    onLongPress={(e) => openUserMenu(e, index, msg.content)}
-                    style={[containerStyle]}
-                  >
-                    {bubbleBody}
-                  </TouchableOpacity>
-                ) : (
-                  <View
-                    style={[
-                      containerStyle,
-                      isAssistantDirect ? { maxWidth: '100%' } : {},
-                      editBubbleWidthStyle,
-                    ]}
-                  >
-                    {bubbleBody}
-                  </View>
-                ))}
-              {msg.role === 'user' && editingIndex === index && !isGenerating && (
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    alignSelf: 'flex-end',
-                    marginTop: 8,
-                    gap: 8,
-                  }}
-                >
-                  <TouchableOpacity
-                    onPress={cancelEdit}
-                    style={{
-                      padding: 6,
-                      borderRadius: 16,
-                      backgroundColor: theme.colors.glass,
-                      borderWidth: 1,
-                      borderColor: theme.colors.border,
-                    }}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    accessibilityLabel="Cancel edit"
-                  >
-                    <Ionicons name="close-outline" size={16} color={theme.colors.text} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() =>
-                      confirmEdit(index, (msg.attachments?.length ?? 0) > 0)
-                    }
-                    disabled={!editDraft.trim() && !(msg.attachments?.length)}
-                    style={{
-                      padding: 6,
-                      borderRadius: 16,
-                      backgroundColor: theme.colors.glass,
-                      borderWidth: 1,
-                      borderColor: theme.colors.border,
-                      opacity:
-                        !editDraft.trim() && !(msg.attachments?.length) ? 0.5 : 1,
-                    }}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    accessibilityLabel="Save edit and regenerate"
-                  >
-                    <Ionicons name="checkmark-outline" size={16} color={theme.colors.text} />
-                  </TouchableOpacity>
-                </View>
-              )}
-              {msg.thought && msg.role === 'assistant' && (
-                <TouchableOpacity
-                  onPress={() => onToggleThought(index + 1)}
-                  style={styles.toggleButton}
-                >
-                  <Text style={styles.toggleText}>
-                    {msg.showThought ? '▼ Hide Thinking' : '▶ Show Thinking'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-              {msg.showThought && msg.thought && (
-                <View style={styles.thoughtContainer}>
-                  <Text style={styles.thoughtTitle}>Thinking Process:</Text>
-                  <View style={{ width: '100%', maxWidth: '100%', flexShrink: 1 }}>
-                    <Text style={styles.thoughtText}>
-                      {msg.thought.replace(/^(?:\s*Thinking Process:\s*)+/i, '').trim()}
-                    </Text>
-                  </View>
-                </View>
-              )}
-              {msg.role === 'assistant' &&
-                msg.content.trim().length > 0 &&
-                !isStreamingMessage && (
+              {showPersonaAvatar && displayPersona ? (
+                <View style={{ width: '100%' }}>
                   <View
                     style={{
-                      width: '100%',
                       flexDirection: 'row',
-                      alignItems: 'center',
-                      marginTop: 12,
+                      alignItems: 'flex-end',
+                      width: '100%',
+                      gap: PERSONA_AVATAR_GAP,
                     }}
                   >
+                    <PulsingPersonaAvatar
+                      persona={displayPersona}
+                      isPulsing={isStreamingMessage}
+                      onPress={() => openPersonaSheet(msg)}
+                      backgroundColor={theme.colors.surface}
+                      iconColor={theme.colors.text}
+                    />
+                    <View
+                      style={{
+                        flex: 1,
+                        flexShrink: 1,
+                        minWidth: 0,
+                        alignItems: 'flex-start',
+                      }}
+                    >
+                      {bubbleNode}
+                    </View>
+                  </View>
+                  {(thinkingNode || thoughtNode || actionsNode) && (
+                    <View
+                      style={{
+                        marginLeft: PERSONA_AVATAR_SIZE + PERSONA_AVATAR_GAP,
+                        alignSelf: 'stretch',
+                      }}
+                    >
+                      {thinkingNode}
+                      {thoughtNode}
+                      {actionsNode}
+                    </View>
+                  )}
+                </View>
+              ) : (
+                <>
+                  {bubbleNode}
+                  {msg.role === 'user' && editingIndex === index && !isGenerating && (
                     <View
                       style={{
                         flexDirection: 'row',
                         alignItems: 'center',
-                        flexShrink: 1,
+                        alignSelf: 'flex-end',
+                        marginTop: 8,
                         gap: 8,
                       }}
                     >
                       <TouchableOpacity
-                        onPress={() => onCopyMessage(msg.content)}
+                        onPress={cancelEdit}
                         style={{
                           padding: 6,
                           borderRadius: 16,
@@ -833,79 +1154,40 @@ export function MessageList({
                           borderColor: theme.colors.border,
                         }}
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                        accessibilityLabel="Copy message"
+                        accessibilityLabel="Cancel edit"
                       >
-                        <Ionicons name="copy-outline" size={16} color={theme.colors.text} />
+                        <Ionicons name="close-outline" size={16} color={theme.colors.text} />
                       </TouchableOpacity>
                       <TouchableOpacity
-                        onPress={() => onRegenerateMessage(index)}
-                        disabled={isGenerating}
+                        onPress={() =>
+                          confirmEdit(index, (msg.attachments?.length ?? 0) > 0)
+                        }
+                        disabled={!editDraft.trim() && !(msg.attachments?.length)}
                         style={{
                           padding: 6,
                           borderRadius: 16,
                           backgroundColor: theme.colors.glass,
                           borderWidth: 1,
                           borderColor: theme.colors.border,
-                          opacity: isGenerating ? 0.5 : 1,
+                          opacity:
+                            !editDraft.trim() && !(msg.attachments?.length) ? 0.5 : 1,
                         }}
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                        accessibilityLabel="Regenerate message"
+                        accessibilityLabel="Save edit and regenerate"
                       >
-                        <Ionicons name="refresh-outline" size={16} color={theme.colors.text} />
+                        <Ionicons
+                          name="checkmark-outline"
+                          size={16}
+                          color={theme.colors.text}
+                        />
                       </TouchableOpacity>
-                      {(() => {
-                        const assistantTurnIndex =
-                          conversation
-                            .slice(1, index + 2)
-                            .filter((m) => m.role === 'assistant').length - 1;
-                        const turnTps =
-                          typeof msg.tokensPerSecond === 'number'
-                            ? msg.tokensPerSecond
-                            : assistantTurnIndex >= 0
-                              ? tokensPerSecond[assistantTurnIndex]
-                              : undefined;
-                        return typeof turnTps === 'number' && turnTps > 0 ? (
-                          <Text style={[styles.tokenInfo, { marginTop: 0 }]}>
-                            {formatTokensPerSecondLabel(turnTps)}
-                          </Text>
-                        ) : null;
-                      })()}
                     </View>
-                    {onSpeakMessage && (
-                      <>
-                        <View style={{ flex: 1, minWidth: 24 }} />
-                        <TouchableOpacity
-                          onPress={() => onSpeakMessage(msg.content, index)}
-                          disabled={isGenerating}
-                          style={{
-                            padding: 6,
-                            borderRadius: 16,
-                            backgroundColor: theme.colors.glass,
-                            borderWidth: 1,
-                            borderColor: theme.colors.border,
-                            opacity: isGenerating ? 0.5 : 1,
-                          }}
-                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                          accessibilityLabel={
-                            speakingVisibleIndex === index
-                              ? 'Stop speaking'
-                              : 'Speak message'
-                          }
-                        >
-                          <Ionicons
-                            name={
-                              speakingVisibleIndex === index
-                                ? 'stop-outline'
-                                : 'volume-medium-outline'
-                            }
-                            size={16}
-                            color={theme.colors.text}
-                          />
-                        </TouchableOpacity>
-                      </>
-                    )}
-                  </View>
-                )}
+                  )}
+                  {thinkingNode}
+                  {thoughtNode}
+                  {actionsNode}
+                </>
+              )}
             </View>
           );
         })}
@@ -1137,6 +1419,27 @@ export function MessageList({
             </Animated.View>
           </Animated.View>
         </View>
+      )}
+
+      {personaSheetPersona && (
+        <BottomSheet
+          visible={personaSheetOpen}
+          onClose={() => {
+            setPersonaSheetOpen(false);
+            setPersonaSheetPersona(null);
+          }}
+          title={personaSheetPersona.name}
+          subtitle={personaSheetPersona.tagline?.trim() || undefined}
+          fitContent
+        >
+          <PersonaSummaryBody
+            persona={personaSheetPersona}
+            textColor={theme.colors.text}
+            textSecondary={theme.colors.textSecondary}
+            borderColor={theme.colors.border}
+            surfaceColor={theme.colors.surface}
+          />
+        </BottomSheet>
       )}
     </View>
   );

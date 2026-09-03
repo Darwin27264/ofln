@@ -19,7 +19,16 @@ export interface MessageAttachment {
   fileName?: string;
 }
 
-export interface ChatMessage {
+/** Persona stamped on assistant messages at generation time (see personaAttribution). */
+export interface MessagePersonaAttribution {
+  personaId?: string;
+  personaName?: string;
+  personaTagline?: string;
+  personaAvatar?: string;
+  personaAvatarUri?: string;
+}
+
+export interface ChatMessage extends MessagePersonaAttribution {
   id?: string;
   role: MessageRole;
   content: string;

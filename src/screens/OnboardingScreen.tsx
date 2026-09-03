@@ -17,6 +17,7 @@ import { createStyles } from '../styles/styles';
 import { useTheme } from '../context/ThemeContext';
 import { PageFadeIn } from '../components/PageFadeIn';
 import { showAlert } from '../components/CustomAlert';
+import { BottomSheet } from '../components/BottomSheet';
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from '../utils/layoutInsets';
 import { DownloadCancellationToken } from '../api/model';
 import {
@@ -86,6 +87,10 @@ export default function OnboardingScreen({
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [progressDetail, setProgressDetail] = useState<string>('');
+  const [diskPreflightSheet, setDiskPreflightSheet] = useState<{
+    title: string;
+    message: string;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -129,7 +134,7 @@ export default function OnboardingScreen({
         const disk = await checkDiskSpaceForDownload(selected.size);
         if (!disk.ok) {
           const uf = diskPreflightAlertMessage(disk);
-          showAlert(uf.title, uf.message, [{ text: 'OK' }]);
+          setDiskPreflightSheet({ title: uf.title, message: uf.message });
           return;
         }
       }
@@ -487,6 +492,25 @@ export default function OnboardingScreen({
           </TouchableOpacity>
         </View>
       </View>
+
+      <BottomSheet
+        visible={diskPreflightSheet !== null}
+        onClose={() => setDiskPreflightSheet(null)}
+        title={diskPreflightSheet?.title ?? ''}
+        subtitle="Storage"
+        fitContent
+      >
+        <Text
+          style={{
+            fontSize: 14,
+            color: theme.colors.textSecondary,
+            fontFamily: 'Poppins',
+            lineHeight: 21,
+          }}
+        >
+          {diskPreflightSheet?.message ?? ''}
+        </Text>
+      </BottomSheet>
     </PageFadeIn>
   );
 }

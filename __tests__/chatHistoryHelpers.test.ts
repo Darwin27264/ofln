@@ -109,7 +109,15 @@ describe('chatToRow / rowToChat', () => {
           content: 'hi',
           attachments: [{ type: 'image', uri: 'file://a.jpg' }],
         },
-        { role: 'assistant', content: 'yo', thought: 't', tokensPerSecond: 12 },
+        {
+          role: 'assistant',
+          content: 'yo',
+          thought: 't',
+          tokensPerSecond: 12,
+          personaId: 'p1',
+          personaName: 'Coach',
+          personaAvatar: 'school',
+        },
       ],
     });
     const row = chatToRow(chat);

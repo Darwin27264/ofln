@@ -1,10 +1,10 @@
 // SettingsScreen.tsx
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, Animated } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
-import { showAlert } from "../components/CustomAlert";
+import { BottomSheet } from "../components/BottomSheet";
 import { useFloatingBackBottom } from "../utils/layoutInsets";
 import { EASING } from "../utils/animationConfig";
 
@@ -34,20 +34,12 @@ export default function SettingsScreen({
   const { theme, toggleTheme, isDark, isTransitioning } = useTheme();
   const styles = createStyles(theme.colors);
   const backBottom = useFloatingBackBottom();
+  const [chatModeInfoOpen, setChatModeInfoOpen] = useState(false);
 
   // For Chat Mode, "on" means bubble mode.
   const bubblesMode = assistantDisplayMode === "bubble";
   const toggleChatMode = () => {
     setAssistantDisplayMode(bubblesMode ? "direct" : "bubble");
-  };
-
-  const showChatModeInfo = () => {
-    showAlert(
-      "Chat Mode",
-      "On: replies in chat bubbles.\nOff: continuous transcript style.\n\nDisplay only — does not change the model.",
-      [{ text: "OK" }],
-      { textAlign: "left" },
-    );
   };
 
   // Color interpolation cannot use the native driver.
@@ -158,7 +150,13 @@ export default function SettingsScreen({
             <View style={styles.blockTextContainer}>
               <Animated.Text style={[styles.blockText, { color: chatModeTextColor }]}>Chat Mode</Animated.Text>
             </View>
-            <TouchableOpacity style={styles.blockInfoIcon} onPress={showChatModeInfo} activeOpacity={0.85}>
+            <TouchableOpacity
+              style={styles.blockInfoIcon}
+              onPress={() => setChatModeInfoOpen(true)}
+              activeOpacity={0.85}
+              accessibilityLabel="Chat mode info"
+              accessibilityHint="Explains bubble vs transcript display"
+            >
               <Ionicons name="information-circle-outline" size={19} color={bubblesMode ? theme.colors.primaryText : theme.colors.text}/>
             </TouchableOpacity>
           </Animated.View>
@@ -208,6 +206,27 @@ export default function SettingsScreen({
           <Ionicons name="information" size={24} color={theme.colors.primaryText} />
         </TouchableOpacity>
       </View>
+
+      <BottomSheet
+        visible={chatModeInfoOpen}
+        onClose={() => setChatModeInfoOpen(false)}
+        title="Chat Mode"
+        subtitle="Display preference"
+        fitContent
+      >
+        <Text
+          style={{
+            fontSize: 14,
+            color: theme.colors.textSecondary,
+            fontFamily: "Poppins",
+            lineHeight: 21,
+          }}
+        >
+          On: replies in chat bubbles.{"\n"}
+          Off: continuous transcript style.{"\n\n"}
+          Display only — does not change the model.
+        </Text>
+      </BottomSheet>
     </Animated.View>
   );
 }

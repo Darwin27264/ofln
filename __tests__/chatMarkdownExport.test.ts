@@ -41,6 +41,17 @@ describe('buildChatMarkdown', () => {
     expect(md.endsWith('\n')).toBe(true);
   });
 
+  it('builds assistant headings from persona snapshot', () => {
+    const md = buildChatMarkdown(
+      [
+        { role: 'assistant', content: 'Hi', personaName: 'Ada' },
+      ],
+      { title: 'Persona chat' },
+    );
+    expect(md).toContain('## Ada');
+    expect(md).not.toContain('## Assistant');
+  });
+
   it('handles empty chats calmly', () => {
     const md = buildChatMarkdown([{ role: 'system', content: 'sys' }], {
       title: 'Empty',

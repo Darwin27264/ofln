@@ -7,6 +7,7 @@ export type ExportableMessage = {
   role: string;
   content: string;
   thought?: string;
+  personaName?: string;
 };
 
 export type BuildChatMarkdownOptions = {
@@ -15,9 +16,12 @@ export type BuildChatMarkdownOptions = {
   exportedAt?: string;
 };
 
-function headingForRole(role: string): string {
+function headingForRole(role: string, personaName?: string): string {
   if (role === 'user') return 'User';
-  if (role === 'assistant') return 'Assistant';
+  if (role === 'assistant') {
+    const name = (personaName || '').trim();
+    return name || 'Assistant';
+  }
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
@@ -53,7 +57,7 @@ export function buildChatMarkdown(
   }
 
   for (const msg of visible) {
-    lines.push(`## ${headingForRole(msg.role)}`, '');
+    lines.push(`## ${headingForRole(msg.role, msg.personaName)}`, '');
     const content = (msg.content || '').trim();
     if (content) {
       lines.push(content, '');

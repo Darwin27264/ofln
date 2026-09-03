@@ -7,10 +7,10 @@ import {
   View,
   Text,
   Animated,
-  Pressable,
   TouchableWithoutFeedback,
   Dimensions,
   StyleSheet,
+  ScrollView,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../context/ThemeContext';
@@ -24,8 +24,12 @@ interface BottomSheetProps {
   onClose: () => void;
   title?: string;
   children: React.ReactNode;
-  /** Fraction of screen height (0–1). Default 0.55. */
+  /** Fraction of screen height (0–1). Default 0.55. Ignored when fitContent is true. */
   height?: number;
+  /** Shrink-wrap to content instead of a fixed height fraction. */
+  fitContent?: boolean;
+  /** Max height as a screen fraction when fitContent is true. Default 0.85. */
+  maxHeight?: number;
   headerRight?: React.ReactNode;
   subtitle?: string;
   /** After exit fade finishes and the panel unmounts. */
@@ -40,6 +44,8 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   title,
   children,
   height = 0.55,
+  fitContent = false,
+  maxHeight = 0.85,
   headerRight,
   subtitle,
   onCloseComplete,
@@ -65,9 +71,27 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
     () => Math.round(screenHeight * height),
     [screenHeight, height],
   );
+  const panelMaxHeight = useMemo(
+    () => Math.round(screenHeight * maxHeight),
+    [screenHeight, maxHeight],
+  );
   const styles = useMemo(() => createStyles(theme.colors), [theme.colors]);
 
-  if (!mounted) return null;
+  const header = (title || subtitle || headerRight) ? (
+    <View style={styles.header}>
+      <View style={styles.headerLeft}>
+        {!!title && <Text style={styles.title}>{title}</Text>}
+        {!!subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
+      </View>
+      {headerRight ? (
+        <View style={styles.headerRight}>{headerRight}</View>
+      ) : null}
+    </View>
+  ) : null;
+
+  if (!mounted) {
+    return null;
+  }
 
   return (
     <View style={styles.root} pointerEvents="box-none">
@@ -82,29 +106,37 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
         pointerEvents={visible ? 'auto' : 'none'}
         style={[
           styles.panel,
+          fitContent
+            ? { maxHeight: panelMaxHeight }
+            : { height: panelHeight },
           {
-            height: panelHeight,
             bottom: Math.max(SIDE_INSET, bottomInset),
             opacity,
             transform: [{ scale }],
           },
         ]}
       >
-        <FrostedGlass variant="panel" style={StyleSheet.absoluteFillObject} />
-        <Pressable style={styles.inner} onPress={(e) => e.stopPropagation()}>
-          {(title || subtitle || headerRight) && (
-            <View style={styles.header}>
-              <View style={styles.headerLeft}>
-                {!!title && <Text style={styles.title}>{title}</Text>}
-                {!!subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
-              </View>
-              {headerRight ? (
-                <View style={styles.headerRight}>{headerRight}</View>
-              ) : null}
-            </View>
-          )}
-          <View style={styles.content}>{children}</View>
-        </Pressable>
+        <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
+          <FrostedGlass variant="panel" style={StyleSheet.absoluteFillObject} />
+        </View>
+        {fitContent ? (
+          <ScrollView
+            style={styles.fitScroll}
+            contentContainerStyle={styles.innerFit}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+            bounces={false}
+            showsVerticalScrollIndicator={false}
+          >
+            {header}
+            <View style={styles.contentFit}>{children}</View>
+          </ScrollView>
+        ) : (
+          <View style={styles.inner}>
+            {header}
+            <View style={styles.content}>{children}</View>
+          </View>
+        )}
       </Animated.View>
     </View>
   );
@@ -138,6 +170,15 @@ const createStyles = (colors: ThemeColors) =>
     },
     inner: {
       flex: 1,
+      minHeight: 0,
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 12,
+    },
+    fitScroll: {
+      flexGrow: 0,
+    },
+    innerFit: {
       paddingHorizontal: 16,
       paddingTop: 16,
       paddingBottom: 12,
@@ -170,5 +211,9 @@ const createStyles = (colors: ThemeColors) =>
     },
     content: {
       flex: 1,
+      minHeight: 0,
+    },
+    contentFit: {
+      flexGrow: 0,
     },
   });

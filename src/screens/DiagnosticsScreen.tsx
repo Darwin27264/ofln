@@ -9,6 +9,8 @@ import {
   StyleSheet,
   BackHandler,
   Platform,
+  Animated,
+  ActivityIndicator,
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import Clipboard from "@react-native-clipboard/clipboard";
@@ -17,15 +19,20 @@ import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { getFullLogContent, getErrorLogPath, clearErrorLog } from "../utils/errorLogger";
 import { showAlert } from "../components/CustomAlert";
+import { BottomSheet } from "../components/BottomSheet";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import { getAccelerationConfig } from "../services/accelerationCapabilityService";
 import { checkFileExists } from "../services/llamaService";
 import { DEFAULT_SETTINGS } from "../services/modelSettingsService";
+import { useFadeScalePresence } from "../hooks/useFadeScalePresence";
+import { OVERLAY_MOTION } from "../utils/animationConfig";
 
 interface Props {
   onBack: () => void;
   /** Absolute path to a GGUF used by the smoke test (optional). */
   modelPath: string | null;
+  /** Optional — opens Models to download or load a GGUF. */
+  onGoToModels?: () => void;
 }
 
 function SectionLabel({ label, color }: { label: string; color: string }) {
@@ -47,18 +54,25 @@ function SectionLabel({ label, color }: { label: string; color: string }) {
   );
 }
 
-export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
+export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
   const [errorLogVisible, setErrorLogVisible] = useState(false);
   const [errorLogContent, setErrorLogContent] = useState("");
+  const [logsLoading, setLogsLoading] = useState(false);
   const [testLogLines, setTestLogLines] = useState<string[]>([
     "Results from acceleration and smoke tests appear here.",
   ]);
   const [running, setRunning] = useState(false);
+  const [logPathSheetOpen, setLogPathSheetOpen] = useState(false);
+  const [noModelSheetOpen, setNoModelSheetOpen] = useState(false);
+  const [androidOnlySheetOpen, setAndroidOnlySheetOpen] = useState(false);
   const testScrollRef = useRef<ScrollView>(null);
+  const logOverlayOpacity = useRef(new Animated.Value(0)).current;
+  const logOverlayScale = useRef(new Animated.Value(OVERLAY_MOTION.FROM_SCALE)).current;
+  const logOverlayMounted = useFadeScalePresence(errorLogVisible, logOverlayOpacity, logOverlayScale);
 
   const appendTestLog = (msg: string) => {
     if (__DEV__) {
@@ -67,14 +81,22 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
     setTestLogLines((prev) => [...prev, msg]);
   };
 
-  const handleViewLogs = async () => {
+  const refreshLogContent = async () => {
+    setLogsLoading(true);
     try {
       const logContent = await getFullLogContent();
       setErrorLogContent(logContent);
-      setErrorLogVisible(true);
     } catch {
+      setErrorLogVisible(false);
       showAlert("Error", "Failed to load logs.", [{ text: "OK" }]);
+    } finally {
+      setLogsLoading(false);
     }
+  };
+
+  const handleViewLogs = () => {
+    setErrorLogVisible(true);
+    void refreshLogContent();
   };
 
   const handleClearErrorLog = () => {
@@ -89,8 +111,9 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
           onPress: async () => {
             try {
               await clearErrorLog();
-              const logContent = await getFullLogContent();
-              setErrorLogContent(logContent);
+              if (errorLogVisible) {
+                await refreshLogContent();
+              }
               showAlert("Success", "Error log cleared.", [{ text: "OK" }]);
             } catch {
               showAlert("Error", "Failed to clear error log.", [{ text: "OK" }]);
@@ -111,12 +134,7 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
   };
 
   const handleCopyLogPath = () => {
-    const logPath = getErrorLogPath();
-    showAlert(
-      "Error Log Location",
-      `The error log is saved at:\n\n${logPath}\n\nYou can access this file using a file manager app.`,
-      [{ text: "OK" }],
-    );
+    setLogPathSheetOpen(true);
   };
 
   const runAccelCheck = async () => {
@@ -256,11 +274,7 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
     if (running) return;
 
     if (!modelPath) {
-      showAlert(
-        "No model available",
-        "Load or download a model first, then open Diagnostics again to run the smoke test.",
-        [{ text: "OK" }],
-      );
+      setNoModelSheetOpen(true);
       return;
     }
 
@@ -282,9 +296,7 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
 
   const confirmAccelCheck = () => {
     if (Platform.OS !== "android") {
-      showAlert("Android only", "Acceleration detection is only available on Android.", [
-        { text: "OK" },
-      ]);
+      setAndroidOnlySheetOpen(true);
       return;
     }
     void runAccelCheck();
@@ -605,14 +617,16 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
       </View>
 
       {/* Full-screen logs viewer — absolute overlay (not RN Modal) */}
-      {errorLogVisible && (
-        <View
+      {logOverlayMounted && (
+        <Animated.View
           style={[
             StyleSheet.absoluteFillObject,
             {
               backgroundColor: theme.colors.background,
               zIndex: 10000,
               elevation: 10000,
+              opacity: logOverlayOpacity,
+              transform: [{ scale: logOverlayScale }],
             },
           ]}
         >
@@ -642,23 +656,39 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={{ flex: 1, padding: 16 }}>
-            <TextInput
-              style={{
-                fontFamily: "monospace",
-                fontSize: 12,
-                color: theme.colors.text,
-                backgroundColor: theme.colors.surface,
-                borderRadius: 8,
-                padding: 12,
-                minHeight: 400,
-                textAlignVertical: "top",
-              }}
-              value={errorLogContent}
-              multiline
-              editable={false}
-              selectTextOnFocus
-            />
+          <ScrollView style={{ flex: 1, padding: 16 }} contentContainerStyle={{ flexGrow: 1 }}>
+            {logsLoading ? (
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center", minHeight: 400 }}>
+                <ActivityIndicator size="large" color={theme.colors.text} />
+                <Text
+                  style={{
+                    marginTop: 12,
+                    fontSize: 14,
+                    color: theme.colors.textSecondary,
+                    fontFamily: "Poppins",
+                  }}
+                >
+                  Loading logs…
+                </Text>
+              </View>
+            ) : (
+              <TextInput
+                style={{
+                  fontFamily: "monospace",
+                  fontSize: 12,
+                  color: theme.colors.text,
+                  backgroundColor: theme.colors.surface,
+                  borderRadius: 8,
+                  padding: 12,
+                  minHeight: 400,
+                  textAlignVertical: "top",
+                }}
+                value={errorLogContent}
+                multiline
+                editable={false}
+                selectTextOnFocus
+              />
+            )}
           </ScrollView>
 
           <View
@@ -673,12 +703,14 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
           >
             <TouchableOpacity
               onPress={handleCopyLogContent}
+              disabled={logsLoading}
               style={{
                 flex: 1,
                 backgroundColor: theme.colors.surface,
                 borderRadius: 12,
                 padding: 12,
                 alignItems: "center",
+                opacity: logsLoading ? 0.5 : 1,
               }}
             >
               <Ionicons name="copy-outline" size={20} color={theme.colors.text} />
@@ -740,8 +772,105 @@ export default function DiagnosticsScreen({ onBack, modelPath }: Props) {
               </Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
       )}
+
+      <BottomSheet
+        visible={noModelSheetOpen}
+        onClose={() => setNoModelSheetOpen(false)}
+        title="No model available"
+        subtitle="Smoke test needs a GGUF"
+        fitContent
+      >
+        <Text
+          style={{
+            fontSize: 14,
+            color: theme.colors.textSecondary,
+            fontFamily: "Poppins",
+            lineHeight: 21,
+            marginBottom: onGoToModels ? 16 : 0,
+          }}
+        >
+          Load or download a model first, then open Diagnostics again to run the
+          smoke test.
+        </Text>
+        {onGoToModels ? (
+          <TouchableOpacity
+            onPress={() => {
+              setNoModelSheetOpen(false);
+              onGoToModels();
+            }}
+            style={{
+              backgroundColor: theme.colors.primary,
+              borderRadius: 12,
+              paddingVertical: 14,
+              alignItems: "center",
+            }}
+            accessibilityLabel="Go to Models"
+          >
+            <Text
+              style={{
+                color: theme.colors.primaryText,
+                fontSize: 15,
+                fontWeight: "600",
+                fontFamily: "Poppins",
+              }}
+            >
+              Go to Models
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+      </BottomSheet>
+
+      <BottomSheet
+        visible={androidOnlySheetOpen}
+        onClose={() => setAndroidOnlySheetOpen(false)}
+        title="Android only"
+        subtitle="Acceleration detection"
+        fitContent
+      >
+        <Text
+          style={{
+            fontSize: 14,
+            color: theme.colors.textSecondary,
+            fontFamily: "Poppins",
+            lineHeight: 21,
+          }}
+        >
+          Acceleration detection is only available on Android devices.
+        </Text>
+      </BottomSheet>
+
+      <BottomSheet
+        visible={logPathSheetOpen}
+        onClose={() => setLogPathSheetOpen(false)}
+        title="Error Log Location"
+        subtitle="On-device path"
+        fitContent
+      >
+        <Text
+          style={{
+            fontSize: 14,
+            color: theme.colors.textSecondary,
+            fontFamily: "monospace",
+            lineHeight: 20,
+            marginBottom: 12,
+          }}
+          selectable
+        >
+          {getErrorLogPath()}
+        </Text>
+        <Text
+          style={{
+            fontSize: 14,
+            color: theme.colors.textSecondary,
+            fontFamily: "Poppins",
+            lineHeight: 21,
+          }}
+        >
+          You can access this file using a file manager app.
+        </Text>
+      </BottomSheet>
     </View>
   );
 }

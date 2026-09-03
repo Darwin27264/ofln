@@ -19,6 +19,7 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
+import { BottomSheet } from "../components/BottomSheet";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import {
   getModelSettings,
@@ -248,6 +249,8 @@ export default function ModelSettingsScreen({
 
   const [modelSettings, setModelSettings] = useState<ModelSettings | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [metricInfoOpen, setMetricInfoOpen] = useState(false);
+  const [metricInfo, setMetricInfo] = useState<{ title: string; explanation: string } | null>(null);
 
   const nCtxIndex = useMemo(() => {
     if (!modelSettings) return N_CTX_VALUES.indexOf(2048);
@@ -313,9 +316,8 @@ export default function ModelSettingsScreen({
   const showMetricInfo = useCallback((metricKey: string) => {
     const info = metricExplanations[metricKey];
     if (info) {
-      showAlert(info.title, info.explanation, [{ text: "OK" }], {
-        textAlign: "left",
-      });
+      setMetricInfo(info);
+      setMetricInfoOpen(true);
     }
   }, []);
 
@@ -822,6 +824,24 @@ export default function ModelSettingsScreen({
           </Text>
         </TouchableOpacity>
       </View>
+
+      <BottomSheet
+        visible={metricInfoOpen}
+        onClose={() => setMetricInfoOpen(false)}
+        title={metricInfo?.title ?? ""}
+        fitContent
+      >
+        <Text
+          style={{
+            fontSize: 14,
+            color: theme.colors.textSecondary,
+            fontFamily: "Poppins",
+            lineHeight: 21,
+          }}
+        >
+          {metricInfo?.explanation}
+        </Text>
+      </BottomSheet>
     </View>
   );
 }

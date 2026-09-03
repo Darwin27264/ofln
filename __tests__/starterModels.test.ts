@@ -2,10 +2,13 @@ import {
   STARTER_MODELS,
   STARTER_SHELF_TITLE,
   STARTER_SHELF_SUBTITLE,
+  STARTER_SHELF_TABS,
   getAvailableStarterModels,
+  getStarterShelfCatalog,
   findStarterByFileName,
   ONBOARDING_STARTER_IDS,
   PERSONA_ROLEPLAY_MODELS,
+  CODING_STARTER_MODELS,
 } from '../src/services/starterModels';
 
 describe('starterModels shelf', () => {
@@ -50,5 +53,31 @@ describe('starterModels shelf', () => {
       expect(m.repoId).toContain('/');
       expect(m.shelfHint.length).toBeGreaterThan(0);
     }
+  });
+
+  it('coding shelf has Q4_0 code-specialized picks', () => {
+    expect(CODING_STARTER_MODELS.length).toBeGreaterThanOrEqual(2);
+    for (const m of CODING_STARTER_MODELS) {
+      expect(m.fileName.toLowerCase().endsWith('.gguf')).toBe(true);
+      expect(m.repoId).toContain('/');
+      expect(m.shelfHint.length).toBeGreaterThan(0);
+      expect(m.tags.map((t) => t.toLowerCase())).toContain('code');
+    }
+  });
+
+  it('start here tabs map to catalogs', () => {
+    expect(STARTER_SHELF_TABS.map((t) => t.id)).toEqual(['general', 'personas', 'coding']);
+    expect(getStarterShelfCatalog('general')).toBe(STARTER_MODELS);
+    expect(getStarterShelfCatalog('personas')).toBe(PERSONA_ROLEPLAY_MODELS);
+    expect(getStarterShelfCatalog('coding')).toBe(CODING_STARTER_MODELS);
+  });
+
+  it('finds starters across all shelves', () => {
+    expect(findStarterByFileName(PERSONA_ROLEPLAY_MODELS[0].fileName)?.id).toBe(
+      PERSONA_ROLEPLAY_MODELS[0].id,
+    );
+    expect(findStarterByFileName(CODING_STARTER_MODELS[0].fileName)?.id).toBe(
+      CODING_STARTER_MODELS[0].id,
+    );
   });
 });

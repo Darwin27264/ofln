@@ -30,6 +30,7 @@ import { stopSpeaking } from '../services/ttsService';
 import { stopListening } from '../services/sttService';
 import { logError } from '../utils/errorLogger';
 import { buildMessagesAfterUserEdit } from '../utils/chatEditHelpers';
+import { buildPersonaSnapshot } from '../utils/personaAttribution';
 
 import type {
   ChatMessage,
@@ -205,8 +206,21 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
   onModelNotReadyRef.current = onModelNotReady;
   const initialMessagesRef = useRef(initialMessages);
   initialMessagesRef.current = initialMessages;
+  const personaRef = useRef(persona);
+  personaRef.current = persona;
   /** Last chat id we intentionally synced (seed / persist / newChat). */
   const lastSyncedChatIdRef = useRef<string | null | undefined>(undefined);
+
+  const createAssistantPlaceholder = useCallback((): ChatMessage => {
+    return {
+      role: 'assistant',
+      content: '',
+      thought: undefined,
+      showThought: false,
+      createdAt: new Date(),
+      ...buildPersonaSnapshot(personaRef.current),
+    };
+  }, []);
 
   const abortInFlight = useCallback(() => {
     generationIdRef.current += 1;
@@ -641,13 +655,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
         attachments: sendOptions?.attachments,
         createdAt: new Date(),
       };
-      const assistantPlaceholder: ChatMessage = {
-        role: 'assistant',
-        content: '',
-        thought: undefined,
-        showThought: false,
-        createdAt: new Date(),
-      };
+      const assistantPlaceholder = createAssistantPlaceholder();
 
       commitMessages([
         ...messagesRef.current,
@@ -670,6 +678,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
       commitMessages,
       scrollToEnd,
       runCompletion,
+      createAssistantPlaceholder,
     ],
   );
 
@@ -717,13 +726,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
       // Keep system + history through the prompting user message; drop the
       // Drop the assistant reply and any forked-off later turns.
       const kept = prev.slice(0, uIdx + 1);
-      const assistantPlaceholder: ChatMessage = {
-        role: 'assistant',
-        content: '',
-        thought: undefined,
-        showThought: false,
-        createdAt: new Date(),
-      };
+      const assistantPlaceholder = createAssistantPlaceholder();
 
       const generationId = beginGeneration();
       commitMessages([...kept, assistantPlaceholder]);
@@ -736,7 +739,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
           : { text: userTurn.content },
       });
     },
-    [modelName, beginGeneration, commitMessages, scrollToEnd, runCompletion],
+    [modelName, beginGeneration, commitMessages, scrollToEnd, runCompletion, createAssistantPlaceholder],
   );
 
   /**
@@ -762,13 +765,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
       if (!kept) return;
 
       const userTurn = kept[kept.length - 1];
-      const assistantPlaceholder: ChatMessage = {
-        role: 'assistant',
-        content: '',
-        thought: undefined,
-        showThought: false,
-        createdAt: new Date(),
-      };
+      const assistantPlaceholder = createAssistantPlaceholder();
 
       const generationId = beginGeneration();
       commitMessages([...kept, assistantPlaceholder]);
@@ -781,7 +778,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
           : { text: userTurn.content },
       });
     },
-    [modelName, beginGeneration, commitMessages, scrollToEnd, runCompletion],
+    [modelName, beginGeneration, commitMessages, scrollToEnd, runCompletion, createAssistantPlaceholder],
   );
 
   const reload = useCallback(async () => {

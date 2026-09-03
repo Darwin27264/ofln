@@ -57,7 +57,7 @@ describe('backupSchema', () => {
         content: 'Hi',
         attachments: [{ type: 'image', uri: 'file:///secret.jpg' }],
       },
-      { role: 'assistant', content: 'Hey' },
+      { role: 'assistant', content: 'Hey', personaId: 'p1', personaName: 'Ada' },
     ],
     createdAt: 100,
     updatedAt: 200,
@@ -78,6 +78,7 @@ describe('backupSchema', () => {
     expect(r.payload.chats).toHaveLength(1);
     expect(r.payload.chats![0].messages[0].attachments).toBeUndefined();
     expect(r.payload.chats![0].messages[0].content).toBe('Hi');
+    expect(r.payload.chats![0].messages[1].personaName).toBe('Ada');
   });
 
   it('rejects foreign format and future schema', () => {

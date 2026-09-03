@@ -79,6 +79,7 @@ import {
 import { getModelSettings, DEFAULT_SETTINGS } from "../services/modelSettingsService";
 import { showAlert } from "../components/CustomAlert";
 import { BottomSheet } from "../components/BottomSheet";
+import { SegmentedTabBar } from "../components/SegmentedTabBar";
 import { FrostedGlass } from "../components/FrostedGlass";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { floatingBackBottom } from "../utils/layoutInsets";
@@ -145,6 +146,11 @@ type Message = {
   showThought?: boolean;
   tokensPerSecond?: number;
   attachments?: MessageAttachment[];
+  personaId?: string;
+  personaName?: string;
+  personaTagline?: string;
+  personaAvatar?: string;
+  personaAvatarUri?: string;
 };
 
 
@@ -426,13 +432,21 @@ export default function ConversationScreen({
   /** Short accel tag (CPU/GPU/NPU) for selected model in the quick panel. */
   const [selectedAccelLabel, setSelectedAccelLabel] = useState<string | null>(null);
   const [selectedAccelDetail, setSelectedAccelDetail] = useState<string | null>(null);
+  const [contextInfoOpen, setContextInfoOpen] = useState(false);
+  const [accelInfoOpen, setAccelInfoOpen] = useState(false);
+  const [noModelSheetOpen, setNoModelSheetOpen] = useState(false);
 
   const warnModelNotLoaded = useCallback(() => {
-    showAlert(
-      'No model loaded',
-      'Load a model first — tap the model name at the top.',
-      [{ text: 'OK' }],
-    );
+    setNoModelSheetOpen(true);
+  }, []);
+
+  useEffect(() => {
+    void getPersonas()
+      .then(setAvailablePersonas)
+      .catch((error) => {
+        console.error("Error loading personas:", error);
+        setAvailablePersonas([]);
+      });
   }, []);
 
   // New backend: useAIChat + llamaProvider (on-device streaming).
@@ -1751,12 +1765,7 @@ export default function ConversationScreen({
 
   const showSelectedAccelInfo = useCallback(() => {
     if (!selectedAccelDetail) return;
-    showAlert(
-      "Acceleration",
-      selectedAccelDetail,
-      [{ text: "OK" }],
-      { textAlign: "left" },
-    );
+    setAccelInfoOpen(true);
   }, [selectedAccelDetail]);
 
   /** Dismiss the attach image popup with animation; optional onComplete runs after close */
@@ -2494,19 +2503,7 @@ export default function ConversationScreen({
                   onPress={(e) => {
                     // Don't open the model sheet when tapping the ring.
                     e?.stopPropagation?.();
-                    showAlert(
-                      `Context ~${contextFullness.percent}%`,
-                      contextFullness.isHigh
-                        ? "Most of the context window is in use. Older turns may drop soon — start a new chat for a fresh window."
-                        : "Rough share of context used — not an exact token count.",
-                      contextFullness.isHigh
-                        ? [
-                            { text: "New chat", onPress: () => handleNewChatPress() },
-                            { text: "OK", style: "cancel" },
-                          ]
-                        : [{ text: "OK" }],
-                      { textAlign: "left" },
-                    );
+                    setContextInfoOpen(true);
                   }}
                   activeOpacity={0.7}
                   hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
@@ -2681,6 +2678,8 @@ export default function ConversationScreen({
           presetIcons={PRESET_ICONS}
           onPresetMessage={handlePresetMessage}
           showTrimNotice={aiChat.showTrimNotice}
+          availablePersonas={availablePersonas}
+          selectedPersona={selectedPersona}
         />
 
 
@@ -2740,53 +2739,23 @@ export default function ConversationScreen({
         >
           <View style={{ flex: 1 }}>
             {/* Tab bar — fixed at top; padding matches sticky footers */}
-            <View style={[
-              selectorChromeOuter,
-              {
-                flexDirection: "row",
-                marginBottom: SELECTOR_LIST_GAP,
-                flexShrink: 0,
-              },
-            ]}>
-              <TouchableOpacity
-                onPress={() => setSelectorTab("models")}
-                style={[
-                  selectorChromeInner,
-                  {
-                    flex: 1,
-                    backgroundColor: selectorTab === "models" ? theme.colors.primary : "transparent",
-                  },
-                ]}
-              >
-                <Text style={[
-                  selectorChromeLabel,
-                  {
-                    color: selectorTab === "models" ? theme.colors.primaryText : theme.colors.text,
-                  },
-                ]}>
-                  Models
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setSelectorTab("personas")}
-                style={[
-                  selectorChromeInner,
-                  {
-                    flex: 1,
-                    backgroundColor: selectorTab === "personas" ? theme.colors.primary : "transparent",
-                  },
-                ]}
-              >
-                <Text style={[
-                  selectorChromeLabel,
-                  {
-                    color: selectorTab === "personas" ? theme.colors.primaryText : theme.colors.text,
-                  },
-                ]}>
-                  Personas
-                </Text>
-              </TouchableOpacity>
-            </View>
+            <SegmentedTabBar
+              tabs={[
+                { id: "models", label: "Models" },
+                { id: "personas", label: "Personas" },
+              ]}
+              activeId={selectorTab}
+              onChange={(id) => setSelectorTab(id as "models" | "personas")}
+              chromeOuter={[
+                selectorChromeOuter,
+                { marginBottom: SELECTOR_LIST_GAP, flexShrink: 0 },
+              ]}
+              chromeInner={selectorChromeInner}
+              labelStyle={selectorChromeLabel}
+              activeLabelColor={theme.colors.primaryText}
+              inactiveLabelColor={theme.colors.text}
+              activePillColor={theme.colors.primary}
+            />
 
             <ScrollView
               style={{ flex: 1 }}
@@ -3128,6 +3097,123 @@ export default function ConversationScreen({
               </TouchableOpacity>
             ) : null}
           </View>
+        </BottomSheet>
+
+        <BottomSheet
+          visible={noModelSheetOpen}
+          onClose={() => setNoModelSheetOpen(false)}
+          title="No model loaded"
+          subtitle="Choose a model to chat"
+          fitContent
+        >
+          <Text
+            style={{
+              fontSize: 14,
+              color: theme.colors.textSecondary,
+              fontFamily: "Poppins",
+              lineHeight: 21,
+              marginBottom: 16,
+            }}
+          >
+            Load a model first — tap the model name at the top, or browse the
+            Models page to download one.
+          </Text>
+          <TouchableOpacity
+            onPress={() => {
+              setNoModelSheetOpen(false);
+              if (downloadedModels.length > 0) {
+                void openModelSelector();
+              } else {
+                onGoToModelSelection();
+              }
+            }}
+            style={{
+              backgroundColor: theme.colors.primary,
+              borderRadius: 12,
+              paddingVertical: 14,
+              alignItems: "center",
+            }}
+            accessibilityLabel={
+              downloadedModels.length > 0 ? "Choose model" : "Browse models"
+            }
+          >
+            <Text
+              style={{
+                color: theme.colors.primaryText,
+                fontSize: 15,
+                fontWeight: "600",
+                fontFamily: "Poppins",
+              }}
+            >
+              {downloadedModels.length > 0 ? "Choose model" : "Browse models"}
+            </Text>
+          </TouchableOpacity>
+        </BottomSheet>
+
+        <BottomSheet
+          visible={contextInfoOpen}
+          onClose={() => setContextInfoOpen(false)}
+          title={`Context ~${contextFullness.percent}%`}
+          subtitle="Context window usage"
+          fitContent
+        >
+          <Text
+            style={{
+              fontSize: 14,
+              color: theme.colors.textSecondary,
+              fontFamily: "Poppins",
+              lineHeight: 21,
+              marginBottom: contextFullness.isHigh ? 16 : 0,
+            }}
+          >
+            {contextFullness.isHigh
+              ? "Most of the context window is in use. Older turns may drop soon — start a new chat for a fresh window."
+              : "Rough share of context used — not an exact token count."}
+          </Text>
+          {contextFullness.isHigh ? (
+            <TouchableOpacity
+              onPress={() => {
+                setContextInfoOpen(false);
+                handleNewChatPress();
+              }}
+              style={{
+                backgroundColor: theme.colors.primary,
+                borderRadius: 12,
+                paddingVertical: 14,
+                alignItems: "center",
+              }}
+            >
+              <Text
+                style={{
+                  color: theme.colors.primaryText,
+                  fontSize: 15,
+                  fontWeight: "600",
+                  fontFamily: "Poppins",
+                }}
+              >
+                New chat
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </BottomSheet>
+
+        <BottomSheet
+          visible={accelInfoOpen}
+          onClose={() => setAccelInfoOpen(false)}
+          title="Acceleration"
+          subtitle="How this model runs"
+          fitContent
+        >
+          <Text
+            style={{
+              fontSize: 14,
+              color: theme.colors.textSecondary,
+              fontFamily: "Poppins",
+              lineHeight: 21,
+            }}
+          >
+            {selectedAccelDetail}
+          </Text>
         </BottomSheet>
 
         {/* Toast notification */}

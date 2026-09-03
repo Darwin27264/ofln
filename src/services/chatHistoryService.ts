@@ -40,6 +40,12 @@ export interface Message {
   showThought?: boolean;
   tokensPerSecond?: number;
   attachments?: MessageAttachment[];
+  /** Persona stamped when this assistant reply was generated. */
+  personaId?: string;
+  personaName?: string;
+  personaTagline?: string;
+  personaAvatar?: string;
+  personaAvatarUri?: string;
 }
 
 export interface ChatConversation {
