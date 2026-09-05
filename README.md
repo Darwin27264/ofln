@@ -141,9 +141,12 @@ Schema: `src/utils/backupSchema.ts` · tests in `__tests__/backupSchema.test.ts`
 cd android
 .\gradlew.bat clean
 .\gradlew.bat assembleRelease
+cd ..
+powershell -ExecutionPolicy Bypass -File .\scripts\extract-release-apk.ps1
 ```
 
-Output: `android/app/build/outputs/apk/release/`.
+Gradle output: `android/app/build/outputs/apk/release/ofln-release.apk`.  
+The extract script copies it to `releaseAPK/ofln_{date}.apk` (same-day rebuilds get a time suffix so older builds are kept).
 
 **iOS:** `cd ios && bundle exec pod install` after native dependency changes.
 
