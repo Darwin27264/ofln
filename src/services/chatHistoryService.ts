@@ -23,6 +23,7 @@ import {
   type ChatRow,
 } from './chatHistoryHelpers';
 import { sanitizeChatForBackup } from '../utils/backupSchema';
+import type { PerspectivePresetSnapshot } from './perspectiveService';
 
 export interface MessageAttachment {
   type: 'image' | 'pdf';
@@ -46,6 +47,10 @@ export interface Message {
   personaTagline?: string;
   personaAvatar?: string;
   personaAvatarUri?: string;
+  /** Perspective debate seat attribution (optional). */
+  perspectiveSeatId?: string;
+  perspectiveSeatLabel?: string;
+  perspectiveModelFileName?: string;
 }
 
 export interface ChatConversation {
@@ -57,6 +62,10 @@ export interface ChatConversation {
   updatedAt: number;
   pinned?: boolean;
   customTitle?: string;
+  /** True when this chat was started as a Perspective debate. */
+  isPerspective?: boolean;
+  perspectivePresetId?: string;
+  perspectivePresetSnapshot?: PerspectivePresetSnapshot;
 }
 
 const DB_NAME = 'ofln_chats.sqlite';

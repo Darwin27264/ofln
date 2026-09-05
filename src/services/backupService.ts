@@ -30,6 +30,14 @@ import {
   mergePersonasImport,
 } from './personaService';
 import {
+  getPerspectivePresets,
+  replaceAllPerspectivePresets,
+  mergePerspectivePresetsImport,
+  attachPerspectiveMetaToChats,
+  setPerspectiveChatMeta,
+  type PerspectiveChatMeta,
+} from './perspectiveService';
+import {
   exportAllModelSettings,
   importModelSettingsMap,
 } from './modelSettingsService';
@@ -91,6 +99,7 @@ export type ImportBackupResult = {
   mode: BackupImportMode;
   chatsImported: number;
   personasImported: number;
+  perspectivePresetsImported: number;
   settingsApplied: boolean;
   themeMode: 'light' | 'dark' | null;
   models: ModelQueueResult | null;
@@ -210,13 +219,16 @@ async function collectSettings(): Promise<BackupSettingsV1> {
 }
 
 async function buildFullPayload(): Promise<BackupPayloadV1> {
-  const [chats, personas, settings, models, usageLog] = await Promise.all([
-    chatHistoryService.getAllChats(),
-    getPersonas(),
-    collectSettings(),
-    collectModelEntries(),
-    readUsageLog(),
-  ]);
+  const [chatsRaw, personas, perspectivePresets, settings, models, usageLog] =
+    await Promise.all([
+      chatHistoryService.getAllChats(),
+      getPersonas(),
+      getPerspectivePresets(),
+      collectSettings(),
+      collectModelEntries(),
+      readUsageLog(),
+    ]);
+  const chats = await attachPerspectiveMetaToChats(chatsRaw);
   return {
     format: BACKUP_FORMAT,
     schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -225,6 +237,7 @@ async function buildFullPayload(): Promise<BackupPayloadV1> {
     appVersion: APP_VERSION,
     chats: chats.map(sanitizeChatForBackup),
     personas,
+    perspectivePresets,
     settings,
     models,
     usageLog,
@@ -232,7 +245,8 @@ async function buildFullPayload(): Promise<BackupPayloadV1> {
 }
 
 async function buildChatsPayload(): Promise<BackupPayloadV1> {
-  const chats = await chatHistoryService.getAllChats();
+  const chatsRaw = await chatHistoryService.getAllChats();
+  const chats = await attachPerspectiveMetaToChats(chatsRaw);
   return {
     format: BACKUP_FORMAT,
     schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -254,6 +268,7 @@ function fullPayloadToZipBytes(payload: BackupPayloadV1): Uint8Array {
       'manifest.json',
       'chats.json',
       'personas.json',
+      'perspectives.json',
       'settings.json',
       'models.json',
       'stages.json',
@@ -263,6 +278,10 @@ function fullPayloadToZipBytes(payload: BackupPayloadV1): Uint8Array {
     { name: 'manifest.json', data: utf8ToBytes(JSON.stringify(manifest, null, 2)) },
     { name: 'chats.json', data: utf8ToBytes(JSON.stringify(payload.chats ?? [], null, 2)) },
     { name: 'personas.json', data: utf8ToBytes(JSON.stringify(payload.personas ?? [], null, 2)) },
+    {
+      name: 'perspectives.json',
+      data: utf8ToBytes(JSON.stringify(payload.perspectivePresets ?? [], null, 2)),
+    },
     { name: 'settings.json', data: utf8ToBytes(JSON.stringify(payload.settings ?? {}, null, 2)) },
     { name: 'models.json', data: utf8ToBytes(JSON.stringify(payload.models ?? [], null, 2)) },
     { name: 'stages.json', data: utf8ToBytes(JSON.stringify(payload.usageLog ?? [], null, 2)) },
@@ -306,6 +325,7 @@ function zipBytesToPayload(buf: Uint8Array): BackupPayloadV1 {
       typeof manifest.appVersion === 'string' ? manifest.appVersion : 'unknown',
     chats: readJson('chats.json'),
     personas: readJson('personas.json'),
+    perspectivePresets: readJson('perspectives.json'),
     settings: readJson('settings.json'),
     models: readJson('models.json'),
     usageLog: readJson('stages.json'),
@@ -537,11 +557,21 @@ export async function importBackup(opts: {
     const mode = opts.mode;
     let chatsImported = 0;
     let personasImported = 0;
+    let perspectivePresetsImported = 0;
     let settingsApplied = false;
     let themeMode: 'light' | 'dark' | null = null;
 
     if (payload.chats && payload.chats.length > 0) {
       chatsImported = await chatHistoryService.importChats(payload.chats, mode);
+      for (const chat of payload.chats) {
+        if (chat.isPerspective && chat.perspectivePresetSnapshot) {
+          const meta: PerspectiveChatMeta = {
+            presetId: chat.perspectivePresetId,
+            presetSnapshot: chat.perspectivePresetSnapshot as PerspectiveChatMeta['presetSnapshot'],
+          };
+          await setPerspectiveChatMeta(chat.id, meta);
+        }
+      }
     } else if (payload.kind === 'chats') {
       warnings.push('No conversations found in backup.');
     }
@@ -553,6 +583,15 @@ export async function importBackup(opts: {
         await mergePersonasImport(payload.personas);
       }
       personasImported = payload.personas.length;
+    }
+
+    if (payload.perspectivePresets) {
+      if (mode === 'replace') {
+        await replaceAllPerspectivePresets(payload.perspectivePresets);
+      } else {
+        await mergePerspectivePresetsImport(payload.perspectivePresets);
+      }
+      perspectivePresetsImported = payload.perspectivePresets.length;
     }
 
     if (payload.settings) {
@@ -625,6 +664,7 @@ export async function importBackup(opts: {
       mode,
       chatsImported,
       personasImported,
+      perspectivePresetsImported,
       settingsApplied,
       themeMode,
       models: queueResult,
@@ -658,6 +698,11 @@ export function formatImportSummary(result: ImportBackupResult): string {
       `${result.personasImported} persona${result.personasImported === 1 ? '' : 's'}.`,
     );
   }
+  if (result.perspectivePresetsImported > 0) {
+    lines.push(
+      `${result.perspectivePresetsImported} perspective preset${result.perspectivePresetsImported === 1 ? '' : 's'}.`,
+    );
+  }
   if (result.settingsApplied) {
     lines.push('Settings restored.');
   }
@@ -673,6 +718,7 @@ export function formatImportSummary(result: ImportBackupResult): string {
   if (
     result.chatsImported === 0 &&
     result.personasImported === 0 &&
+    result.perspectivePresetsImported === 0 &&
     !result.settingsApplied
   ) {
     lines.push('Nothing new was applied.');

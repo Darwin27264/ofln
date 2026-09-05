@@ -264,6 +264,19 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(
               style={{ marginLeft: 4 }}
             />
           ) : null}
+          {chat.isPerspective ? (
+            <Text
+              style={{
+                marginLeft: 6,
+                fontSize: 11,
+                fontFamily: 'Poppins',
+                fontWeight: '500',
+                color: theme.colors.textTertiary,
+              }}
+            >
+              Perspective
+            </Text>
+          ) : null}
           {isMultiselectMode ? (
             <View
               style={{
@@ -355,6 +368,7 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(
     prevProps.chat.title === nextProps.chat.title &&
     prevProps.chat.preview === nextProps.chat.preview &&
     prevProps.chat.pinned === nextProps.chat.pinned &&
+    prevProps.chat.isPerspective === nextProps.chat.isPerspective &&
     prevProps.chat.updatedAt === nextProps.chat.updatedAt &&
     prevProps.currentChatId === nextProps.currentChatId &&
     prevProps.isEditing === nextProps.isEditing &&

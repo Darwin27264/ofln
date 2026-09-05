@@ -7,6 +7,10 @@ import type { ChatConversation, Message } from '../services/chatHistoryService';
 import { isChatConversation, trimChatsToMax } from '../services/chatHistoryHelpers';
 import type { Persona } from '../services/personaService';
 import type { ModelSettings } from '../services/modelSettingsService';
+import {
+  isPerspectivePreset,
+  type PerspectivePreset,
+} from '../services/perspectiveService';
 
 /** Magic — distinguish OFLN backups from arbitrary JSON/ZIP. */
 export const BACKUP_FORMAT = 'ofln-backup' as const;
@@ -56,6 +60,8 @@ export type BackupPayloadV1 = {
   appVersion: string;
   chats?: ChatConversation[];
   personas?: Persona[];
+  /** Perspective debate presets (optional; older backups omit). */
+  perspectivePresets?: PerspectivePreset[];
   settings?: BackupSettingsV1;
   models?: BackupModelEntry[];
   /** Stages / performance log (opaque JSON array when valid). */
@@ -286,6 +292,10 @@ export function parseBackupPayload(raw: unknown): ParseBackupResult {
     ? o.personas.filter(isPersona)
     : undefined;
 
+  const perspectivePresets = Array.isArray(o.perspectivePresets)
+    ? o.perspectivePresets.filter(isPerspectivePreset)
+    : undefined;
+
   let settings: BackupSettingsV1 | undefined;
   if (o.settings && typeof o.settings === 'object') {
     const s = o.settings as Record<string, unknown>;
@@ -352,6 +362,7 @@ export function parseBackupPayload(raw: unknown): ParseBackupResult {
       appVersion,
       chats,
       personas,
+      perspectivePresets,
       settings,
       models,
       usageLog,

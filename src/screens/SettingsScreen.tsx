@@ -15,6 +15,7 @@ interface Props {
   onGoToModelSelection: () => void;
   onOpenStats: () => void;
   onGoToPersonas: () => void;
+  onGoToPerspectives: () => void;
   onGoToInfo: () => void;
   onGoToDiagnostics: () => void;
   onGoToStorage: () => void;
@@ -27,6 +28,7 @@ export default function SettingsScreen({
   onGoToModelSelection,
   onOpenStats,
   onGoToPersonas,
+  onGoToPerspectives,
   onGoToInfo,
   onGoToDiagnostics,
   onGoToStorage,
@@ -131,12 +133,20 @@ export default function SettingsScreen({
             </Animated.View>
           </TouchableOpacity>
         </View>
-        <View style={{ flexDirection: "row", height: 100, marginTop: 10 }}>
-          <TouchableOpacity style={{ flex: 1 }} onPress={onGoToStorage} activeOpacity={0.85}>
-            <Animated.View style={[styles.settingsBlock, { minHeight: 90 }]}>
+        <View style={{ flexDirection: "row", height: 145, marginTop: 10 }}>
+          <TouchableOpacity style={{ flex: 1, marginRight: 5 }} onPress={onGoToStorage} activeOpacity={0.85}>
+            <Animated.View style={styles.settingsBlock}>
               <Ionicons name="folder-outline" size={21} color={theme.colors.text} style={styles.blockIcon}/>
               <View style={styles.blockTextContainer}>
                 <Text style={styles.blockText}>Storage</Text>
+              </View>
+            </Animated.View>
+          </TouchableOpacity>
+          <TouchableOpacity style={{ flex: 1, marginLeft: 5 }} onPress={onGoToPerspectives} activeOpacity={0.85}>
+            <Animated.View style={styles.settingsBlock}>
+              <Ionicons name="git-compare-outline" size={21} color={theme.colors.text} style={styles.blockIcon}/>
+              <View style={styles.blockTextContainer}>
+                <Text style={styles.blockText}>Perspective</Text>
               </View>
             </Animated.View>
           </TouchableOpacity>

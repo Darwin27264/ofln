@@ -472,11 +472,18 @@ export function ChatComposer({
               <FrostedGlass style={StyleSheet.absoluteFillObject} />
               <TextInput
                 style={styles.input}
-                placeholder={isListening ? 'Listening…' : 'Message...'}
+                placeholder={
+                  isGenerating
+                    ? 'Agents are responding…'
+                    : isListening
+                      ? 'Listening…'
+                      : 'Message...'
+                }
                 placeholderTextColor={theme.colors.textTertiary}
                 value={userInput}
                 onChangeText={onChangeText}
                 multiline
+                editable={!isGenerating}
                 onFocus={onInputFocus}
               />
               {isGenerating ? (

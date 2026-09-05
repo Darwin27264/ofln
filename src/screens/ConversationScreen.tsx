@@ -107,6 +107,18 @@ import {
 } from "@react-native-documents/picker";
 import { useAIChat } from "../hooks/useAIChat";
 import { llamaProvider } from "../providers/llamaProvider";
+import {
+  getPerspectivePresets,
+  setPerspectiveChatMeta,
+  attachPerspectiveMetaToChats,
+  snapshotPreset,
+  countDistinctModels,
+  WARN_PERSPECTIVE_SEATS,
+  seatDisplayName,
+  type PerspectivePreset,
+  type PerspectivePresetSnapshot,
+} from "../services/perspectiveService";
+import { seatsHaveAssignedModels } from "../services/perspectiveOrchestrator";
 import { toUserFacingLoadError } from "../utils/userFacingErrors";
 import { showLoadFailureAlert } from "../utils/loadFailureAlert";
 import {
@@ -232,6 +244,9 @@ interface Props {
    * exact value so history + quick panel stay uniform with the system bars.
    */
   shellBackground: string;
+  onOpenPerspectives?: () => void;
+  pendingPerspectivePreset?: PerspectivePreset | null;
+  onPendingPerspectivePresetConsumed?: () => void;
 }
 
 export default function ConversationScreen({
@@ -262,6 +277,9 @@ export default function ConversationScreen({
   setSelectedPersona,
   onHistoryPanelChange,
   shellBackground,
+  onOpenPerspectives,
+  pendingPerspectivePreset = null,
+  onPendingPerspectivePresetConsumed,
 }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
@@ -421,13 +439,25 @@ export default function ConversationScreen({
 
   // Temporary mode (only before the first user message).
   const [isTemporaryMode, setIsTemporaryMode] = useState(false);
+  /** Perspective debate mode — exit only via new chat. */
+  const [isPerspectiveMode, setIsPerspectiveMode] = useState(false);
+  const [activePerspectivePreset, setActivePerspectivePreset] =
+    useState<PerspectivePreset | null>(null);
+  const [perspectiveSnapshot, setPerspectiveSnapshot] =
+    useState<PerspectivePresetSnapshot | null>(null);
+  const [perspectivePresets, setPerspectivePresets] = useState<
+    PerspectivePreset[]
+  >([]);
+  const perspectiveMarkedChatRef = useRef<string | null>(null);
 
   // Model selector — `chromeOpen` stays true through the exit fade (like isPanelOpen).
   const [isModelSelectorVisible, setIsModelSelectorVisible] = useState(false);
   const [isModelSelectorChromeOpen, setIsModelSelectorChromeOpen] = useState(false);
   const [isLoadingModel, setIsLoadingModel] = useState(false);
   const [loadingModelFile, setLoadingModelFile] = useState<string | null>(null);
-  const [selectorTab, setSelectorTab] = useState<"models" | "personas">("models");
+  const [selectorTab, setSelectorTab] = useState<
+    "models" | "personas" | "perspective"
+  >("models");
   const [availablePersonas, setAvailablePersonas] = useState<Persona[]>([]);
   /** Short accel tag (CPU/GPU/NPU) for selected model in the quick panel. */
   const [selectedAccelLabel, setSelectedAccelLabel] = useState<string | null>(null);
@@ -716,11 +746,37 @@ export default function ConversationScreen({
   }, [selectedGGUF, setSelectedGGUF, setContext]);
 
   // Reset temporary mode when returning to an empty new chat.
+  // Perspective is cleared explicitly in handleNewChatPress (entering it
+  // happens on an empty chat, so an auto-reset here would cancel it immediately).
   useEffect(() => {
     if (!hasStartedChat && !currentChatId) {
       setIsTemporaryMode(false);
     }
   }, [hasStartedChat, currentChatId]);
+
+  useEffect(() => {
+    if (!isModelSelectorVisible) return;
+    void getPerspectivePresets()
+      .then(setPerspectivePresets)
+      .catch(() => setPerspectivePresets([]));
+  }, [isModelSelectorVisible]);
+
+  // Stamp history once the first persist assigns a chat id.
+  useEffect(() => {
+    if (!isPerspectiveMode || !currentChatId || !perspectiveSnapshot) return;
+    if (perspectiveMarkedChatRef.current === currentChatId) return;
+    void setPerspectiveChatMeta(currentChatId, {
+      presetId: activePerspectivePreset?.id,
+      presetSnapshot: perspectiveSnapshot,
+    }).then(() => {
+      perspectiveMarkedChatRef.current = currentChatId;
+    });
+  }, [
+    isPerspectiveMode,
+    currentChatId,
+    perspectiveSnapshot,
+    activePerspectivePreset?.id,
+  ]);
 
   /**
    * Animate persona indicator fade in/out
@@ -768,8 +824,9 @@ export default function ConversationScreen({
         setIsLoadingHistory(true);
         try {
           const chats = await chatHistoryService.getAllChats();
+          const withMeta = await attachPerspectiveMetaToChats(chats);
           if (isMounted) {
-            setChatHistory(chats);
+            setChatHistory(withMeta as ChatConversation[]);
           }
         } catch (error) {
           console.error('Error loading chat history:', error);
@@ -914,6 +971,31 @@ export default function ConversationScreen({
     async (chat: ChatConversation) => {
       setAutoScrollEnabled(true);
       onLoadChat(chat.id, chat.messages);
+      if (chat.isPerspective && chat.perspectivePresetSnapshot) {
+        setIsPerspectiveMode(true);
+        setPerspectiveSnapshot(
+          chat.perspectivePresetSnapshot as PerspectivePresetSnapshot,
+        );
+        setActivePerspectivePreset(
+          chat.perspectivePresetId
+            ? ({
+                id: chat.perspectivePresetId,
+                name: chat.perspectivePresetSnapshot.name,
+                seats: chat.perspectivePresetSnapshot.seats as PerspectivePreset['seats'],
+                overrides: chat.perspectivePresetSnapshot.overrides,
+                createdAt: 0,
+                updatedAt: 0,
+              } as PerspectivePreset)
+            : null,
+        );
+        perspectiveMarkedChatRef.current = chat.id;
+      } else {
+        setIsPerspectiveMode(false);
+        setActivePerspectivePreset(null);
+        setPerspectiveSnapshot(null);
+        perspectiveMarkedChatRef.current = null;
+      }
+      setIsTemporaryMode(false);
       togglePanel();
     },
     [onLoadChat, togglePanel, setAutoScrollEnabled],
@@ -1010,6 +1092,10 @@ export default function ConversationScreen({
     // Clear App identity/seed first so the next render never pairs a stale
     // currentChatId with the emptied hook transcript (that reloads old chat).
     setContextBannerDismissed(false);
+    setIsPerspectiveMode(false);
+    setActivePerspectivePreset(null);
+    setPerspectiveSnapshot(null);
+    perspectiveMarkedChatRef.current = null;
     onNewChat();
     aiChat.newChat();
   }, [aiChat.newChat, onNewChat]);
@@ -1345,9 +1431,17 @@ export default function ConversationScreen({
   // Toggle temporary mode (only available before chat starts)
   const toggleTemporaryMode = useCallback(() => {
     if (!hasStartedChat) {
+      if (isPerspectiveMode) {
+        showAlert(
+          'Perspective is on',
+          'Start a new chat to leave Perspective before using Temporary Mode.',
+          [{ text: 'OK' }],
+        );
+        return;
+      }
       setIsTemporaryMode(prev => !prev);
     }
-  }, [hasStartedChat]);
+  }, [hasStartedChat, isPerspectiveMode]);
 
   /**
    * Scale animation for the send icon
@@ -1539,7 +1633,61 @@ export default function ConversationScreen({
         setUserInput("");
         aiChat.setInput("");
         setAutoScrollEnabled(true);
-        await aiChat.handleSubmit(sendOptions);
+
+        if (isPerspectiveMode && (activePerspectivePreset || perspectiveSnapshot)) {
+          const seats =
+            activePerspectivePreset?.seats ??
+            perspectiveSnapshot?.seats ??
+            [];
+          const overrides =
+            activePerspectivePreset?.overrides ??
+            perspectiveSnapshot?.overrides;
+          const ensureModelLoaded = async (fileName: string) => {
+            if (
+              selectedGGUF === fileName &&
+              llamaProvider.isReady() &&
+              llamaProvider.getNativeContext()
+            ) {
+              return true;
+            }
+            const modelPath = `${RNFS.DocumentDirectoryPath}/${fileName}`;
+            setIsLoadingModel(true);
+            setLoadingModelFile(fileName);
+            try {
+              const ok = await llamaProvider.loadModel({ modelPath });
+              if (ok) {
+                setSelectedGGUF(fileName);
+                setContext(llamaProvider.getNativeContext());
+              }
+              return ok;
+            } finally {
+              setIsLoadingModel(false);
+              setLoadingModelFile(null);
+            }
+          };
+          await aiChat.runPerspectiveRound({
+            seats,
+            personas: availablePersonas,
+            overrides,
+            activeModelFileName: selectedGGUF,
+            ensureModelLoaded,
+            userText: sendOptions.text,
+            sendOptions,
+          });
+          if (
+            currentChatId &&
+            perspectiveMarkedChatRef.current !== currentChatId &&
+            perspectiveSnapshot
+          ) {
+            await setPerspectiveChatMeta(currentChatId, {
+              presetId: activePerspectivePreset?.id,
+              presetSnapshot: perspectiveSnapshot,
+            });
+            perspectiveMarkedChatRef.current = currentChatId;
+          }
+        } else {
+          await aiChat.handleSubmit(sendOptions);
+        }
         scrollChatToEnd(true);
         setTimeout(() => scrollChatToEnd(false), 100);
         setTimeout(() => scrollChatToEnd(false), 320);
@@ -1562,10 +1710,18 @@ export default function ConversationScreen({
     warnModelNotLoaded,
     scaleAnim,
     aiChat.handleSubmit,
+    aiChat.runPerspectiveRound,
     aiChat.setInput,
     setUserInput,
     setAutoScrollEnabled,
     scrollChatToEnd,
+    isPerspectiveMode,
+    activePerspectivePreset,
+    perspectiveSnapshot,
+    availablePersonas,
+    setSelectedGGUF,
+    setContext,
+    currentChatId,
   ]);
 
   /**
@@ -2034,6 +2190,114 @@ export default function ConversationScreen({
     setLoadingModelFile(null);
   }, [isLoadingModel]);
 
+  const enterPerspectiveMode = useCallback(
+    (preset: PerspectivePreset) => {
+      if (isTemporaryMode) {
+        showAlert(
+          'Temporary mode is on',
+          'Turn off Temporary Mode before starting a Perspective debate (or start a new chat).',
+          [{ text: 'OK' }],
+        );
+        return;
+      }
+      if (hasStartedChat) {
+        showAlert(
+          'Start a new chat',
+          'Perspective can only be enabled on a fresh chat. Tap New Chat, then choose a preset.',
+          [{ text: 'OK' }],
+        );
+        return;
+      }
+      if (!seatsHaveAssignedModels(preset.seats)) {
+        showAlert(
+          'Models required',
+          'Each speaker needs a downloaded model. Edit this perspective and choose a model for every seat.',
+          [{ text: 'OK' }],
+        );
+        return;
+      }
+      const missingDownload = preset.seats.find(
+        (s) =>
+          s.modelFileName?.trim() &&
+          !downloadedModels.includes(s.modelFileName.trim()),
+      );
+      if (missingDownload?.modelFileName) {
+        showAlert(
+          'Model not on device',
+          `“${prettifyModelName(missingDownload.modelFileName)}” is not downloaded. Download it from Models, or pick another model in Edit.`,
+          [{ text: 'OK' }],
+        );
+        return;
+      }
+      const warnings: string[] = [];
+      if (preset.seats.length >= WARN_PERSPECTIVE_SEATS) {
+        warnings.push(
+          `${preset.seats.length} speakers run one after another — rounds may be much slower.`,
+        );
+      }
+      if (countDistinctModels(preset.seats) >= 2) {
+        warnings.push(
+          'This preset uses multiple models. OFLN loads one GGUF at a time, so speakers reload between turns.',
+        );
+      }
+      const apply = () => {
+        setIsPerspectiveMode(true);
+        setActivePerspectivePreset(preset);
+        setPerspectiveSnapshot(snapshotPreset(preset));
+        setSelectedPersona(null);
+        const firstModel = preset.seats[0]?.modelFileName?.trim();
+        if (firstModel && firstModel !== selectedGGUF) {
+          void (async () => {
+            const modelPath = `${RNFS.DocumentDirectoryPath}/${firstModel}`;
+            setIsLoadingModel(true);
+            setLoadingModelFile(firstModel);
+            try {
+              const ok = await llamaProvider.loadModel({ modelPath });
+              if (ok) {
+                setSelectedGGUF(firstModel);
+                setContext(llamaProvider.getNativeContext());
+              }
+            } finally {
+              setIsLoadingModel(false);
+              setLoadingModelFile(null);
+            }
+          })();
+        }
+        closeModelSelector();
+        showToast(`Perspective: ${preset.name}`);
+      };
+      if (warnings.length) {
+        showAlert('Perspective — device note', warnings.join('\n\n'), [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Continue', onPress: apply },
+        ]);
+        return;
+      }
+      apply();
+    },
+    [
+      isTemporaryMode,
+      hasStartedChat,
+      setSelectedPersona,
+      showToast,
+      closeModelSelector,
+      downloadedModels,
+      selectedGGUF,
+      setSelectedGGUF,
+      setContext,
+    ],
+  );
+
+  useEffect(() => {
+    if (!pendingPerspectivePreset) return;
+    enterPerspectiveMode(pendingPerspectivePreset);
+    onPendingPerspectivePresetConsumed?.();
+  }, [
+    pendingPerspectivePreset,
+    enterPerspectiveMode,
+    onPendingPerspectivePresetConsumed,
+  ]);
+
   const handleModelSelectorCloseComplete = useCallback(() => {
     setIsModelSelectorChromeOpen(false);
   }, []);
@@ -2456,7 +2720,12 @@ export default function ConversationScreen({
             activeOpacity={0.85}
           >
             <FrostedGlass style={StyleSheet.absoluteFillObject} />
-            <Ionicons name="cube-outline" size={20} color={theme.colors.text} style={{ marginRight: 6 }} />
+            <Ionicons
+              name={isPerspectiveMode ? "git-compare-outline" : "cube-outline"}
+              size={20}
+              color={theme.colors.text}
+              style={{ marginRight: 6 }}
+            />
             <Text 
               style={{
                 color: theme.colors.text,
@@ -2467,7 +2736,13 @@ export default function ConversationScreen({
               numberOfLines={1}
               ellipsizeMode="tail"
             >
-              {selectedGGUF ? prettifyModelName(selectedGGUF) : "No model"}
+              {isPerspectiveMode
+                ? activePerspectivePreset?.name ||
+                  perspectiveSnapshot?.name ||
+                  'Perspective'
+                : selectedGGUF
+                  ? prettifyModelName(selectedGGUF)
+                  : 'No model'}
             </Text>
             {selectedPersona && (
               <Animated.View 
@@ -2538,33 +2813,47 @@ export default function ConversationScreen({
         {/* Keep buttons mounted but behind panel when open */}
         <View style={[styles.topRightButtons, { pointerEvents: isPanelOpen ? 'none' : 'auto' }]}>
           {!hasStartedChat ? (
-            // Show temporary mode toggle button before first message is sent
-            <TouchableOpacity 
-              style={styles.topRightPill}
-              onPress={toggleTemporaryMode}
-              activeOpacity={0.85}
-            >
-              {isTemporaryMode ? (
-                <View
-                  pointerEvents="none"
-                  style={[
-                    StyleSheet.absoluteFillObject,
-                    { backgroundColor: theme.colors.primary, borderRadius: 999 },
-                  ]}
-                />
-              ) : (
+            isPerspectiveMode ? (
+              // Perspective armed but idle — New Chat cancels / resets Perspective
+              <TouchableOpacity
+                style={styles.topRightPill}
+                onPress={handleNewChatPress}
+                activeOpacity={0.85}
+                accessibilityLabel="New chat"
+                accessibilityHint="Leaves Perspective and starts a fresh chat"
+              >
                 <FrostedGlass style={StyleSheet.absoluteFillObject} />
-              )}
-              <Ionicons 
-                name={isTemporaryMode ? "flash" : "flash-outline"} 
-                size={23} 
-                color={isTemporaryMode ? theme.colors.primaryText : theme.colors.text} 
-              />
-            </TouchableOpacity>
+                <Ionicons name="add-outline" size={23} color={theme.colors.text} />
+              </TouchableOpacity>
+            ) : (
+              // Temporary mode toggle before first message
+              <TouchableOpacity
+                style={styles.topRightPill}
+                onPress={toggleTemporaryMode}
+                activeOpacity={0.85}
+              >
+                {isTemporaryMode ? (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      StyleSheet.absoluteFillObject,
+                      { backgroundColor: theme.colors.primary, borderRadius: 999 },
+                    ]}
+                  />
+                ) : (
+                  <FrostedGlass style={StyleSheet.absoluteFillObject} />
+                )}
+                <Ionicons
+                  name={isTemporaryMode ? "flash" : "flash-outline"}
+                  size={23}
+                  color={isTemporaryMode ? theme.colors.primaryText : theme.colors.text}
+                />
+              </TouchableOpacity>
+            )
           ) : (
             // Show new chat button after first message is sent
-            <TouchableOpacity 
-              style={styles.topRightPill} 
+            <TouchableOpacity
+              style={styles.topRightPill}
               onPress={() => {
                 handleNewChatPress();
               }}
@@ -2667,6 +2956,10 @@ export default function ConversationScreen({
           threadKey={currentChatId}
           noMessages={noMessages}
           isTemporaryMode={isTemporaryMode}
+          isPerspectiveMode={isPerspectiveMode}
+          perspectivePresetName={
+            activePerspectivePreset?.name || perspectiveSnapshot?.name
+          }
           greetingLine={greetingLine}
           greetingTop={greetingTop}
           greetingOpacity={greetingOpacity}
@@ -2743,9 +3036,12 @@ export default function ConversationScreen({
               tabs={[
                 { id: "models", label: "Models" },
                 { id: "personas", label: "Personas" },
+                { id: "perspective", label: "Perspective" },
               ]}
               activeId={selectorTab}
-              onChange={(id) => setSelectorTab(id as "models" | "personas")}
+              onChange={(id) =>
+                setSelectorTab(id as "models" | "personas" | "perspective")
+              }
               chromeOuter={[
                 selectorChromeOuter,
                 { marginBottom: SELECTOR_LIST_GAP, flexShrink: 0 },
@@ -2897,7 +3193,7 @@ export default function ConversationScreen({
                     );
                   })
                 )
-              ) : (
+              ) : selectorTab === "personas" ? (
                 // Personas tab list only
                 availablePersonas.length === 0 ? (
                   <View style={{
@@ -2950,6 +3246,12 @@ export default function ConversationScreen({
                       >
                         <TouchableOpacity
                           onPress={() => {
+                            if (isPerspectiveMode) {
+                              showToast(
+                                'Start a new chat to leave Perspective before choosing a persona',
+                              );
+                              return;
+                            }
                             setSelectedPersona(persona);
                             void updatePersonaLastUsed(persona.id);
                             showToast(`Persona "${persona.name}" selected`);
@@ -3033,6 +3335,114 @@ export default function ConversationScreen({
                     );
                   })
                 )
+              ) : (
+                // Perspective presets
+                perspectivePresets.length === 0 ? (
+                  <View
+                    style={{
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      paddingVertical: 40,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 16,
+                        fontFamily: 'Poppins',
+                        color: theme.colors.textSecondary,
+                        textAlign: 'center',
+                      }}
+                    >
+                      No perspective presets yet
+                    </Text>
+                  </View>
+                ) : (
+                  perspectivePresets.map((preset, index) => {
+                    const isActive =
+                      isPerspectiveMode &&
+                      (activePerspectivePreset?.id === preset.id ||
+                        perspectiveSnapshot?.name === preset.name);
+                    return (
+                      <StaggerFadeIn
+                        key={preset.id}
+                        index={index}
+                        active={
+                          isModelSelectorVisible &&
+                          selectorTab === 'perspective'
+                        }
+                        offset={6}
+                        staggerMs={16}
+                        maxDelay={140}
+                      >
+                        <TouchableOpacity
+                          onPress={() => enterPerspectiveMode(preset)}
+                          style={[
+                            styles.modelButton,
+                            {
+                              marginVertical: 5,
+                              borderRadius: 12,
+                              backgroundColor: isActive
+                                ? theme.colors.primary
+                                : selectorFrost.row,
+                              borderColor: isActive
+                                ? theme.colors.primary
+                                : selectorFrost.rowBorder,
+                            },
+                          ]}
+                        >
+                          <View style={styles.modelButtonContent}>
+                            <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
+                              <Text
+                                style={[
+                                  styles.buttonText,
+                                  isActive && styles.selectedButtonText,
+                                  { textAlign: 'left' },
+                                ]}
+                                numberOfLines={1}
+                                ellipsizeMode="tail"
+                              >
+                                {preset.name}
+                              </Text>
+                              <Text
+                                style={{
+                                  fontSize: 12,
+                                  fontFamily: 'Poppins',
+                                  color: isActive
+                                    ? theme.colors.primaryText
+                                    : theme.colors.textSecondary,
+                                  marginTop: 4,
+                                  textAlign: 'left',
+                                }}
+                                numberOfLines={1}
+                                ellipsizeMode="tail"
+                              >
+                                {preset.seats
+                                  .map((s) => seatDisplayName(s))
+                                  .join(' · ')}
+                              </Text>
+                            </View>
+                            <View
+                              style={{
+                                width: 32,
+                                height: 24,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                position: 'relative',
+                                flexShrink: 0,
+                              }}
+                            >
+                              <AnimatedCheckmark
+                                visible={isActive}
+                                size={20}
+                                color={theme.colors.primaryText}
+                              />
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                      </StaggerFadeIn>
+                    );
+                  })
+                )
               )}
             </ScrollView>
 
@@ -3067,9 +3477,16 @@ export default function ConversationScreen({
                   </Text>
                 </View>
               </TouchableOpacity>
-            ) : selectedPersona ? (
+            ) : selectorTab === "personas" ? (
+              selectedPersona ? (
               <TouchableOpacity
                 onPress={() => {
+                  if (isPerspectiveMode) {
+                    showToast(
+                      'Start a new chat to leave Perspective',
+                    );
+                    return;
+                  }
                   setSelectedPersona(null);
                   showToast('Persona cleared');
                 }}
@@ -3095,7 +3512,36 @@ export default function ConversationScreen({
                   </Text>
                 </View>
               </TouchableOpacity>
-            ) : null}
+              ) : null
+            ) : (
+              <TouchableOpacity
+                onPress={() => {
+                  closeModelSelector();
+                  onOpenPerspectives?.();
+                }}
+                style={[
+                  selectorChromeOuter,
+                  {
+                    flexShrink: 0,
+                    marginTop: SELECTOR_LIST_GAP,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Manage perspectives"
+              >
+                <View style={[selectorChromeInner, { flexDirection: "row" }]}>
+                  <Ionicons
+                    name="git-compare-outline"
+                    size={18}
+                    color={theme.colors.text}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={[selectorChromeLabel, { color: theme.colors.text }]}>
+                    Manage perspectives
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
           </View>
         </BottomSheet>
 

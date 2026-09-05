@@ -31,6 +31,17 @@ import { stopListening } from '../services/sttService';
 import { logError } from '../utils/errorLogger';
 import { buildMessagesAfterUserEdit } from '../utils/chatEditHelpers';
 import { buildPersonaSnapshot } from '../utils/personaAttribution';
+import {
+  applyDebateOverridesToSettings,
+  buildNativeMessagesForSeat,
+  buildSeatAssistantPlaceholder,
+  buildSeatSystemPrompt,
+  resolveSeatModelFileName,
+} from '../services/perspectiveOrchestrator';
+import type {
+  PerspectiveDebateOverrides,
+  PerspectiveSeat,
+} from '../services/perspectiveService';
 
 import type {
   ChatMessage,
@@ -54,6 +65,21 @@ export interface UseAIChatOptions {
   disablePersistence?: boolean;
 }
 
+export interface PerspectiveRoundOptions {
+  seats: PerspectiveSeat[];
+  personas: Persona[];
+  overrides?: PerspectiveDebateOverrides | null;
+  /** Currently selected GGUF file name (fallback when seat omits model). */
+  activeModelFileName: string;
+  /** Ensure the given GGUF is loaded; update app selection as needed. */
+  ensureModelLoaded: (fileName: string) => Promise<boolean>;
+  onSeatStart?: (index: number, seat: PerspectiveSeat) => void;
+  userText?: string;
+  sendOptions?: SendOptions;
+}
+
+export type PerspectiveRoundResult = 'completed' | 'stopped' | 'error';
+
 export interface UseAIChatReturn {
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
@@ -61,6 +87,10 @@ export interface UseAIChatReturn {
   setInput: (input: string) => void;
   handleInputChange: (text: string) => void;
   handleSubmit: (sendOptions?: SendOptions) => Promise<void>;
+  /** Multi-seat Perspective debate round (sequential; respects stop). */
+  runPerspectiveRound: (
+    opts: PerspectiveRoundOptions,
+  ) => Promise<PerspectiveRoundResult>;
   stop: () => void;
   /**
    * Regenerate an assistant reply (ChatGPT / Claude / Gemini pattern):
@@ -843,6 +873,226 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     persistMessages(stopped);
   }, [flushAssistantPatch, commitMessages, persistMessages]);
 
+  /**
+   * Perspective debate: append user turn, then run each seat sequentially.
+   * Stop cancels the current seat and skips remaining seats.
+   */
+  const runPerspectiveRound = useCallback(
+    async (opts: PerspectiveRoundOptions): Promise<PerspectiveRoundResult> => {
+      if (isGeneratingRef.current) return 'error';
+      if (!opts.seats?.length) return 'error';
+
+      const typed = (
+        typeof opts.userText === 'string' ? opts.userText : input
+      ).trim();
+      const hasAttachments = !!(
+        opts.sendOptions?.attachments && opts.sendOptions.attachments.length > 0
+      );
+      if (!typed && !hasAttachments) return 'error';
+
+      const activeModel = opts.activeModelFileName?.trim();
+      if (!activeModel || activeModel === 'unknown') {
+        onModelNotReadyRef.current?.();
+        setError(new Error('Model not loaded'));
+        return 'error';
+      }
+
+      const generationId = beginGeneration();
+      const displayContent =
+        typed ||
+        (hasAttachments
+          ? opts.sendOptions!.attachments!.some((a) => a.type === 'pdf')
+            ? '(Document attached)'
+            : '(Image attached)'
+          : '');
+
+      const userMessage: ChatMessage = {
+        role: 'user',
+        content: displayContent,
+        attachments: opts.sendOptions?.attachments,
+        createdAt: new Date(),
+      };
+      commitMessages([...messagesRef.current, userMessage]);
+      setInput('');
+      scrollToEnd();
+
+      let outcome: PerspectiveRoundResult = 'completed';
+
+      try {
+        for (let i = 0; i < opts.seats.length; i++) {
+          if (generationId !== generationIdRef.current) {
+            outcome = 'stopped';
+            break;
+          }
+
+          const seat = opts.seats[i];
+          opts.onSeatStart?.(i, seat);
+
+          const modelFile = resolveSeatModelFileName(seat);
+          if (!modelFile) {
+            outcome = 'error';
+            setError(
+              new Error(
+                `No model assigned for ${seat.label || seat.id}. Edit the perspective and choose a model for each speaker.`,
+              ),
+            );
+            break;
+          }
+          const loaded = await opts.ensureModelLoaded(modelFile);
+          if (generationId !== generationIdRef.current) {
+            outcome = 'stopped';
+            break;
+          }
+          if (!loaded) {
+            outcome = 'error';
+            setError(new Error(`Could not load model for ${seat.label || seat.id}`));
+            break;
+          }
+
+          const placeholder = buildSeatAssistantPlaceholder(
+            seat,
+            opts.personas,
+            modelFile,
+          );
+          commitMessages([...messagesRef.current, placeholder]);
+          scrollToEnd();
+
+          const onToken = (visibleText: string) => {
+            scheduleAssistantPatch({ content: visibleText }, generationId);
+          };
+          const onThought = (thought: string) => {
+            if (generationId !== generationIdRef.current) return;
+            setCurrentThought(thought);
+            scheduleAssistantPatch({ thought }, generationId);
+          };
+
+          const nativeContext = llamaProvider.getNativeContext();
+          if (!nativeContext) {
+            throw new Error(
+              'Native context not available. Try switching the model off and on again.',
+            );
+          }
+
+          const baseSettings = await getModelSettings(modelFile).catch(
+            () => DEFAULT_SETTINGS,
+          );
+          if (generationId !== generationIdRef.current) {
+            outcome = 'stopped';
+            break;
+          }
+
+          const settings = applyDebateOverridesToSettings(
+            baseSettings,
+            opts.overrides,
+          );
+          const systemPrompt = buildSeatSystemPrompt(
+            seat,
+            opts.personas,
+            settings.systemPrompt,
+          );
+          const nativeMessages = buildNativeMessagesForSeat(
+            messagesRef.current,
+            systemPrompt,
+          );
+
+          if (typeof nativeContext.stopCompletion === 'function') {
+            await Promise.resolve(nativeContext.stopCompletion()).catch(() => {});
+          }
+          if (generationId !== generationIdRef.current) {
+            outcome = 'stopped';
+            break;
+          }
+
+          const abortController = new AbortController();
+          abortRef.current = () => {
+            abortController.abort();
+            if (typeof nativeContext.stopCompletion === 'function') {
+              Promise.resolve(nativeContext.stopCompletion()).catch(() => {});
+            }
+          };
+
+          try {
+            const completion = await nativeCompletion(
+              nativeContext,
+              nativeMessages,
+              modelFile,
+              settings,
+              { onToken, onThought },
+              abortController.signal,
+            );
+
+            if (generationId !== generationIdRef.current) {
+              outcome = 'stopped';
+              break;
+            }
+
+            flushAssistantPatch();
+            if ((completion.trimmedMessageCount ?? 0) > 0) {
+              setShowTrimNotice(true);
+            }
+            const finalized = finalizeLastAssistant(
+              messagesRef.current,
+              completion,
+            );
+            commitMessages(finalized);
+            persistMessages(finalized);
+          } catch (err) {
+            if (generationId !== generationIdRef.current) {
+              outcome = 'stopped';
+              break;
+            }
+            const error = err instanceof Error ? err : new Error(String(err));
+            if (error.name === 'AbortError') {
+              outcome = 'stopped';
+              break;
+            }
+            setError(error);
+            void logError('AIChat', 'perspective seat failed', error, {
+              modelFile,
+              seatId: seat.id,
+              generationId,
+            });
+            const prev = messagesRef.current;
+            const last = prev[prev.length - 1];
+            if (last?.role === 'assistant' && !last.content) {
+              const withError = [
+                ...prev.slice(0, -1),
+                {
+                  ...last,
+                  content: `Error: ${error.message}. Please try again.`,
+                },
+              ];
+              commitMessages(withError);
+              persistMessages(withError);
+            }
+            outcome = 'error';
+            break;
+          }
+        }
+      } finally {
+        if (generationId === generationIdRef.current) {
+          flushAssistantPatch();
+          isGeneratingRef.current = false;
+          setIsLoading(false);
+          setIsGenerating(false);
+          abortRef.current = null;
+          deactivateGeneratingKeepAwake();
+        }
+      }
+
+      return outcome;
+    },
+    [
+      input,
+      beginGeneration,
+      commitMessages,
+      scrollToEnd,
+      scheduleAssistantPatch,
+      flushAssistantPatch,
+      persistMessages,
+    ],
+  );
+
   const newChat = useCallback(() => {
     // Invalidate generation + in-flight persists so a late save cannot
     // rebind the previous chat id onto this empty session.
@@ -869,6 +1119,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     setInput,
     handleInputChange,
     handleSubmit,
+    runPerspectiveRound,
     stop,
     regenerate,
     editUserAndRegenerate,

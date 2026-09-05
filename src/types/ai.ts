@@ -38,6 +38,10 @@ export interface ChatMessage extends MessagePersonaAttribution {
   tokensPerSecond?: number;
   attachments?: MessageAttachment[];
   createdAt?: Date;
+  /** Perspective debate seat attribution. */
+  perspectiveSeatId?: string;
+  perspectiveSeatLabel?: string;
+  perspectiveModelFileName?: string;
 }
 
 // ── AI SDK Content Parts (Vercel AI SDK v6 message format) ─────────────────────

@@ -341,6 +341,8 @@ export type MessageListProps = {
 
   noMessages: boolean;
   isTemporaryMode: boolean;
+  isPerspectiveMode?: boolean;
+  perspectivePresetName?: string;
   greetingLine: string;
   greetingTop: number;
   greetingOpacity: Animated.Value;
@@ -398,6 +400,8 @@ export function MessageList({
   threadKey = null,
   noMessages,
   isTemporaryMode,
+  isPerspectiveMode = false,
+  perspectivePresetName,
   greetingLine,
   greetingTop,
   greetingOpacity,
@@ -980,10 +984,19 @@ export function MessageList({
               </View>
             ) : null;
 
-          const actionsNode =
+          const assistantBody = (msg.content || '').trim();
+          const assistantThought = (msg.thought || '')
+            .replace(/^(?:\s*Thinking Process:\s*)+/i, '')
+            .trim();
+          // Thought-only replies (empty visible answer) still need copy/regen —
+          // the placeholder copy mentions regenerate.
+          const showAssistantActions =
             msg.role === 'assistant' &&
-            msg.content.trim().length > 0 &&
-            !isStreamingMessage ? (
+            !isStreamingMessage &&
+            (assistantBody.length > 0 || assistantThought.length > 0);
+          const copyPayload = assistantBody || assistantThought;
+
+          const actionsNode = showAssistantActions ? (
               <View
                 style={{
                   width: '100%',
@@ -1001,7 +1014,7 @@ export function MessageList({
                   }}
                 >
                   <TouchableOpacity
-                    onPress={() => onCopyMessage(msg.content)}
+                    onPress={() => onCopyMessage(copyPayload)}
                     style={{
                       padding: 6,
                       borderRadius: 16,
@@ -1048,7 +1061,7 @@ export function MessageList({
                     ) : null;
                   })()}
                 </View>
-                {onSpeakMessage && (
+                {onSpeakMessage && assistantBody.length > 0 && (
                   <>
                     <View style={{ flex: 1, minWidth: 24 }} />
                     <TouchableOpacity
@@ -1222,8 +1235,20 @@ export function MessageList({
               style={{ marginBottom: 12 }}
             />
           )}
+          {isPerspectiveMode && !isTemporaryMode && (
+            <Ionicons
+              name="git-compare-outline"
+              size={36}
+              color={theme.colors.text}
+              style={{ marginBottom: 12 }}
+            />
+          )}
           <Text style={styles.greetingText}>
-            {isTemporaryMode ? 'Temporary Mode' : greetingLine}
+            {isTemporaryMode
+              ? 'Temporary Mode'
+              : isPerspectiveMode
+                ? 'Perspective'
+                : greetingLine}
           </Text>
 
           <Animated.View
@@ -1265,6 +1290,28 @@ export function MessageList({
                   history. Photos still run on-device OCR before the model sees them.
                 </Text>
               </Animated.View>
+            ) : isPerspectiveMode ? (
+              <View
+                style={{
+                  width: '100%',
+                  alignItems: 'center',
+                  paddingHorizontal: 20,
+                }}
+              >
+                <Text
+                  style={{
+                    color: theme.colors.text,
+                    fontSize: 18,
+                    fontFamily: 'Poppins',
+                    textAlign: 'center',
+                    lineHeight: 24,
+                  }}
+                >
+                  {perspectivePresetName
+                    ? `“${perspectivePresetName}” is ready. Send a topic — each speaker replies in turn. Input locks during the round; Stop cancels remaining speakers. Start a new chat to leave Perspective.`
+                    : 'Send a topic — each speaker replies in turn. Input locks during the round; Stop cancels remaining speakers. Start a new chat to leave Perspective.'}
+                </Text>
+              </View>
             ) : (
               <Animated.View
                 style={{

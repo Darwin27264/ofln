@@ -48,7 +48,10 @@ import InfoScreen from "./src/screens/InfoScreen";
 import DiagnosticsScreen from "./src/screens/DiagnosticsScreen";
 import OnboardingScreen from "./src/screens/OnboardingScreen";
 import StorageScreen from "./src/screens/StorageScreen";
+import PerspectivesLibraryScreen from "./src/screens/PerspectivesLibraryScreen";
+import PerspectiveEditorScreen from "./src/screens/PerspectiveEditorScreen";
 import { Persona, getPersonas, updatePersonaLastUsed } from "./src/services/personaService";
+import type { PerspectivePreset } from "./src/services/perspectiveService";
 import { ModelInfo } from "./src/components/ModelCard";
 
 // Services (legacy helpers still used for download / existence checks)
@@ -173,6 +176,8 @@ function AppContent(): React.JSX.Element {
     | "settings"
     | "stages"
     | "personas"
+    | "perspectives"
+    | "perspectiveEditor"
     | "personaEditor"
     | "modelSettings"
     | "info"
@@ -217,6 +222,11 @@ function AppContent(): React.JSX.Element {
   }, [currentPage, frostedChromeOpen]);
 
   const [editingPersona, setEditingPersona] = useState<Persona | null | undefined>(undefined);
+  const [editingPerspective, setEditingPerspective] = useState<
+    PerspectivePreset | null | undefined
+  >(undefined);
+  const [pendingPerspectivePreset, setPendingPerspectivePreset] =
+    useState<PerspectivePreset | null>(null);
   const [selectedModelForSettings, setSelectedModelForSettings] = useState<ModelInfo | null>(null);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
   const [downloadedModels, setDownloadedModels] = useState<string[]>([]);
@@ -553,12 +563,17 @@ function AppContent(): React.JSX.Element {
         case "diagnostics":
         case "storage":
         case "personas":
+        case "perspectives":
         case "info":
           setCurrentPage("settings");
           return true;
         case "personaEditor":
           setEditingPersona(undefined);
           setCurrentPage("personas");
+          return true;
+        case "perspectiveEditor":
+          setEditingPerspective(undefined);
+          setCurrentPage("perspectives");
           return true;
         case "modelSettings":
           setSelectedModelForSettings(null);
@@ -672,6 +687,11 @@ function AppContent(): React.JSX.Element {
           setSelectedPersona={setSelectedPersona}
           onHistoryPanelChange={setFrostedChromeOpen}
           shellBackground={shellBackground}
+          onOpenPerspectives={() => setCurrentPage("perspectives")}
+          pendingPerspectivePreset={pendingPerspectivePreset}
+          onPendingPerspectivePresetConsumed={() =>
+            setPendingPerspectivePreset(null)
+          }
           />
         </PageFadeIn>
       )}
@@ -685,6 +705,7 @@ function AppContent(): React.JSX.Element {
           onOpenStats={() => setCurrentPage("stages")}
           onGoToModelSelection={() => setCurrentPage("modelSelection")}
           onGoToPersonas={() => setCurrentPage("personas")}
+          onGoToPerspectives={() => setCurrentPage("perspectives")}
           onGoToInfo={() => setCurrentPage("info")}
           onGoToDiagnostics={() => setCurrentPage("diagnostics")}
           onGoToStorage={() => setCurrentPage("storage")}
@@ -761,6 +782,40 @@ function AppContent(): React.JSX.Element {
           />
         </PageFadeIn>
       )}
+
+      {currentPage === "perspectives" && (
+        <PageFadeIn key="perspectives">
+          <PerspectivesLibraryScreen
+            onBack={() => setCurrentPage("settings")}
+            onEditPreset={(preset) => {
+              setEditingPerspective(preset);
+              setCurrentPage("perspectiveEditor");
+            }}
+            onUsePreset={(preset) => {
+              setPendingPerspectivePreset(preset);
+              setCurrentPage("conversation");
+            }}
+          />
+        </PageFadeIn>
+      )}
+
+      {currentPage === "perspectiveEditor" &&
+        editingPerspective !== undefined && (
+          <PageFadeIn key="perspectiveEditor">
+            <PerspectiveEditorScreen
+              preset={editingPerspective}
+              downloadedModels={downloadedModels}
+              onSave={() => {
+                setEditingPerspective(undefined);
+                setCurrentPage("perspectives");
+              }}
+              onCancel={() => {
+                setEditingPerspective(undefined);
+                setCurrentPage("perspectives");
+              }}
+            />
+          </PageFadeIn>
+        )}
 
       {currentPage === "personaEditor" && editingPersona !== undefined && (
         <PageFadeIn key="personaEditor">

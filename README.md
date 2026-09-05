@@ -16,6 +16,7 @@ Offline LLM chat for Android and iOS. Download a GGUF model once, then run infer
 - Import local GGUF files; per-model settings (temperature, context, GPU layers)
 - Streaming chat with optional reasoning/`<think>` parsing; calm per-turn tok/s
 - Personas, temporary chats, pin/rename history
+- **Perspective** debates: multiple on-device speakers (personas and/or models) take turns on a topic
 - Image / PDF attachments (OCR / text extraction; multimodal when supported)
 - Light / dark theme
 - Performance (Stages) metrics from on-device usage logs — private, not a leaderboard
@@ -115,7 +116,7 @@ Screens live under `src/screens/`; shared UI under `src/components/`; durable st
 | Export full backup | `ofln-backup-*.zip` |
 | Import | Merge or replace |
 
-Full backups include chats, personas, settings, and model catalog — not GGUF files or HF tokens. Models re-download on restore.
+Full backups include chats, personas, perspective presets, settings, and model catalog — not GGUF files or HF tokens. Models re-download on restore.
 
 Schema: `src/utils/backupSchema.ts` · tests in `__tests__/backupSchema.test.ts`
 
