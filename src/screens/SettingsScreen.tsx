@@ -97,7 +97,7 @@ export default function SettingsScreen({
     >
       <Text style={[styles.settingsTitle, { marginBottom: 40 }]}>Settings</Text>
       <View style={{ marginBottom: 0 }}>
-        <View style={{ flexDirection: "row", marginBottom: 10, height: 145 }}>
+        <View style={{ flexDirection: "row", marginBottom: 10, height: 128 }}>
           <TouchableOpacity style={{ flex: 1, marginRight: 5 }} onPress={onOpenStats} activeOpacity={0.85}>
             <Animated.View style={styles.settingsBlock}>
               <Ionicons name="speedometer-outline" size={21} color={theme.colors.text} style={styles.blockIcon}/>
@@ -115,7 +115,7 @@ export default function SettingsScreen({
             </Animated.View>
           </TouchableOpacity>
         </View>
-        <View style={{ flexDirection: "row", height: 145 }}>
+        <View style={{ flexDirection: "row", height: 128 }}>
           <TouchableOpacity style={{ flex: 1, marginRight: 5 }} onPress={onGoToDiagnostics} activeOpacity={0.85}>
             <Animated.View style={styles.settingsBlock}>
               <Ionicons name="pulse-outline" size={21} color={theme.colors.text} style={styles.blockIcon}/>
@@ -133,7 +133,7 @@ export default function SettingsScreen({
             </Animated.View>
           </TouchableOpacity>
         </View>
-        <View style={{ flexDirection: "row", height: 145, marginTop: 10 }}>
+        <View style={{ flexDirection: "row", height: 128, marginTop: 10 }}>
           <TouchableOpacity style={{ flex: 1, marginRight: 5 }} onPress={onGoToStorage} activeOpacity={0.85}>
             <Animated.View style={styles.settingsBlock}>
               <Ionicons name="folder-outline" size={21} color={theme.colors.text} style={styles.blockIcon}/>
@@ -153,7 +153,7 @@ export default function SettingsScreen({
         </View>
       </View>
       <View style={{height: 2.5, backgroundColor: theme.colors.border, marginVertical: 12, width: '30%', alignSelf: 'center'}}/>
-      <View style={{ flexDirection: "row", height: 120, justifyContent: "space-between" }}>
+      <View style={{ flexDirection: "row", height: 108, justifyContent: "space-between" }}>
         <TouchableOpacity style={{ flex: 1, maxWidth: "48.5%" }} onPress={toggleChatMode} activeOpacity={0.85}>
           <Animated.View style={[styles.settingsBlock, { backgroundColor: chatModeBackground }]}>
             <Ionicons name="chatbubble-outline" size={21} color={bubblesMode ? theme.colors.primaryText : theme.colors.text} style={styles.blockIcon}/>

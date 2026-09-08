@@ -48,6 +48,8 @@ const GRAPH_WIDTH = (SCREEN_WIDTH - 50) / 2;
 const GRAPH_HEIGHT = 120;
 const GRAPH_SHIFT = 18;
 const STAT_CARD_HEIGHT = GRAPH_HEIGHT + 30;
+/** Extra scroll pad so last cards clear the floating model pill. */
+const MODEL_PILL_SCROLL_CLEARANCE = 48;
 
 interface Props {
   downloadedModels: string[];
@@ -638,7 +640,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
 
       <ScrollView
         style={stylesLocalWithTheme.scroll}
-        contentContainerStyle={[stylesLocalWithTheme.scrollContent, { paddingBottom: scrollPadBottom }]}
+        contentContainerStyle={[stylesLocalWithTheme.scrollContent, { paddingBottom: scrollPadBottom + MODEL_PILL_SCROLL_CLEARANCE }]}
         showsVerticalScrollIndicator={false}
       >
         {selectedModel && stats && (
@@ -1102,13 +1104,15 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
       <View style={[stylesLocalWithTheme.fixedBtn, { right: 15, bottom: backBottom, backgroundColor: 'transparent' }]}>
         <TouchableOpacity
           style={[
-            stylesLocalWithTheme.btn,
+            stylesLocalWithTheme.iconBtn,
             {
               backgroundColor: theme.colors.error,
               opacity: hasAnyUsageRecords ? 1 : 0.45,
             },
           ]}
           disabled={!hasAnyUsageRecords}
+          accessibilityLabel="Clear usage data"
+          accessibilityHint="Removes performance history for this model or all models"
           onPress={() => {
             const label = selectedModel ? stripFileExtension(selectedModel) : 'this model';
             const buttons: {
@@ -1144,7 +1148,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
             );
           }}
         >
-          <Text style={[stylesLocalWithTheme.btnText, { marginLeft: 0 }]}>Clear</Text>
+          <Ionicons name="trash-outline" size={24} color={theme.colors.primaryText} />
         </TouchableOpacity>
       </View>
     </View>
@@ -1268,7 +1272,7 @@ const createStylesLocal = (colors: any) => StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 80,
+    bottom: 92,
     paddingHorizontal: 20,
   },
   modelContainer: {
@@ -1338,6 +1342,13 @@ const createStylesLocal = (colors: any) => StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 24,
+  },
+  iconBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 30,
   },
   btnText: {
     color: colors.primaryText,
