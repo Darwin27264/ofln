@@ -507,7 +507,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
   /* Settings screen styles */
   settingsBlock: {
     flex: 1,
-    backgroundColor: colors.glass,
+    backgroundColor: colors.secondary,
     borderRadius: 30,
     padding: 15,
     justifyContent: "flex-end",
@@ -515,15 +515,46 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  blockIconCircle: {
+    position: "absolute",
+    top: 14,
+    left: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.card,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   blockIcon: {
     position: "absolute",
     top: 15,
     right: 15,
   },
+  blockStatBadge: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    maxWidth: "58%",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    backgroundColor: "rgba(0, 0, 0, 0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  blockStatText: {
+    fontSize: 12,
+    fontFamily: "Poppins",
+    fontWeight: "500",
+    color: colors.textTertiary,
+    lineHeight: 15,
+  },
   blockTextContainer: {
     position: "absolute",
     bottom: 15,
     left: 15,
+    right: 40,
   },
   blockText: {
     fontSize: 18,
@@ -531,6 +562,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     textAlign: "left",
     color: colors.text,
     lineHeight: 22,
+    fontFamily: "Poppins",
   },
   blockInfoIcon: {
     position: "absolute",

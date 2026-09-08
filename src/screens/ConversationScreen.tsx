@@ -37,7 +37,7 @@ import {
 import { launchImageLibrary, launchCamera } from "react-native-image-picker";
 
 /** Empty-chat hero lines — one is picked at random per empty session. */
-const GREETING_LINES = ["How can I help?", "Let's chat!"] as const;
+const GREETING_LINES = ["How can I help?", "Where shall we begin?"] as const;
 
 function pickGreetingLine(): (typeof GREETING_LINES)[number] {
   return GREETING_LINES[Math.floor(Math.random() * GREETING_LINES.length)];
@@ -81,12 +81,13 @@ import { showAlert } from "../components/CustomAlert";
 import { BottomSheet } from "../components/BottomSheet";
 import { SegmentedTabBar } from "../components/SegmentedTabBar";
 import { FrostedGlass } from "../components/FrostedGlass";
+import { AmbientHue } from "../components/AmbientHue";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { floatingBackBottom } from "../utils/layoutInsets";
 import { useKeyboardPadding } from "../hooks/useKeyboardPadding";
 import { Persona, getPersonas, updatePersonaLastUsed } from "../services/personaService";
 import { PersonaAvatar } from "../components/PersonaAvatar";
-import { ANIMATION_CONFIG, EASING, ANIMATION_DURATIONS } from "../utils/animationConfig";
+import { ANIMATION_CONFIG, EASING, ANIMATION_DURATIONS, OVERLAY_MOTION } from "../utils/animationConfig";
 import { extractTextFromImage } from "../services/ocrService";
 import {
   extractTextFromAttachment,
@@ -229,6 +230,7 @@ interface Props {
   /** Open Models page without unloading the current model or clearing chat. */
   onGoToModelSelection: () => void;
   assistantDisplayMode: "bubble" | "direct";
+  chatFontSize: number;
   onOpenSettings: () => void;
   selectedGGUF: string | null;
   setSelectedGGUF: (gguf: string | null) => void;
@@ -247,6 +249,9 @@ interface Props {
   onOpenPerspectives?: () => void;
   pendingPerspectivePreset?: PerspectivePreset | null;
   onPendingPerspectivePresetConsumed?: () => void;
+  /** One-shot: ambient hue gathers from onboarding into the chat center. */
+  ambientHueHandoff?: boolean;
+  onAmbientHueHandoffConsumed?: () => void;
 }
 
 export default function ConversationScreen({
@@ -267,6 +272,7 @@ export default function ConversationScreen({
   onBackToModelSelection,
   onGoToModelSelection,
   assistantDisplayMode,
+  chatFontSize,
   onOpenSettings,
   selectedGGUF,
   setSelectedGGUF,
@@ -280,6 +286,8 @@ export default function ConversationScreen({
   onOpenPerspectives,
   pendingPerspectivePreset = null,
   onPendingPerspectivePresetConsumed,
+  ambientHueHandoff = false,
+  onAmbientHueHandoffConsumed,
 }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
@@ -664,6 +672,8 @@ export default function ConversationScreen({
     new Animated.Value(keyboardPadding > 0 ? 0 : 1)
   ).current;
   const quickActionsOpacityReadyRef = useRef(false);
+  /** Empty-hero enter — greeting + presets fade/scale in over the hue. */
+  const emptyHeroEnter = useRef(new Animated.Value(0)).current;
   const [greetingLine, setGreetingLine] = useState(persistedGreetingLine);
   const hadMessagesRef = useRef(!noMessages);
 
@@ -676,6 +686,27 @@ export default function ConversationScreen({
     }
     hadMessagesRef.current = !noMessages;
   }, [noMessages]);
+
+  // Empty hero + presets: clean OVERLAY_MOTION enter whenever we land on an empty chat.
+  useEffect(() => {
+    if (!noMessages) {
+      emptyHeroEnter.setValue(0);
+      return;
+    }
+    emptyHeroEnter.setValue(0);
+    // Read handoff at empty-enter time only — don't re-run when handoff flag clears.
+    const delay = ambientHueHandoff ? 320 : 100;
+    const anim = Animated.timing(emptyHeroEnter, {
+      toValue: 1,
+      duration: OVERLAY_MOTION.FADE_IN_MS,
+      delay,
+      easing: EASING.EASE_OUT,
+      useNativeDriver: true,
+    });
+    anim.start();
+    return () => anim.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handoff only sampled when noMessages flips on
+  }, [noMessages, emptyHeroEnter]);
   
   // Animation for temporary mode content transitions
   const presetMessagesAnim = useRef(new Animated.Value(1)).current;
@@ -2674,6 +2705,21 @@ export default function ConversationScreen({
   return (
     <View style={{ flex: 1, backgroundColor: shellBackground }}>
       <View style={{ flex: 1, overflow: 'hidden' }} onLayout={handleLayout}>
+        {/* Ambient hue — empty chat only; palette follows chat mode */}
+        <AmbientHue
+          active={noMessages}
+          keyboardActive={keyboardPadding > 0}
+          mode={
+            isTemporaryMode
+              ? 'temporary'
+              : isPerspectiveMode
+                ? 'perspective'
+                : 'default'
+          }
+          handoff={ambientHueHandoff}
+          onHandoffConsumed={onAmbientHueHandoffConsumed}
+        />
+
         {/* Soft fade under top pills — never fully opaque */}
         <View style={styles.topFade} pointerEvents="none">
           <Svg
@@ -2945,6 +2991,7 @@ export default function ConversationScreen({
           onScroll={handleScroll}
           onScrollChatToEnd={scrollChatToEnd}
           assistantDisplayMode={assistantDisplayMode}
+          chatFontSize={chatFontSize}
           tokensPerSecond={tokensPerSecond}
           onToggleThought={toggleThought}
           onCopyMessage={handleCopyMessage}
@@ -2964,6 +3011,7 @@ export default function ConversationScreen({
           greetingTop={greetingTop}
           greetingOpacity={greetingOpacity}
           greetingKeyboardShift={greetingKeyboardShift}
+          emptyHeroEnter={emptyHeroEnter}
           quickActionsOpacity={quickActionsOpacity}
           tempModeExplanationAnim={tempModeExplanationAnim}
           presetMessagesAnim={presetMessagesAnim}

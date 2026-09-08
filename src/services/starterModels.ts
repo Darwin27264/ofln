@@ -33,7 +33,7 @@ export const STARTER_MODELS: StarterModelInfo[] = [
     repoId: 'unsloth/Qwen3.5-0.8B-GGUF',
     fileName: 'Qwen3.5-0.8B-Q4_0.gguf',
     size: '0.51 GB',
-    description: 'Lightest option for low-RAM phones.',
+    description: 'Ultra-light footprint for constrained devices.',
     author: 'unsloth',
     tags: ['low-ram', 'q4_0', 'instruct', 'thinking'],
     shelfHint: 'Low RAM',
@@ -66,7 +66,7 @@ export const STARTER_MODELS: StarterModelInfo[] = [
     repoId: 'unsloth/Qwen3.5-2B-GGUF',
     fileName: 'Qwen3.5-2B-Q4_0.gguf',
     size: '1.13 GB',
-    description: 'Balanced default for most phones.',
+    description: 'Balanced capability for everyday use.',
     author: 'unsloth',
     tags: ['instruct', 'thinking', 'small', 'q4_0'],
     shelfHint: 'Fits most phones',
@@ -99,7 +99,7 @@ export const STARTER_MODELS: StarterModelInfo[] = [
     repoId: 'unsloth/Qwen3.5-4B-GGUF',
     fileName: 'Qwen3.5-4B-Q4_0.gguf',
     size: '2.41 GB',
-    description: 'Stronger reasoning; needs more RAM.',
+    description: 'Higher reasoning capacity; prefers more memory.',
     author: 'unsloth',
     tags: ['instruct', 'thinking', 'code', 'q4_0'],
     shelfHint: 'More capable · needs RAM',
@@ -124,9 +124,9 @@ export const ONBOARDING_STARTER_IDS = [
   'qwen35-4b-q40',
 ] as const;
 
-export const STARTER_SHELF_TITLE = 'Start here';
+export const STARTER_SHELF_TITLE = 'Available Models';
 
-export const STARTER_SHELF_SUBTITLE = 'Phone-friendly Q4_0 picks.';
+export const STARTER_SHELF_SUBTITLE = '';
 
 export type StarterShelfTabId = 'general' | 'personas' | 'coding';
 
@@ -138,17 +138,17 @@ export const STARTER_SHELF_TABS: {
   {
     id: 'general',
     label: 'General',
-    subtitle: STARTER_SHELF_SUBTITLE,
+    subtitle: '',
   },
   {
     id: 'personas',
     label: 'Personas',
-    subtitle: 'Uncensored instruct models that stay in character.',
+    subtitle: '',
   },
   {
     id: 'coding',
     label: 'Coding',
-    subtitle: 'Code-specialized models for fixes, scripts, and snippets.',
+    subtitle: '',
   },
 ];
 

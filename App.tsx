@@ -30,6 +30,12 @@ import { applySystemBarTheme, lerpHexColor } from "./src/utils/systemBars";
 import { frostedPanelSystemBarColor } from "./src/components/FrostedGlass";
 import { EASING, OVERLAY_MOTION } from "./src/utils/animationConfig";
 import { shouldRehydrateSelectionFromProvider } from "./src/utils/modelSelectionRehydrate";
+import {
+  CHAT_FONT_SIZE_STORAGE_KEY,
+  DEFAULT_CHAT_FONT_SIZE,
+  parseChatFontSize,
+  type ChatFontSize,
+} from "./src/utils/chatFontSize";
 
 // Components
 import { CustomAlertProvider } from "./src/components/CustomAlert";
@@ -192,6 +198,8 @@ function AppContent(): React.JSX.Element {
   const [bootstrapped, setBootstrapped] = useState(false);
   /** Skip from onboarding returns here (About review → info; first-run → conversation). */
   const [onboardingSkipTo, setOnboardingSkipTo] = useState<"conversation" | "info">("conversation");
+  /** One-shot: gather onboarding hue into the chat center after tutorial ends. */
+  const [ambientHueHandoff, setAmbientHueHandoff] = useState(false);
 
   // First-run gate (mount once). About “Review” never clears the flag.
   useEffect(() => {
@@ -236,6 +244,7 @@ function AppContent(): React.JSX.Element {
   const [assistantDisplayMode, setAssistantDisplayModeState] = useState<"bubble" | "direct">(
     "bubble"
   );
+  const [chatFontSize, setChatFontSizeState] = useState<ChatFontSize>(DEFAULT_CHAT_FONT_SIZE);
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
   const [availablePersonas, setAvailablePersonas] = useState<Persona[]>([]);
 
@@ -277,19 +286,26 @@ function AppContent(): React.JSX.Element {
     return () => sub.remove();
   }, [rehydrateModelSelectionFromProvider]);
 
-  // Load saved chat mode preference on app startup
+  // Load saved chat mode + font size preferences on app startup
   useEffect(() => {
-    const loadChatMode = async () => {
+    const loadDisplayPrefs = async () => {
       try {
-        const savedChatMode = await AsyncStorage.getItem('@app_chat_mode');
+        const [savedChatMode, savedFontSize] = await Promise.all([
+          AsyncStorage.getItem('@app_chat_mode'),
+          AsyncStorage.getItem(CHAT_FONT_SIZE_STORAGE_KEY),
+        ]);
         if (savedChatMode === 'bubble' || savedChatMode === 'direct') {
           setAssistantDisplayModeState(savedChatMode);
         }
+        const fontSize = parseChatFontSize(savedFontSize);
+        if (fontSize != null) {
+          setChatFontSizeState(fontSize);
+        }
       } catch (error) {
-        console.error('Error loading chat mode:', error);
+        console.error('Error loading display preferences:', error);
       }
     };
-    loadChatMode();
+    loadDisplayPrefs();
   }, []);
 
   // Wrapper function to save chat mode preference whenever it changes
@@ -301,6 +317,18 @@ function AppContent(): React.JSX.Element {
         console.error('Error saving chat mode:', error);
       });
       return newMode;
+    });
+  }, []);
+
+  const setChatFontSize = useCallback((
+    size: ChatFontSize | ((prev: ChatFontSize) => ChatFontSize),
+  ) => {
+    setChatFontSizeState((prev) => {
+      const next = typeof size === 'function' ? size(prev) : size;
+      AsyncStorage.setItem(CHAT_FONT_SIZE_STORAGE_KEY, String(next)).catch((error) => {
+        console.error('Error saving chat font size:', error);
+      });
+      return next;
     });
   }, []);
 
@@ -489,6 +517,9 @@ function AppContent(): React.JSX.Element {
         setContext(llamaProvider.getNativeContext());
         setSelectedGGUF(file);
         await checkDownloadedModels(); // Refresh downloaded models list
+        if (currentPage === "onboarding") {
+          setAmbientHueHandoff(true);
+        }
         setCurrentPage("conversation");
         return;
       }
@@ -519,6 +550,9 @@ function AppContent(): React.JSX.Element {
       if (success) {
         setContext(llamaProvider.getNativeContext());
         setSelectedGGUF(file);
+        if (currentPage === "onboarding") {
+          setAmbientHueHandoff(true);
+        }
         setCurrentPage("conversation");
       } else {
         setSelectedGGUF(null);
@@ -541,7 +575,7 @@ function AppContent(): React.JSX.Element {
       setSelectedGGUF(null); // Reset selection on error
       throw error; // Let ModelSelection show user-facing alert
     }
-  }, [setContext, checkDownloadedModels]);
+  }, [setContext, checkDownloadedModels, currentPage]);
 
   /**
    * Android system back — walk the same parent hierarchy as on-screen Back buttons.
@@ -629,9 +663,13 @@ function AppContent(): React.JSX.Element {
         {!bootstrapped ? null : currentPage === "onboarding" ? (
           <OnboardingScreen
             downloadedModels={downloadedModels}
-            handleDownloadModel={handleDownloadModel}
             skipDestination={onboardingSkipTo}
-            onFinished={(destination) => setCurrentPage(destination)}
+            onFinished={(destination) => {
+              if (destination === "conversation") {
+                setAmbientHueHandoff(true);
+              }
+              setCurrentPage(destination);
+            }}
           />
         ) : null}
 
@@ -677,6 +715,7 @@ function AppContent(): React.JSX.Element {
           onBackToModelSelection={handleBackToModelSelection}
           onGoToModelSelection={() => setCurrentPage("modelSelection")}
           assistantDisplayMode={assistantDisplayMode}
+          chatFontSize={chatFontSize}
           onOpenSettings={() => setCurrentPage("settings")}
           selectedGGUF={selectedGGUF}
           setSelectedGGUF={setSelectedGGUF}
@@ -692,6 +731,8 @@ function AppContent(): React.JSX.Element {
           onPendingPerspectivePresetConsumed={() =>
             setPendingPerspectivePreset(null)
           }
+          ambientHueHandoff={ambientHueHandoff}
+          onAmbientHueHandoffConsumed={() => setAmbientHueHandoff(false)}
           />
         </PageFadeIn>
       )}
@@ -701,6 +742,9 @@ function AppContent(): React.JSX.Element {
           <SettingsScreen
           assistantDisplayMode={assistantDisplayMode}
           setAssistantDisplayMode={setAssistantDisplayMode}
+          chatFontSize={chatFontSize}
+          setChatFontSize={setChatFontSize}
+          downloadedModels={downloadedModels}
           onBackToConversation={() => setCurrentPage("conversation")}
           onOpenStats={() => setCurrentPage("stages")}
           onGoToModelSelection={() => setCurrentPage("modelSelection")}

@@ -21,6 +21,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import { MessageMarkdown } from './MessageMarkdown';
 import { StreamingMessageText } from './StreamingMessageText';
+import { lineHeightForChatFont, bubbleMetricsForChatFont } from '../utils/chatFontSize';
 import { FrostedGlass } from './FrostedGlass';
 import { PersonaAvatar } from './PersonaAvatar';
 import { BottomSheet } from './BottomSheet';
@@ -37,8 +38,6 @@ import {
 } from '../utils/personaAttribution';
 
 /** Match MessageMarkdown defaults so enter/exit edit does not change type size. */
-const USER_MSG_FONT_SIZE = 16;
-const USER_MSG_LINE_HEIGHT = 24;
 const USER_MSG_FONT_FAMILY = 'Poppins';
 /** messageBubble maxWidth share of scroll content width. */
 const BUBBLE_MAX_WIDTH_RATIO = 0.8;
@@ -320,6 +319,7 @@ export type MessageListProps = {
   onScrollChatToEnd: (animated?: boolean) => void;
 
   assistantDisplayMode: 'bubble' | 'direct';
+  chatFontSize: number;
   tokensPerSecond: number[];
   onToggleThought: (absoluteIndex: number) => void;
   onCopyMessage: (content: string) => void;
@@ -347,6 +347,8 @@ export type MessageListProps = {
   greetingTop: number;
   greetingOpacity: Animated.Value;
   greetingKeyboardShift: Animated.Value;
+  /** Empty-hero enter (0→1) — fade/scale with OVERLAY_MOTION. */
+  emptyHeroEnter: Animated.Value;
   quickActionsOpacity: Animated.Value;
   tempModeExplanationAnim: Animated.Value;
   presetMessagesAnim: Animated.Value;
@@ -389,6 +391,7 @@ export function MessageList({
   onScroll,
   onScrollChatToEnd,
   assistantDisplayMode,
+  chatFontSize,
   tokensPerSecond,
   onToggleThought,
   onCopyMessage,
@@ -406,6 +409,7 @@ export function MessageList({
   greetingTop,
   greetingOpacity,
   greetingKeyboardShift,
+  emptyHeroEnter,
   quickActionsOpacity,
   tempModeExplanationAnim,
   presetMessagesAnim,
@@ -524,21 +528,27 @@ export function MessageList({
     return (windowWidth - contentPad * 2) * BUBBLE_MAX_WIDTH_RATIO;
   }, []);
 
+  const msgLineHeight = lineHeightForChatFont(chatFontSize);
+  const bubbleMetrics = useMemo(
+    () => bubbleMetricsForChatFont(chatFontSize),
+    [chatFontSize],
+  );
+
   const editInputStyle = useMemo(
     () => ({
       width: '100%' as const,
       maxWidth: '100%' as const,
       alignSelf: 'stretch' as const,
-      fontSize: USER_MSG_FONT_SIZE,
+      fontSize: chatFontSize,
       fontFamily: USER_MSG_FONT_FAMILY,
-      lineHeight: USER_MSG_LINE_HEIGHT,
+      lineHeight: msgLineHeight,
       color: theme.colors.primaryText,
       padding: 0,
       margin: 0,
       textAlignVertical: 'top' as const,
       ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
     }),
-    [theme.colors.primaryText],
+    [chatFontSize, msgLineHeight, theme.colors.primaryText],
   );
 
   // Long-press user menu (same frosted + stagger pattern as history context menu)
@@ -774,13 +784,28 @@ export function MessageList({
             msg.role === 'assistant' && isGenerating && isLastVisible;
           const isAssistantDirect =
             msg.role === 'assistant' && assistantDisplayMode === 'direct';
+          const bubbleSizeStyle = {
+            paddingVertical: bubbleMetrics.paddingVertical,
+            paddingHorizontal: isAssistantDirect
+              ? 0
+              : bubbleMetrics.paddingHorizontal,
+            minHeight: bubbleMetrics.minHeight,
+          };
           const containerStyle: object[] = [];
           if (msg.role === 'user') {
-            containerStyle.push(styles.messageBubble, styles.userBubble);
+            containerStyle.push(
+              styles.messageBubble,
+              styles.userBubble,
+              bubbleSizeStyle,
+            );
           } else if (msg.role === 'assistant' && !isAssistantDirect) {
-            containerStyle.push(styles.messageBubble, styles.llamaBubble);
+            containerStyle.push(
+              styles.messageBubble,
+              styles.llamaBubble,
+              bubbleSizeStyle,
+            );
           } else if (isAssistantDirect) {
-            containerStyle.push(styles.messageDirect);
+            containerStyle.push(styles.messageDirect, bubbleSizeStyle);
           }
 
           const hasBubbleContent =
@@ -876,6 +901,7 @@ export function MessageList({
                         content={msg.content}
                         isStreaming={isStreamingMessage}
                         color={theme.colors.text}
+                        fontSize={chatFontSize}
                       />
                     ) : editingIndex === index ? (
                       <TextInput
@@ -892,8 +918,8 @@ export function MessageList({
                       <MessageMarkdown
                         content={msg.content}
                         color={theme.colors.primaryText}
-                        fontSize={USER_MSG_FONT_SIZE}
-                        lineHeight={USER_MSG_LINE_HEIGHT}
+                        fontSize={chatFontSize}
+                        lineHeight={msgLineHeight}
                         fontFamily={USER_MSG_FONT_FAMILY}
                       />
                     )
@@ -1221,8 +1247,16 @@ export function MessageList({
             styles.greetingContainer,
             {
               top: greetingTop,
-              opacity: greetingOpacity,
-              transform: [{ translateY: greetingKeyboardShift }],
+              opacity: Animated.multiply(greetingOpacity, emptyHeroEnter),
+              transform: [
+                { translateY: greetingKeyboardShift },
+                {
+                  scale: emptyHeroEnter.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.98, 1],
+                  }),
+                },
+              ],
             },
           ]}
           pointerEvents="box-none"
@@ -1332,20 +1366,30 @@ export function MessageList({
                   <TouchableOpacity
                     key={index}
                     onPress={() => onPresetMessage(preset)}
+                    activeOpacity={0.75}
                     style={{
-                      backgroundColor: 'transparent',
                       paddingHorizontal: 20,
                       paddingVertical: 12,
                       borderRadius: 30,
-                      borderWidth: 1,
-                      borderColor: theme.colors.border,
+                      borderWidth: StyleSheet.hairlineWidth,
+                      borderColor:
+                        theme.mode === 'dark'
+                          ? 'rgba(255,255,255,0.18)'
+                          : 'rgba(0,0,0,0.08)',
                       marginBottom: index < presetMessages.length - 1 ? 8 : 0,
                       flexDirection: 'row',
                       alignItems: 'center',
                       justifyContent: 'center',
                       minWidth: 200,
+                      overflow: 'hidden',
                     }}
                   >
+                    <FrostedGlass
+                      style={StyleSheet.absoluteFillObject}
+                      blurAmount={18}
+                      tintOpacity={theme.mode === 'dark' ? 0.16 : 0.28}
+                      inverted={theme.mode === 'dark'}
+                    />
                     <Ionicons
                       name={presetIcons[preset] as any}
                       size={20}

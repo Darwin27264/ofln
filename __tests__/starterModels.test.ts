@@ -15,7 +15,7 @@ describe('starterModels shelf', () => {
   it('keeps a short curated list with shelf hints', () => {
     expect(STARTER_MODELS.length).toBeGreaterThanOrEqual(3);
     expect(STARTER_MODELS.length).toBeLessThanOrEqual(8);
-    expect(STARTER_SHELF_TITLE).toBe('Start here');
+    expect(STARTER_SHELF_TITLE).toBe('Available Models');
     expect(STARTER_SHELF_SUBTITLE.toLowerCase()).not.toMatch(/emulator/);
     for (const m of STARTER_MODELS) {
       expect(m.fileName.toLowerCase().endsWith('.gguf')).toBe(true);

@@ -1921,7 +1921,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                 marginBottom: 12,
               }}
             >
-              Local
+              Downloaded
             </Text>
             {downloadedModelsInfo.map((model, index) => (
               <View key={`${model.id}:${model.fileName}:${index}`}>
@@ -1931,7 +1931,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           </View>
         )}
 
-        {/* Start here — curated shelf */}
+        {/* Available Models — curated shelf */}
         <View>
           <Text
             style={{
@@ -1961,17 +1961,19 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           />
 
           <View>
-            <Text
-              style={{
-                fontSize: 13,
-                color: theme.colors.textSecondary,
-                fontFamily: "Poppins",
-                lineHeight: 20,
-                marginBottom: 12,
-              }}
-            >
-              {activeStarterShelfTab.subtitle}
-            </Text>
+            {!!activeStarterShelfTab.subtitle && (
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: theme.colors.textSecondary,
+                  fontFamily: "Poppins",
+                  lineHeight: 20,
+                  marginBottom: 12,
+                }}
+              >
+                {activeStarterShelfTab.subtitle}
+              </Text>
+            )}
 
             {availableStarterShelfModels.length === 0 ? (
               <Text
@@ -1983,7 +1985,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   marginBottom: 8,
                 }}
               >
-                All models in this tab are already downloaded. See Local above.
+                All models in this tab are already downloaded. See Downloaded above.
               </Text>
             ) : (
               availableStarterShelfModels.map((model, index) => (

@@ -224,6 +224,34 @@ export const MessageMarkdown = React.memo(function MessageMarkdown({
         lineHeight,
         ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
       },
+      // Headings track body size so large/small chat type stays coherent.
+      heading1: {
+        fontSize: fontSize * 1.35,
+        lineHeight: Math.round(lineHeight * 1.35),
+        fontFamily,
+        color,
+        fontWeight: '700' as const,
+        marginTop: 4,
+        marginBottom: 6,
+      },
+      heading2: {
+        fontSize: fontSize * 1.2,
+        lineHeight: Math.round(lineHeight * 1.2),
+        fontFamily,
+        color,
+        fontWeight: '700' as const,
+        marginTop: 4,
+        marginBottom: 4,
+      },
+      heading3: {
+        fontSize: fontSize * 1.1,
+        lineHeight: Math.round(lineHeight * 1.1),
+        fontFamily,
+        color,
+        fontWeight: '600' as const,
+        marginTop: 2,
+        marginBottom: 4,
+      },
       // Full-width, zero-height wrap marker (overrides library height: 1).
       hardbreak: {
         width: '100%',

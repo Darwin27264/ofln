@@ -1,7 +1,7 @@
 /**
  * First-run onboarding.
- * Four steps, one job each — remounts PageFadeIn per step (no slide deck).
- * Download/load goes through App.handleDownloadModel only.
+ * Five steps, one job each — remounts PageFadeIn per step (no slide deck).
+ * Model download/load stays in the library after the guide.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -10,16 +10,17 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
-  ActivityIndicator,
+  StyleSheet,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import Svg, { Circle as SvgCircle, Defs, RadialGradient, Stop } from 'react-native-svg';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createStyles } from '../styles/styles';
 import { useTheme } from '../context/ThemeContext';
 import { PageFadeIn } from '../components/PageFadeIn';
-import { showAlert } from '../components/CustomAlert';
-import { BottomSheet } from '../components/BottomSheet';
-import { useFloatingBackBottom, useScrollPadForFloatingBack } from '../utils/layoutInsets';
-import { DownloadCancellationToken } from '../api/model';
+import { FrostedGlass } from '../components/FrostedGlass';
+import { LavaLampBackground } from '../components/LavaLampBackground';
+import { useFloatingBackBottom } from '../utils/layoutInsets';
 import {
   ONBOARDING_MODEL_CANDIDATES,
   markOnboardingComplete,
@@ -31,66 +32,76 @@ import {
   getTotalMemoryBytes,
   RAM_FIT_LABELS,
 } from '../services/ramFitService';
-import {
-  checkDiskSpaceForDownload,
-  diskPreflightAlertMessage,
-  parseSizeToBytes,
-} from '../utils/diskPreflight';
-import {
-  toUserFacingDownloadError,
-  toUserFacingLoadError,
-} from '../utils/userFacingErrors';
-import { showLoadFailureAlert } from '../utils/loadFailureAlert';
-import { llamaProvider } from '../providers/llamaProvider';
-import { formatDownloadProgressLine } from '../utils/downloadProgressFormat';
-import type { DownloadProgressInfo } from '../api/model';
 
-type Step = 0 | 1 | 2 | 3;
+type Step = 0 | 1 | 2 | 3 | 4;
+
+const LAST_STEP: Step = 4;
+
+const FEATURE_HIGHLIGHTS: {
+  icon: string;
+  title: string;
+  body: string;
+}[] = [
+  {
+    icon: 'person-outline',
+    title: 'Personas',
+    body: 'Shape tone and style so replies match how you work.',
+  },
+  {
+    icon: 'git-compare-outline',
+    title: 'Perspective',
+    body: 'Run a topic through multiple speakers, one turn at a time.',
+  },
+  {
+    icon: 'flash-outline',
+    title: 'Temporary mode',
+    body: 'Hold a private exchange that never enters history.',
+  },
+  {
+    icon: 'image-outline',
+    title: 'On-device OCR',
+    body: 'Attach a photo — text is read locally and added to your message.',
+  },
+  {
+    icon: 'library-outline',
+    title: 'History & library',
+    body: 'Revisit threads and manage models entirely on this device.',
+  },
+];
 
 export type OnboardingExit = 'conversation' | 'modelSelection' | 'info';
 
 interface Props {
   downloadedModels: string[];
-  handleDownloadModel: (
-    file: string,
-    repoId: string,
-    onProgress: (progress: number, info?: DownloadProgressInfo) => void,
-    cancellationToken?: DownloadCancellationToken,
-    expectedBytes?: number | null,
-    revision?: string | null,
-  ) => Promise<void>;
-  /** After Skip / finish — already marked complete by this screen. */
+  /** After last-step Skip / finish — already marked complete by this screen. */
   onFinished: (destination: OnboardingExit) => void;
   /**
-   * Where Skip returns when reviewing from About.
+   * Where last-step Skip returns when reviewing from About.
    * First-run defaults to conversation.
    */
   skipDestination?: OnboardingExit;
 }
 
+const CIRCLE = 58;
+
 export default function OnboardingScreen({
   downloadedModels,
-  handleDownloadModel,
   onFinished,
   skipDestination = 'conversation',
 }: Props) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const styles = createStyles(theme.colors);
+  const insets = useSafeAreaInsets();
   const backBottom = useFloatingBackBottom();
-  const scrollPadBottom = useScrollPadForFloatingBack();
-
   const [step, setStep] = useState<Step>(0);
   const [totalMemoryBytes, setTotalMemoryBytes] = useState<number | null>(null);
   const [selected, setSelected] = useState<OnboardingModelCandidate>(
     ONBOARDING_MODEL_CANDIDATES[0],
   );
-  const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState<number | null>(null);
-  const [progressDetail, setProgressDetail] = useState<string>('');
-  const [diskPreflightSheet, setDiskPreflightSheet] = useState<{
-    title: string;
-    message: string;
-  } | null>(null);
+
+  // Warm gold accent on Next — matches lava edge glow
+  const nextFill = isDark ? '#F0D78C' : '#C9A227';
+  const nextIcon = isDark ? '#1A1608' : '#FFFFFF';
 
   useEffect(() => {
     let cancelled = false;
@@ -114,403 +125,545 @@ export default function OnboardingScreen({
   );
 
   const skip = useCallback(() => {
-    if (busy) return;
+    if (step < LAST_STEP) {
+      setStep((s) => (s < LAST_STEP ? ((s + 1) as Step) : s));
+      return;
+    }
     void finish(skipDestination);
-  }, [busy, finish, skipDestination]);
+  }, [finish, skipDestination, step]);
 
   const goNext = useCallback(() => {
-    setStep((s) => (s < 3 ? ((s + 1) as Step) : s));
+    setStep((s) => (s < LAST_STEP ? ((s + 1) as Step) : s));
   }, []);
 
-  const alreadyHaveSelected = downloadedModels.includes(selected.fileName);
-
-  const runDownloadOrLoad = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
-    setProgress(alreadyHaveSelected ? null : 0);
-    setProgressDetail('');
-    try {
-      if (!alreadyHaveSelected) {
-        const disk = await checkDiskSpaceForDownload(selected.size);
-        if (!disk.ok) {
-          const uf = diskPreflightAlertMessage(disk);
-          setDiskPreflightSheet({ title: uf.title, message: uf.message });
-          return;
-        }
-      }
-
-      await handleDownloadModel(
-        selected.fileName,
-        selected.repoId,
-        (p, info) => {
-          setProgress(p);
-          setProgressDetail(info ? formatDownloadProgressLine(info) : '');
-        },
-        undefined,
-        parseSizeToBytes(selected.size),
-      );
-      // Success (or no-op return) — persist so cold start never auto-shows again.
-      await markOnboardingComplete();
-      // handleDownloadModel navigates to conversation on success.
-    } catch (error) {
-      console.warn('Onboarding download/load failed', error);
-      const uf =
-        toUserFacingDownloadError(error) ??
-        toUserFacingLoadError(error, llamaProvider.getStatus().error);
-      if (uf.kind === 'auth') {
-        showAlert(uf.title, uf.message, [
-          { text: 'OK', style: 'cancel' },
-          {
-            text: 'Browse models',
-            onPress: () => {
-              void finish('modelSelection');
-            },
-          },
-        ]);
-      } else if (
-        uf.kind === 'oom' ||
-        uf.kind === 'corrupt' ||
-        uf.kind === 'generic_load' ||
-        uf.kind === 'not_found'
-      ) {
-        showLoadFailureAlert(uf, {
-          modelFileName: selected.fileName,
-          onRetry: () => {
-            void runDownloadOrLoad();
-          },
-          onModels: () => {
-            void finish('modelSelection');
-          },
-        });
-      } else {
-        showAlert(uf.title, uf.message, [{ text: 'OK' }]);
-      }
-    } finally {
-      setBusy(false);
-      setProgress(null);
-    }
-  }, [
-    alreadyHaveSelected,
-    busy,
-    finish,
-    handleDownloadModel,
-    selected.fileName,
-    selected.repoId,
-    selected.size,
-  ]);
+  const goPrev = useCallback(() => {
+    setStep((s) => (s > 0 ? ((s - 1) as Step) : s));
+  }, []);
 
   const ramFit = classifyRamFitFromSize(selected.size, totalMemoryBytes);
+
+  const eyebrowForStep =
+    step === 0
+      ? 'Introduction'
+      : step === 1
+        ? 'On-device'
+        : step === 2
+          ? 'Capabilities'
+          : step === 3
+            ? 'Foundation'
+            : 'Begin';
 
   const titleForStep =
     step === 0
       ? 'OFLN'
       : step === 1
-        ? 'Private by default'
+        ? 'Intelligence that stays with you'
         : step === 2
-          ? 'Get a model'
-          : "You're ready";
+          ? 'Built for how you work'
+          : step === 3
+            ? 'Choose a foundation'
+            : 'Your space is ready';
 
   const bodyForStep =
     step === 0
-      ? 'Offline chat on your phone. No account — replies never use a cloud AI.'
+      ? 'Private conversation on your phone. No account. No cloud model in the loop.'
       : step === 1
-        ? 'Wi‑Fi is only for downloading models from Hugging Face. After that, everything runs on-device.'
+        ? 'Connectivity is only for bringing models onto the device. Every reply runs locally after that.'
         : step === 2
-          ? 'Optional starter — download now or pick later from Models.'
-          : 'Open chat anytime. Load a model from Models when ready.';
+          ? 'Beyond chat — tools that stay private, flexible, and under your control.'
+          : step === 3
+            ? 'Pick a starting model. You can install it from the library after the guide.'
+            : 'Return to chat anytime. Load a model from the library when you need one.';
 
-  const primaryLabel =
-    step === 2 ? 'Continue' : step === 3 ? 'Start chatting' : 'Continue';
-
-  const downloadLabel = alreadyHaveSelected
-    ? busy
-      ? 'Loading…'
-      : 'Load & chat'
-    : busy
-      ? progress != null
-        ? progressDetail
-          ? `Downloading ${Math.round(progress)}% · ${progressDetail}`
-          : `Downloading ${Math.round(progress)}%`
-        : 'Working…'
-      : 'Download & load';
+  const primaryA11y = step === LAST_STEP ? 'Enter chat' : 'Continue';
 
   const onPrimary = () => {
-    if (step < 2) {
+    if (step < LAST_STEP) {
       goNext();
-      return;
-    }
-    if (step === 2) {
-      // Never download/load on Continue — user can do that later from Models.
-      setStep(3);
       return;
     }
     void finish('conversation');
   };
 
+  const bottomChromePad = CIRCLE + 28;
+
   return (
-    <PageFadeIn key={`onboarding-step-${step}`}>
-      <View
+    <View style={[local.screen, { backgroundColor: theme.colors.background }]}>
+      <LavaLampBackground pulseKey={step} />
+
+      {/* Skip — advances one step; exits only on the last page */}
+      <TouchableOpacity
+        onPress={skip}
+        accessibilityRole="button"
+        accessibilityLabel={step < LAST_STEP ? 'Skip this step' : 'Skip onboarding'}
         style={[
-          styles.container,
+          local.skipHit,
           {
-            padding: 20,
-            flex: 1,
-            backgroundColor: theme.colors.background,
+            top: Math.max(insets.top, 0) + 2,
+            borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.08)',
           },
         ]}
+        activeOpacity={0.7}
       >
-        <Text style={[styles.settingsTitle, { marginBottom: 12 }]}>{titleForStep}</Text>
-        <Text
-          style={{
-            fontSize: 16,
-            color: theme.colors.textSecondary,
-            lineHeight: 24,
-            fontFamily: 'Poppins',
-            marginBottom: 28,
-          }}
-        >
-          {bodyForStep}
-        </Text>
+        <FrostedGlass
+          style={StyleSheet.absoluteFillObject}
+          blurAmount={20}
+          tintOpacity={isDark ? 0.18 : 0.28}
+          inverted={isDark}
+        />
+        <Text style={[local.skipText, { color: theme.colors.textSecondary }]}>Skip</Text>
+      </TouchableOpacity>
 
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{
-            // Primary CTA is taller than Back; keep extra room on the pick-model step.
-            paddingBottom: step === 2 ? scrollPadBottom + 100 : scrollPadBottom + 48,
-          }}
-          showsVerticalScrollIndicator={false}
+      <PageFadeIn key={`onboarding-step-${step}`}>
+        <View
+          style={[
+            local.content,
+            {
+              paddingTop: Math.max(insets.top, 0) + 44,
+              paddingBottom: backBottom + bottomChromePad,
+            },
+          ]}
         >
-          {step === 2 && (
-            <View>
-              {ONBOARDING_MODEL_CANDIDATES.map((m) => {
-                const isSelected = selected.id === m.id;
-                const fit = classifyRamFitFromSize(m.size, totalMemoryBytes);
-                const have = downloadedModels.includes(m.fileName);
-                return (
-                  <TouchableOpacity
-                    key={m.id}
-                    activeOpacity={0.7}
-                    disabled={busy}
-                    onPress={() => setSelected(m)}
-                    style={{
-                      borderWidth: 1,
-                      borderColor: isSelected ? theme.colors.text : theme.colors.border,
-                      backgroundColor: theme.colors.surface,
-                      borderRadius: 14,
-                      padding: 16,
-                      marginBottom: 10,
-                    }}
+          {step === 2 ? (
+            <>
+              <View style={local.copyBlock}>
+                <Text style={[local.eyebrow, { color: theme.colors.textTertiary }]}>
+                  {eyebrowForStep}
+                </Text>
+                <Text style={[styles.settingsTitle, local.title]}>{titleForStep}</Text>
+                <Text style={[local.body, { color: theme.colors.textSecondary }]}>
+                  {bodyForStep}
+                </Text>
+              </View>
+              <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingBottom: 8 }}
+                showsVerticalScrollIndicator={false}
+              >
+                {FEATURE_HIGHLIGHTS.map((feature) => (
+                  <View
+                    key={feature.title}
+                    style={[
+                      local.featureCard,
+                      {
+                        borderColor: isDark
+                          ? 'rgba(255,255,255,0.12)'
+                          : 'rgba(0,0,0,0.06)',
+                      },
+                    ]}
                   >
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        marginBottom: 4,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 16,
-                          fontWeight: '600',
-                          fontFamily: 'Poppins',
-                          color: theme.colors.text,
-                          flex: 1,
-                          paddingRight: 8,
-                        }}
+                    <FrostedGlass
+                      style={StyleSheet.absoluteFillObject}
+                      blurAmount={18}
+                      tintOpacity={isDark ? 0.16 : 0.28}
+                      inverted={isDark}
+                    />
+                    <View style={local.featureRow}>
+                      <View
+                        style={[
+                          local.featureIconWrap,
+                          {
+                            borderColor: isDark
+                              ? 'rgba(255,255,255,0.16)'
+                              : 'rgba(0,0,0,0.08)',
+                          },
+                        ]}
                       >
-                        {m.name}
-                      </Text>
-                      {isSelected && (
-                        <Ionicons name="checkmark-circle" size={22} color={theme.colors.text} />
-                      )}
+                        <FrostedGlass
+                          style={StyleSheet.absoluteFillObject}
+                          blurAmount={14}
+                          tintOpacity={isDark ? 0.12 : 0.22}
+                          inverted={isDark}
+                        />
+                        <Ionicons
+                          name={feature.icon as any}
+                          size={20}
+                          color={theme.colors.text}
+                        />
+                      </View>
+                      <View style={local.featureCopy}>
+                        <Text style={[local.featureTitle, { color: theme.colors.text }]}>
+                          {feature.title}
+                        </Text>
+                        <Text
+                          style={[local.featureBody, { color: theme.colors.textSecondary }]}
+                        >
+                          {feature.body}
+                        </Text>
+                      </View>
                     </View>
-                    <Text
-                      style={{
-                        fontSize: 13,
-                        fontFamily: 'Poppins',
-                        color: theme.colors.textSecondary,
-                        marginBottom: 6,
-                      }}
+                  </View>
+                ))}
+              </ScrollView>
+            </>
+          ) : step === 3 ? (
+            <>
+              <View style={local.copyBlock}>
+                <Text style={[local.eyebrow, { color: theme.colors.textTertiary }]}>
+                  {eyebrowForStep}
+                </Text>
+                <Text style={[styles.settingsTitle, local.title]}>{titleForStep}</Text>
+                <Text style={[local.body, { color: theme.colors.textSecondary }]}>
+                  {bodyForStep}
+                </Text>
+              </View>
+              <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingBottom: 8 }}
+                showsVerticalScrollIndicator={false}
+              >
+                {ONBOARDING_MODEL_CANDIDATES.map((m) => {
+                  const isSelected = selected.id === m.id;
+                  const fit = classifyRamFitFromSize(m.size, totalMemoryBytes);
+                  const have = downloadedModels.includes(m.fileName);
+                  return (
+                    <TouchableOpacity
+                      key={m.id}
+                      activeOpacity={0.7}
+                      onPress={() => setSelected(m)}
+                      style={[
+                        local.modelCard,
+                        {
+                          borderColor: isSelected
+                            ? isDark
+                              ? 'rgba(255,255,255,0.35)'
+                              : 'rgba(0,0,0,0.2)'
+                            : isDark
+                              ? 'rgba(255,255,255,0.12)'
+                              : 'rgba(0,0,0,0.06)',
+                        },
+                      ]}
                     >
-                      {m.size}
-                      {fit ? ` · ${RAM_FIT_LABELS[fit.tier]}` : ''}
-                      {have ? ' · Downloaded' : ''}
-                    </Text>
-                    <Text
-                      style={{
-                        fontSize: 13,
-                        fontFamily: 'Poppins',
-                        color: theme.colors.textTertiary,
-                        lineHeight: 18,
-                      }}
-                    >
-                      {m.description}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-              {ramFit && (
-                <Text
-                  style={{
-                    fontSize: 12,
-                    fontFamily: 'Poppins',
-                    color: theme.colors.textTertiary,
-                    marginTop: 4,
-                    marginBottom: 8,
-                  }}
-                >
-                  Suggested for your phone: {RAM_FIT_LABELS[ramFit.tier]} for the selected size.
+                      <FrostedGlass
+                        style={StyleSheet.absoluteFillObject}
+                        blurAmount={18}
+                        tintOpacity={
+                          isSelected ? (isDark ? 0.26 : 0.4) : isDark ? 0.14 : 0.28
+                        }
+                        inverted={isDark}
+                      />
+                      <View style={local.modelCardInner}>
+                        <View style={local.modelCardHeader}>
+                          <Text
+                            style={[local.modelName, { color: theme.colors.text }]}
+                            numberOfLines={1}
+                          >
+                            {m.name}
+                          </Text>
+                          {isSelected && (
+                            <Ionicons
+                              name="checkmark-circle"
+                              size={22}
+                              color={theme.colors.text}
+                            />
+                          )}
+                        </View>
+                        <Text
+                          style={[local.modelMeta, { color: theme.colors.textSecondary }]}
+                        >
+                          {m.size}
+                          {fit ? ` · ${RAM_FIT_LABELS[fit.tier]}` : ''}
+                          {have ? ' · On device' : ''}
+                        </Text>
+                        <Text
+                          style={[local.modelDesc, { color: theme.colors.textTertiary }]}
+                        >
+                          {m.description}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+                {ramFit && (
+                  <Text style={[local.ramHint, { color: theme.colors.textTertiary }]}>
+                    Recommended for this device: {RAM_FIT_LABELS[ramFit.tier]} at the selected
+                    size.
+                  </Text>
+                )}
+              </ScrollView>
+            </>
+          ) : (
+            <View style={local.lowerCopy}>
+              <Text style={[local.eyebrow, { color: theme.colors.textTertiary }]}>
+                {eyebrowForStep}
+              </Text>
+              <Text style={[styles.settingsTitle, local.title]}>{titleForStep}</Text>
+              <Text style={[local.body, { color: theme.colors.textSecondary }]}>
+                {bodyForStep}
+              </Text>
+              {step === LAST_STEP && (
+                <Text style={[local.tip, { color: theme.colors.textSecondary }]}>
+                  Q4_0 models pair best with on-device GPU and NPU acceleration. The library is
+                  always available when you want another foundation.
                 </Text>
               )}
             </View>
           )}
+        </View>
+      </PageFadeIn>
 
-          {step === 3 && (
-            <Text
-              style={{
-                fontSize: 14,
-                fontFamily: 'Poppins',
-                color: theme.colors.textSecondary,
-                lineHeight: 22,
-              }}
-            >
-              Tip: Q4_0 works best with Android GPU/NPU acceleration. Open Models anytime to download or load one.
-            </Text>
-          )}
-        </ScrollView>
-
-        <View
-          style={{
-            position: 'absolute',
-            bottom: backBottom,
-            left: 20,
-            right: 20,
-          }}
-        >
-          <TouchableOpacity
-            onPress={onPrimary}
-            disabled={busy}
-            style={{
-              backgroundColor: theme.colors.primary,
-              borderRadius: 30,
-              paddingVertical: 14,
-              paddingHorizontal: 20,
-              alignItems: 'center',
-              flexDirection: 'row',
-              justifyContent: 'center',
-              opacity: busy ? 0.85 : 1,
-            }}
-          >
-            <Text
-              style={{
-                color: theme.colors.primaryText,
-                fontSize: 18,
-                fontFamily: 'Poppins',
-                fontWeight: '600',
-              }}
-            >
-              {primaryLabel}
-            </Text>
-          </TouchableOpacity>
-
-          {step === 2 && (
+      <View
+        style={[local.bottomBar, { bottom: backBottom }]}
+        pointerEvents="box-none"
+      >
+        <View style={local.bottomSide}>
+          {step > 0 ? (
             <TouchableOpacity
-              onPress={() => {
-                if (busy) return;
-                void runDownloadOrLoad();
-              }}
-              disabled={busy}
-              style={{
-                marginTop: 12,
-                borderRadius: 30,
-                paddingVertical: 12,
-                paddingHorizontal: 20,
-                alignItems: 'center',
-                flexDirection: 'row',
-                justifyContent: 'center',
-                borderWidth: 1,
-                borderColor: theme.colors.border,
-                backgroundColor: theme.colors.surface,
-              }}
+              onPress={goPrev}
+              accessibilityRole="button"
+              accessibilityLabel="Previous"
+              style={[
+                local.circleBtn,
+                {
+                  borderColor: isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.1)',
+                },
+              ]}
+              activeOpacity={0.75}
             >
-              {busy && (
-                <ActivityIndicator
-                  size="small"
-                  color={theme.colors.text}
-                  style={{ marginRight: 10 }}
+              <FrostedGlass
+                style={StyleSheet.absoluteFillObject}
+                blurAmount={22}
+                tintOpacity={isDark ? 0.16 : 0.26}
+                inverted={isDark}
+              />
+              <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+            </TouchableOpacity>
+          ) : (
+            <View style={local.circlePlaceholder} />
+          )}
+        </View>
+
+        <View style={local.dots}>
+          {([0, 1, 2, 3, 4] as Step[]).map((i) => (
+            <View
+              key={i}
+              style={[
+                local.dot,
+                {
+                  backgroundColor:
+                    i === step ? nextFill : theme.colors.textTertiary,
+                  opacity: i === step ? 1 : 0.35,
+                  width: i === step ? 16 : 6,
+                },
+              ]}
+            />
+          ))}
+        </View>
+
+        <View style={[local.bottomSide, { alignItems: 'flex-end' }]}>
+          <View style={local.nextHaloWrap}>
+            <View style={StyleSheet.absoluteFill} pointerEvents="none">
+              <Svg width={CIRCLE + 28} height={CIRCLE + 28}>
+                <Defs>
+                  <RadialGradient id="next-halo" cx="50%" cy="50%" r="50%">
+                    <Stop offset="0%" stopColor={nextFill} stopOpacity={isDark ? 0.45 : 0.35} />
+                    <Stop offset="55%" stopColor={nextFill} stopOpacity={isDark ? 0.12 : 0.1} />
+                    <Stop offset="100%" stopColor={nextFill} stopOpacity={0} />
+                  </RadialGradient>
+                </Defs>
+                <SvgCircle
+                  cx={(CIRCLE + 28) / 2}
+                  cy={(CIRCLE + 28) / 2}
+                  r={(CIRCLE + 28) / 2}
+                  fill="url(#next-halo)"
                 />
-              )}
-              <Text
-                style={{
-                  color: theme.colors.text,
-                  fontSize: 16,
-                  fontFamily: 'Poppins',
-                  fontWeight: '600',
-                }}
-              >
-                {downloadLabel}
-              </Text>
-            </TouchableOpacity>
-          )}
-
-          {step === 2 && (
+              </Svg>
+            </View>
             <TouchableOpacity
-              onPress={() => {
-                if (busy) return;
-                void finish('modelSelection');
-              }}
-              disabled={busy}
-              style={{ alignItems: 'center', marginTop: 14 }}
+              onPress={onPrimary}
+              accessibilityRole="button"
+              accessibilityLabel={primaryA11y}
+              style={[
+                local.circleBtn,
+                local.nextBtn,
+                { backgroundColor: nextFill },
+              ]}
+              activeOpacity={0.8}
             >
-              <Text
-                style={{
-                  fontSize: 15,
-                  fontFamily: 'Poppins',
-                  color: theme.colors.textSecondary,
-                }}
-              >
-                Browse all models
-              </Text>
+              {step === LAST_STEP ? (
+                <Ionicons name="checkmark" size={24} color={nextIcon} />
+              ) : (
+                <Ionicons name="chevron-forward" size={24} color={nextIcon} />
+              )}
             </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            onPress={skip}
-            disabled={busy}
-            style={{ alignItems: 'center', marginTop: 14 }}
-          >
-            <Text
-              style={{
-                fontSize: 14,
-                fontFamily: 'Poppins',
-                color: theme.colors.textTertiary,
-              }}
-            >
-              Skip
-            </Text>
-          </TouchableOpacity>
+          </View>
         </View>
       </View>
-
-      <BottomSheet
-        visible={diskPreflightSheet !== null}
-        onClose={() => setDiskPreflightSheet(null)}
-        title={diskPreflightSheet?.title ?? ''}
-        subtitle="Storage"
-        fitContent
-      >
-        <Text
-          style={{
-            fontSize: 14,
-            color: theme.colors.textSecondary,
-            fontFamily: 'Poppins',
-            lineHeight: 21,
-          }}
-        >
-          {diskPreflightSheet?.message ?? ''}
-        </Text>
-      </BottomSheet>
-    </PageFadeIn>
+    </View>
   );
 }
+
+const local = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
+  skipHit: {
+    position: 'absolute',
+    right: 20,
+    zIndex: 20,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    overflow: 'hidden',
+    minWidth: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  skipText: {
+    fontSize: 14,
+    fontFamily: 'Poppins',
+    fontWeight: '500',
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 24,
+  },
+  copyBlock: {
+    marginBottom: 20,
+  },
+  lowerCopy: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    paddingBottom: 8,
+  },
+  eyebrow: {
+    fontSize: 13,
+    fontFamily: 'Poppins',
+    fontWeight: '500',
+    letterSpacing: 0.4,
+    marginBottom: 8,
+  },
+  title: {
+    marginBottom: 10,
+  },
+  body: {
+    fontSize: 16,
+    lineHeight: 24,
+    fontFamily: 'Poppins',
+  },
+  modelCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  featureCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 14,
+  },
+  featureIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    marginRight: 12,
+  },
+  featureCopy: {
+    flex: 1,
+    paddingTop: 2,
+  },
+  featureTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Poppins',
+    marginBottom: 4,
+  },
+  featureBody: {
+    fontSize: 14,
+    fontFamily: 'Poppins',
+    lineHeight: 20,
+  },
+  modelCardInner: {
+    padding: 16,
+  },
+  modelCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  modelName: {
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Poppins',
+    flex: 1,
+    paddingRight: 8,
+  },
+  modelMeta: {
+    fontSize: 13,
+    fontFamily: 'Poppins',
+    marginBottom: 6,
+  },
+  modelDesc: {
+    fontSize: 13,
+    fontFamily: 'Poppins',
+    lineHeight: 18,
+  },
+  ramHint: {
+    fontSize: 12,
+    fontFamily: 'Poppins',
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  tip: {
+    fontSize: 14,
+    fontFamily: 'Poppins',
+    lineHeight: 22,
+    marginBottom: 12,
+  },
+  bottomBar: {
+    position: 'absolute',
+    left: 24,
+    right: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 10,
+  },
+  bottomSide: {
+    width: CIRCLE + 28,
+    alignItems: 'flex-start',
+  },
+  circlePlaceholder: {
+    width: CIRCLE,
+    height: CIRCLE,
+  },
+  circleBtn: {
+    width: CIRCLE,
+    height: CIRCLE,
+    borderRadius: CIRCLE / 2,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  nextHaloWrap: {
+    width: CIRCLE + 28,
+    height: CIRCLE + 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nextBtn: {
+    borderWidth: 0,
+  },
+  dots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dot: {
+    height: 6,
+    borderRadius: 3,
+    marginHorizontal: 3,
+  },
+});
