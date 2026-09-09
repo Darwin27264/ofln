@@ -2796,7 +2796,7 @@ export default function ConversationScreen({
                   width: 24,
                   height: 24,
                   borderRadius: 12,
-                  backgroundColor: '#007AFF',
+                  backgroundColor: theme.colors.accent,
                   alignItems: 'center',
                   justifyContent: 'center',
                   marginLeft: 8,
@@ -2809,8 +2809,8 @@ export default function ConversationScreen({
                   persona={selectedPersona}
                   size={24}
                   borderRadius={12}
-                  backgroundColor="#007AFF"
-                  iconColor="#FFFFFF"
+                  backgroundColor={theme.colors.accent}
+                  iconColor={theme.colors.accentText}
                 />
               </Animated.View>
             )}

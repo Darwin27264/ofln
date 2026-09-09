@@ -43,6 +43,26 @@ describe('trimConversation', () => {
     expect(trimmed.some((m) => String(m.content).startsWith('u2'))).toBe(true);
     expect(trimmed.some((m) => String(m.content).startsWith('u1'))).toBe(false);
   });
+
+  it('keeps the real user topic when the transcript ends on an assistant', () => {
+    const topic = 'Meaning of life is to suffer';
+    const messages = [
+      { role: 'system', content: 'SYS' },
+      { role: 'user', content: 'old topic' },
+      { role: 'assistant', content: 'old reply' },
+      { role: 'user', content: topic },
+      {
+        role: 'assistant',
+        content: 'A long skeptic reply that must not become the trim anchor.',
+      },
+    ];
+
+    const trimmed = trimConversation(messages, 64, 48);
+    expect(trimmed[0].content).toBe('SYS');
+    expect(trimmed.some((m) => m.content === topic)).toBe(true);
+    expect(trimmed[trimmed.length - 1].role).toBe('assistant');
+    expect(trimmed.some((m) => m.content === 'old topic')).toBe(false);
+  });
 });
 
 describe('applyConversationTrim', () => {

@@ -8,10 +8,10 @@ Portable design and interaction language for apps that should feel like **ofln**
 
 ## 1. Design philosophy
 
-1. **Calm and legible** — Prefer black/white/gray surfaces. Color is for meaning (error, warning, success, rare accent), not decoration.
-2. **One job per screen** — Each page has a clear purpose, a large title, related actions grouped into labeled sections, and a reliable way back.
+1. **Calm and legible** — Prefer black/white/gray surfaces. The only brand accent is warm **lava gold**; reserve it for rare emphasis (progress, chips, links), not everyday chrome.
+2. **One job per screen** — Each page has a clear purpose, one shared large title, related actions grouped into labeled sections, and a reliable way back.
 3. **Motion is soft, not theatrical** — Enter from the center with fade + tiny scale. No sliding pages, no directional “push” chrome.
-4. **Fewer colors, higher contrast** — Loaders, icons, and primary actions follow text/primary — not brand blues — unless the control sits on a filled primary button.
+4. **Fewer colors, higher contrast** — Loaders, icons, and primary actions follow text/primary — not accent gold — unless the control sits on a filled primary or accent button.
 5. **Stable after animation** — Animated opacity/transform must not stay permanently attached to page trees (breaks Android overlays). Settle, then drop animated styles.
 6. **Warn before expensive/destructive work** — Confirm with a clear alert; say what will happen and roughly how long/costly it is when relevant.
 
@@ -33,10 +33,11 @@ Support **light** and **dark**. Persist the user’s choice. Switch with a brief
 | `textSecondary` | Supporting copy |
 | `textTertiary` | Hints, meta, disabled-looking labels |
 | `border` / `borderLight` | Hairlines and card edges |
-| `primary` | Filled CTA backgrounds (inverts with theme) |
+| `primary` | Filled CTA backgrounds (inverts with theme: black ↔ white) |
 | `primaryText` | Label/icon color **on** `primary` fills |
 | `secondary` | Soft chip / list row background |
-| `accent` | Optional emphasis only (links, rare highlights) — **not** for every spinner |
+| `accent` | Warm lava gold — rare emphasis only (progress, persona chip, recommended badges, onboarding Next). **One** accent family; no secondary brand blues. |
+| `accentText` | Label/icon color **on** `accent` fills (white on light gold; near-black on dark gold) |
 | `success` / `warning` / `error` | Status only |
 | `glass` | Fallback / reduced-transparency fill for frosted controls (~75% opacity) |
 | `transparent` | Explicit transparent |
@@ -59,7 +60,8 @@ Support **light** and **dark**. Persist the user’s choice. Switch with a brief
 | primary | `#000000` |
 | primaryText | `#FFFFFF` |
 | secondary | `#EAEAEA` |
-| accent | `#2563EB` |
+| accent | `#C9A227` (lava / AmbientHue deepLight) |
+| accentText | `#FFFFFF` |
 | success | `#34C759` |
 | warning | `#FF9F0A` |
 | error | `#FF453A` |
@@ -81,18 +83,23 @@ Support **light** and **dark**. Persist the user’s choice. Switch with a brief
 | primary | `#FFFFFF` |
 | primaryText | `#000000` |
 | secondary | `#2A2A2A` |
-| accent | `#3B82F6` |
+| accent | `#F0D78C` (lava / AmbientHue softDark) |
+| accentText | `#1A1608` |
 | success | `#34C759` |
 | warning | `#FF9F0A` |
 | error | `#FF453A` |
 | glass | `rgba(36, 36, 36, 0.75)` |
 
+Ambient mode hues (empty-chat glow only — not theme tokens): default gold family above; temporary violet; perspective teal. Do not promote violet/teal into `accent`.
+
 ### 2.3 Color usage rules
 
 - **Spinners / progress rings on page surfaces** → `text` (black on light, white on dark).
 - **Spinners on filled primary buttons** → `primaryText`.
+- **Labels on filled accent buttons** → `accentText` (never hard-code white).
 - **Destructive actions** → `error` for icon + label; destructive alert buttons use filled `error`.
-- **Do not** sprinkle `accent` on every interactive control. Prefer monochrome UI; keep accent rare.
+- **Do not** sprinkle `accent` on every interactive control. Prefer monochrome UI; keep gold rare (progress bar, persona chip, recommended highlight, onboarding Next / lava).
+- **Never** introduce a second brand accent (no iOS blue, no Tailwind blue). Gold is the only accent.
 - **Floating chrome** (pills, composer, side panels, context menus) → frosted glass (§9.7), not solid `card` / `background`.
 
 ### 2.4 Theme switch motion
@@ -107,7 +114,8 @@ Support **light** and **dark**. Persist the user’s choice. Switch with a brief
 
 - **Primary UI font:** Poppins (or a close geometric humanist sans if Poppins is unavailable).
 - **Monospace:** system monospace for logs, paths, raw diagnostics, code-like output.
-- **Page titles:** ~36 px on hub screens (Settings-style), ~28–32 px acceptable on denser utility screens; weight 600–700; `text` color; generous bottom margin (~24–40).
+- **Page titles (`settingsTitle`):** **36 px**, weight **600**, `text` color, **`marginBottom: 40`**. Shared in `createStyles` — do **not** override per screen. Applies to Settings, Models, Personas, Perspective, Storage, About, editors, and every other hub/detail page.
+- **Editors:** same large title + floating Back (cancel) + floating Save pill — no bordered 20 px X/Save chrome bars.
 - **Section labels:** 12–13 px, semibold, uppercase or near-uppercase, `textSecondary`, modest letter-spacing.
 - **Row titles:** 16 px (primary actions may go 18 px), semibold.
 - **Row subtitles:** 12–13 px, `textSecondary`.
@@ -407,7 +415,9 @@ When applying this system to a new product:
 - [ ] Spinners are black/white appropriate to surface
 - [ ] Screens: title → sections → content → floating Back
 - [ ] Destructive / long jobs confirm first with honest copy
-- [ ] Accent color stays rare
+- [ ] Accent is lava gold only (`#C9A227` / `#F0D78C`); labels on accent fills use `accentText`
+- [ ] Page titles use shared `settingsTitle` (36 / mb 40) with no per-screen overrides
+- [ ] Screens: title → sections → content → floating Back (+ Save pill on editors)
 
 ---
 

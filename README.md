@@ -6,7 +6,7 @@ Offline LLM chat for Android and iOS. Download a GGUF model once, then run infer
 
 **Privacy:** [`docs/PRIVACY.md`](./docs/PRIVACY.md) — what stays local, when Hugging Face is contacted, tokens, and backups.
 
-**UI/UX:** [`DESIGN.md`](./DESIGN.md) · **Device smoke (maintainers):** [`docs/DEVICE_SMOKE.md`](./docs/DEVICE_SMOKE.md)
+**UI/UX:** [`styles.md`](./styles.md) (tokens & titles) · [`DESIGN.md`](./DESIGN.md) (full system) · **Device smoke (maintainers):** [`docs/DEVICE_SMOKE.md`](./docs/DEVICE_SMOKE.md)
 
 ## Features
 

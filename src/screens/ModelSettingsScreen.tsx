@@ -19,6 +19,7 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
+import { FloatingBackButton } from "../components/FloatingBackButton";
 import { BottomSheet } from "../components/BottomSheet";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import {
@@ -370,7 +371,7 @@ export default function ModelSettingsScreen({
           top: 0,
           left: 0,
           right: 0,
-          backgroundColor: theme.colors.background,
+          backgroundColor: "transparent",
           zIndex: 1,
           paddingHorizontal: 20,
           paddingTop: 8,
@@ -432,7 +433,7 @@ export default function ModelSettingsScreen({
           </Text>
           <TextInput
             style={{
-              backgroundColor: theme.colors.surface,
+              backgroundColor: theme.colors.secondary,
               borderRadius: 12,
               padding: 12,
               color: theme.colors.text,
@@ -475,7 +476,7 @@ export default function ModelSettingsScreen({
               borderWidth: 1,
               borderColor: theme.colors.border,
               overflow: "hidden",
-              backgroundColor: theme.colors.surface,
+              backgroundColor: theme.colors.secondary,
             }}
           >
             {THINKING_MODE_OPTIONS.map((opt, idx) => {
@@ -746,7 +747,7 @@ export default function ModelSettingsScreen({
             onPress={handleResetSettings}
             style={{
               flex: 1,
-              backgroundColor: theme.colors.surface,
+              backgroundColor: theme.colors.secondary,
               paddingVertical: 12,
               paddingHorizontal: 20,
               borderRadius: 8,
@@ -799,30 +800,7 @@ export default function ModelSettingsScreen({
 
       {/* Back button */}
       <View style={{ position: "absolute", bottom: backBottom, left: 15, backgroundColor: "transparent" }}>
-        <TouchableOpacity
-          onPress={onBack}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            backgroundColor: theme.colors.primary,
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 24,
-          }}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
-          <Text
-            style={{
-              color: theme.colors.primaryText,
-              fontSize: 20,
-              fontFamily: "Poppins",
-              marginLeft: 8,
-              marginBottom: 2,
-            }}
-          >
-            Back
-          </Text>
-        </TouchableOpacity>
+        <FloatingBackButton onPress={onBack} />
       </View>
 
       <BottomSheet

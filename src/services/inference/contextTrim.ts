@@ -14,8 +14,13 @@ function contentLength(content: string | unknown): number {
 }
 
 /**
- * Always keep system (first) + current user (last); fill remaining budget
+ * Always keep system (first) + the current turn anchor; fill remaining budget
  * with history newest-first. ~3.5 chars ≈ 1 token.
+ *
+ * Anchor = last user message through the end of the list. That covers normal
+ * chat (last message is user) and Perspective multi-seat turns (user topic
+ * followed by one or more assistant replies) so the real topic is never
+ * dropped when the list ends on an assistant.
  */
 export function trimConversation<T extends TrimableMessage>(
   messages: T[],
@@ -28,14 +33,27 @@ export function trimConversation<T extends TrimableMessage>(
   let budgetChars = Math.max(0, n_ctx - n_predict - 128) * CHARS_PER_TOKEN;
 
   const systemMsg = messages[0];
-  const currentUserMsg = messages[messages.length - 1];
-  const history = messages.slice(1, -1);
+
+  let anchorStart = messages.length - 1;
+  if (messages[anchorStart]?.role !== 'user') {
+    for (let i = messages.length - 1; i >= 1; i--) {
+      if (messages[i].role === 'user') {
+        anchorStart = i;
+        break;
+      }
+    }
+  }
+
+  const anchorTail = messages.slice(anchorStart);
+  const history = messages.slice(1, anchorStart);
 
   budgetChars -= contentLength(systemMsg.content);
-  budgetChars -= contentLength(currentUserMsg.content);
+  for (const m of anchorTail) {
+    budgetChars -= contentLength(m.content);
+  }
 
   if (budgetChars <= 0 || history.length === 0) {
-    return [systemMsg, currentUserMsg];
+    return [systemMsg, ...anchorTail];
   }
 
   const kept: T[] = [];
@@ -46,7 +64,7 @@ export function trimConversation<T extends TrimableMessage>(
     kept.unshift(history[i]);
   }
 
-  return [systemMsg, ...kept, currentUserMsg];
+  return [systemMsg, ...kept, ...anchorTail];
 }
 
 export type ConversationTrimResult<T extends TrimableMessage> = {

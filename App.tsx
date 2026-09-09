@@ -40,6 +40,7 @@ import {
 // Components
 import { CustomAlertProvider } from "./src/components/CustomAlert";
 import { PageFadeIn } from "./src/components/PageFadeIn";
+import { EdgeGlow } from "./src/components/EdgeGlow";
 
 // Screens
 import ModelSelectionScreen from "./src/screens/ModelSelectionScreen";
@@ -116,8 +117,8 @@ function AppContent(): React.JSX.Element {
       lastShellColorRef.current = hex;
       setShellBackground(hex);
     }
-    // Status transparent (shell paints under). Native window/nav fill uses the
-    // same hex so the physical bottom never shows a 1px gap under the gesture bar.
+    // Status + nav share the opaque shell hex so top/bottom chrome match.
+    // Native window/decor fill seals physical edges (API 35 ignores bar colors).
     applySystemBarTheme({ statusBarColor: hex, navBarColor: hex });
   }, []);
 
@@ -642,16 +643,26 @@ function AppContent(): React.JSX.Element {
     >
       <StatusBar
         translucent
-        // Draw under status; shell paints underneath. Icons via barStyle.
+        // Same opaque shell as the nav bar; icons via barStyle.
         barStyle={theme.mode === "dark" ? "light-content" : "dark-content"}
-        backgroundColor="transparent"
+        backgroundColor={shellBackground}
       />
       {/*
-        Full-bleed shell paints under transparent status + nav/home indicator.
-        Native window fill (applySystemBarTheme) seals the physical bottom so a
-        1px gap cannot show through. Only top inset keeps titles/chrome out of
-        the status bar; screens float Back with insets.bottom + gap.
+        Shell + native status/nav colors share one hex. Top inset keeps
+        titles/chrome out of the status bar; screens float Back with
+        insets.bottom + gap. Absolute edge seals cover subpixel gaps.
       */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: 0,
+          height: 3,
+          backgroundColor: shellBackground,
+        }}
+      />
       <View
         collapsable={false}
         style={{
@@ -904,6 +915,15 @@ function AppContent(): React.JSX.Element {
         </PageFadeIn>
       )}
       </View>
+      {/* Persistent top-left edge glow — above pages so opaque screens don't cover it;
+          stays mounted across page changes; off on chat / onboarding. */}
+      {bootstrapped ? (
+        <EdgeGlow
+          active={
+            currentPage !== "conversation" && currentPage !== "onboarding"
+          }
+        />
+      ) : null}
       {/* Covers subpixel / SVG AA at the physical bottom inside the RN window. */}
       <View
         pointerEvents="none"

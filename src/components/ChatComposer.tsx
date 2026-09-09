@@ -465,7 +465,7 @@ export function ChatComposer({
                 activeOpacity={0.85}
               >
                 <FrostedGlass style={StyleSheet.absoluteFillObject} />
-                <Ionicons name="add" size={28} color={theme.colors.textSecondary} />
+                <Ionicons name="add" size={30} color={theme.colors.textSecondary} />
               </TouchableOpacity>
             </View>
             <View style={[styles.inputBar, styles.inputBarInRow]}>
@@ -493,7 +493,7 @@ export function ChatComposer({
                   accessibilityLabel="Stop generation"
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
-                  <Ionicons name="stop-circle" size={40} color={theme.colors.error} />
+                  <Ionicons name="stop-circle" size={44} color={theme.colors.error} />
                 </TouchableOpacity>
               ) : (
                 <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
@@ -539,7 +539,7 @@ export function ChatComposer({
                         ]}
                       >
                         <VoiceWaveIcon
-                          size={26}
+                          size={28}
                           active={isListening}
                           color={
                             isLoading || isOcrRunning
@@ -570,7 +570,7 @@ export function ChatComposer({
                       >
                         <Ionicons
                           name="arrow-up-circle"
-                          size={40}
+                          size={44}
                           color={
                             sendDisabled || isLoading
                               ? theme.colors.textTertiary

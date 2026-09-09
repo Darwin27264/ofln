@@ -12,8 +12,8 @@ class MainActivity : ReactActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(null)
-    // First frame: edge-to-edge with theme shell so the physical bottom is
-    // never a transparent sliver. JS reapplies the live shell/frost hex.
+    // First frame: edge-to-edge with theme shell so status + nav match and
+    // physical edges are never a transparent sliver. JS reapplies the live shell/frost hex.
     val night =
       (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
         Configuration.UI_MODE_NIGHT_YES

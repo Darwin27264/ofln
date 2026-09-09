@@ -14,6 +14,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import { createStyles } from '../styles/styles';
 import { useTheme } from '../context/ThemeContext';
 import { showAlert } from '../components/CustomAlert';
+import { FloatingBackButton } from '../components/FloatingBackButton';
 import { BottomSheet } from '../components/BottomSheet';
 import {
   useFloatingBackBottom,
@@ -100,14 +101,6 @@ export default function PerspectivesLibraryScreen({
     minHeight: 42,
   };
 
-  const pillButtonTextStyle = {
-    color: theme.colors.primaryText,
-    fontSize: 20,
-    fontFamily: 'Poppins',
-    marginLeft: 8,
-    marginBottom: 2,
-  };
-
   return (
     <View
       style={[
@@ -115,9 +108,7 @@ export default function PerspectivesLibraryScreen({
         { padding: 20, flex: 1, backgroundColor: theme.colors.background },
       ]}
     >
-      <Text style={[styles.settingsTitle, { marginBottom: 20 }]}>
-        Perspective
-      </Text>
+      <Text style={styles.settingsTitle}>Perspective</Text>
 
       <ScrollView
         style={{ flex: 1 }}
@@ -287,10 +278,10 @@ export default function PerspectivesLibraryScreen({
                       }}
                       activeOpacity={0.85}
                     >
-                      <Icon name="check-circle" size={18} color="#fff" />
+                      <Icon name="check-circle" size={18} color={theme.colors.accentText} />
                       <Text
                         style={{
-                          color: '#fff',
+                          color: theme.colors.accentText,
                           fontSize: 14,
                           fontWeight: '600',
                           fontFamily: 'Poppins',
@@ -371,14 +362,7 @@ export default function PerspectivesLibraryScreen({
       </ScrollView>
 
       <View style={[fixedBtnStyle, { left: 15 }]}>
-        <TouchableOpacity onPress={onBack} style={pillButtonStyle}>
-          <Ionicons
-            name="arrow-back"
-            size={24}
-            color={theme.colors.primaryText}
-          />
-          <Text style={pillButtonTextStyle}>Back</Text>
-        </TouchableOpacity>
+        <FloatingBackButton onPress={onBack} />
       </View>
 
       <View

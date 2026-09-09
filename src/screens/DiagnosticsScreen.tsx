@@ -19,7 +19,9 @@ import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { getFullLogContent, getErrorLogPath, clearErrorLog } from "../utils/errorLogger";
 import { showAlert } from "../components/CustomAlert";
+import { FloatingBackButton } from "../components/FloatingBackButton";
 import { BottomSheet } from "../components/BottomSheet";
+import { FrostedPanel, SETTINGS_BLOCK } from "../components/FrostedGlass";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import { getAccelerationConfig } from "../services/accelerationCapabilityService";
 import { checkFileExists } from "../services/llamaService";
@@ -34,6 +36,9 @@ interface Props {
   /** Optional — opens Models to download or load a GGUF. */
   onGoToModels?: () => void;
 }
+
+/** Match Settings tile height for the 2-up action blocks. */
+const SETTINGS_TILE_HEIGHT_DIAG = 130;
 
 function SectionLabel({ label, color }: { label: string; color: string }) {
   return (
@@ -322,245 +327,237 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
         },
       ]}
     >
-      <Text style={[styles.settingsTitle, { marginBottom: 24 }]}>Diagnostics</Text>
+      <Text style={styles.settingsTitle}>Diagnostics</Text>
 
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
         showsVerticalScrollIndicator={false}
       >
-        <Text
-          style={{
-            fontSize: 16,
-            color: theme.colors.textSecondary,
-            lineHeight: 24,
-            marginBottom: 20,
-            fontFamily: "Poppins",
-          }}
-        >
-          View error logs and run device checks when load or chat fails.
-        </Text>
-
         {/* 1. Logs */}
-        <SectionLabel label="Logs" color={theme.colors.textSecondary} />
-
         <TouchableOpacity
           onPress={handleViewLogs}
-          style={{
-            backgroundColor: theme.colors.card,
-            borderRadius: 14,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            paddingVertical: 22,
-            paddingHorizontal: 18,
-            flexDirection: "row",
-            alignItems: "center",
-            marginBottom: 12,
-            minHeight: 88,
-          }}
+          activeOpacity={0.85}
+          style={{ marginBottom: SETTINGS_BLOCK.gap }}
         >
-          <Ionicons
-            name="document-text-outline"
-            size={30}
-            color={theme.colors.text}
-            style={{ marginRight: 14 }}
-          />
-          <View style={{ flex: 1 }}>
-            <Text
-              style={{
-                fontSize: 18,
-                fontWeight: "600",
-                color: theme.colors.text,
-                fontFamily: "Poppins",
-                marginBottom: 4,
-              }}
-            >
-              View Logs
-            </Text>
-            <Text
-              style={{
-                fontSize: 13,
-                color: theme.colors.textSecondary,
-                fontFamily: "Poppins",
-              }}
-            >
-              App environment and error logs
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={22} color={theme.colors.textSecondary} />
-        </TouchableOpacity>
-
-        <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
-          <TouchableOpacity
-            onPress={handleCopyLogPath}
+          <FrostedPanel
             style={{
-              flex: 1,
-              backgroundColor: theme.colors.surface,
-              borderRadius: 12,
-              borderWidth: 1,
-              borderColor: theme.colors.border,
-              padding: 12,
+              paddingVertical: 22,
+              paddingHorizontal: SETTINGS_BLOCK.padding,
+              flexDirection: "row",
               alignItems: "center",
+              minHeight: 88,
             }}
           >
-            <Ionicons name="folder-outline" size={20} color={theme.colors.text} />
-            <Text
+            <Ionicons
+              name="document-text-outline"
+              size={30}
+              color={theme.colors.text}
+              style={{ marginRight: 14 }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: "600",
+                  color: theme.colors.text,
+                  fontFamily: "Poppins",
+                  marginBottom: 4,
+                }}
+              >
+                View Logs
+              </Text>
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: theme.colors.textSecondary,
+                  fontFamily: "Poppins",
+                }}
+              >
+                App environment and error logs
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color={theme.colors.textSecondary} />
+          </FrostedPanel>
+        </TouchableOpacity>
+
+        <View
+          style={{
+            flexDirection: "row",
+            marginBottom: 20,
+          }}
+        >
+          <TouchableOpacity
+            onPress={handleCopyLogPath}
+            activeOpacity={0.85}
+            style={{ flex: 1, marginRight: SETTINGS_BLOCK.gutter }}
+          >
+            <FrostedPanel
               style={{
-                fontSize: 12,
-                color: theme.colors.text,
-                fontFamily: "Poppins",
-                marginTop: 4,
-                textAlign: "center",
+                padding: 12,
+                alignItems: "center",
               }}
             >
-              Log Path
-            </Text>
+              <Ionicons name="folder-outline" size={20} color={theme.colors.text} />
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: theme.colors.text,
+                  fontFamily: "Poppins",
+                  marginTop: 4,
+                  textAlign: "center",
+                }}
+              >
+                Log Path
+              </Text>
+            </FrostedPanel>
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={handleClearErrorLog}
-            style={{
-              flex: 1,
-              backgroundColor: theme.colors.surface,
-              borderRadius: 12,
-              borderWidth: 1,
-              borderColor: theme.colors.border,
-              padding: 12,
-              alignItems: "center",
-            }}
+            activeOpacity={0.85}
+            style={{ flex: 1, marginLeft: SETTINGS_BLOCK.gutter }}
           >
-            <Ionicons name="trash-outline" size={20} color={theme.colors.error} />
-            <Text
+            <FrostedPanel
               style={{
-                fontSize: 12,
-                color: theme.colors.error,
-                fontFamily: "Poppins",
-                marginTop: 4,
-                textAlign: "center",
+                padding: 12,
+                alignItems: "center",
               }}
             >
-              Clear Log
-            </Text>
+              <Ionicons name="trash-outline" size={20} color={theme.colors.error} />
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: theme.colors.error,
+                  fontFamily: "Poppins",
+                  marginTop: 4,
+                  textAlign: "center",
+                }}
+              >
+                Clear Log
+              </Text>
+            </FrostedPanel>
           </TouchableOpacity>
         </View>
 
         {/* 2. Acceleration + Smoke test */}
-        <View style={{ flexDirection: "row", gap: 12, marginBottom: 20 }}>
+        <View style={{ flexDirection: "row", marginBottom: 20 }}>
           <TouchableOpacity
             onPress={confirmAccelCheck}
+            activeOpacity={0.85}
             style={{
               flex: 1,
-              backgroundColor: theme.colors.card,
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: theme.colors.border,
-              paddingVertical: 22,
-              paddingHorizontal: 14,
-              alignItems: "center",
-              justifyContent: "center",
-              minHeight: 140,
+              marginRight: SETTINGS_BLOCK.gutter,
               opacity: Platform.OS === "android" ? 1 : 0.55,
             }}
             accessibilityLabel="Check acceleration"
           >
-            <Ionicons
-              name="hardware-chip-outline"
-              size={32}
-              color={theme.colors.text}
-              style={{ marginBottom: 10 }}
-            />
-            <Text
+            <FrostedPanel
               style={{
-                fontSize: 16,
-                fontWeight: "600",
-                color: theme.colors.text,
-                fontFamily: "Poppins",
-                textAlign: "center",
-                marginBottom: 6,
+                paddingVertical: 22,
+                paddingHorizontal: 14,
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: SETTINGS_TILE_HEIGHT_DIAG,
               }}
             >
-              Acceleration
-            </Text>
-            <Text
-              style={{
-                fontSize: 12,
-                color: theme.colors.textSecondary,
-                fontFamily: "Poppins",
-                textAlign: "center",
-                lineHeight: 16,
-              }}
-            >
-              {Platform.OS === "android"
-                ? "OpenCL / Hexagon check"
-                : "Android only"}
-            </Text>
+              <Ionicons
+                name="hardware-chip-outline"
+                size={32}
+                color={theme.colors.text}
+                style={{ marginBottom: 10 }}
+              />
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "600",
+                  color: theme.colors.text,
+                  fontFamily: "Poppins",
+                  textAlign: "center",
+                  marginBottom: 6,
+                }}
+              >
+                Acceleration
+              </Text>
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: theme.colors.textSecondary,
+                  fontFamily: "Poppins",
+                  textAlign: "center",
+                  lineHeight: 16,
+                }}
+              >
+                {Platform.OS === "android"
+                  ? "OpenCL / Hexagon check"
+                  : "Android only"}
+              </Text>
+            </FrostedPanel>
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={confirmSmokeTest}
             disabled={running}
+            activeOpacity={0.85}
             style={{
               flex: 1,
-              backgroundColor:
-                modelPath && !running ? theme.colors.card : theme.colors.surface,
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: theme.colors.border,
-              paddingVertical: 22,
-              paddingHorizontal: 14,
-              alignItems: "center",
-              justifyContent: "center",
-              minHeight: 140,
+              marginLeft: SETTINGS_BLOCK.gutter,
               opacity: running ? 0.7 : 1,
             }}
             accessibilityLabel={
               running ? "Smoke test running" : "Run llama.rn smoke test"
             }
           >
-            <Ionicons
-              name={running ? "hourglass-outline" : "play-circle-outline"}
-              size={32}
-              color={theme.colors.text}
-              style={{ marginBottom: 10 }}
-            />
-            <Text
+            <FrostedPanel
               style={{
-                fontSize: 16,
-                fontWeight: "600",
-                color: theme.colors.text,
-                fontFamily: "Poppins",
-                textAlign: "center",
-                marginBottom: 6,
+                paddingVertical: 22,
+                paddingHorizontal: 14,
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: SETTINGS_TILE_HEIGHT_DIAG,
               }}
             >
-              {running ? "Running…" : "Smoke test"}
-            </Text>
-            <Text
-              style={{
-                fontSize: 12,
-                color: theme.colors.textSecondary,
-                fontFamily: "Poppins",
-                textAlign: "center",
-                lineHeight: 16,
-              }}
-            >
-              {modelPath
-                ? "May take several minutes"
-                : "Load a model first"}
-            </Text>
+              <Ionicons
+                name={running ? "hourglass-outline" : "play-circle-outline"}
+                size={32}
+                color={theme.colors.text}
+                style={{ marginBottom: 10 }}
+              />
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "600",
+                  color: theme.colors.text,
+                  fontFamily: "Poppins",
+                  textAlign: "center",
+                  marginBottom: 6,
+                }}
+              >
+                {running ? "Running…" : "Smoke test"}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: theme.colors.textSecondary,
+                  fontFamily: "Poppins",
+                  textAlign: "center",
+                  lineHeight: 16,
+                }}
+              >
+                {modelPath
+                  ? "May take several minutes"
+                  : "Load a model first"}
+              </Text>
+            </FrostedPanel>
           </TouchableOpacity>
         </View>
 
         {/* 3. Live test output */}
         <SectionLabel label="Test output" color={theme.colors.textSecondary} />
 
-        <View
+        <FrostedPanel
           style={{
-            backgroundColor: theme.colors.card,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            padding: 16,
+            padding: SETTINGS_BLOCK.padding,
             minHeight: 140,
             maxHeight: 280,
           }}
@@ -586,34 +583,11 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
               </Text>
             ))}
           </ScrollView>
-        </View>
+        </FrostedPanel>
       </ScrollView>
 
       <View style={{ position: "absolute", bottom: backBottom, left: 15, backgroundColor: "transparent" }}>
-        <TouchableOpacity
-          onPress={onBack}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            backgroundColor: theme.colors.primary,
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 30,
-          }}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
-          <Text
-            style={{
-              color: theme.colors.primaryText,
-              fontSize: 20,
-              fontFamily: "Poppins",
-              marginLeft: 8,
-              marginBottom: 2,
-            }}
-          >
-            Back
-          </Text>
-        </TouchableOpacity>
+        <FloatingBackButton onPress={onBack} />
       </View>
 
       {/* Full-screen logs viewer — absolute overlay (not RN Modal) */}

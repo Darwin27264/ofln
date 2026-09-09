@@ -1,6 +1,5 @@
 package com.ofln
 
-import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.view.View
@@ -13,10 +12,9 @@ import androidx.core.view.WindowInsetsControllerCompat
 /**
  * Edge-to-edge chrome that feels native on gesture and 3-button nav.
  *
- * API 35+ ignores [Window.setNavigationBarColor]; the system bar is always
- * transparent and the app must paint behind it. A 1px sliver at the physical
- * bottom is the window/decor not covering the last pixel — so we paint those
- * surfaces with the shell color instead of leaving them transparent.
+ * Status and nav bars use the same opaque shell color so top and bottom
+ * system chrome match. API 35+ ignores bar colors; the window/decor fill is
+ * what seals the physical edges so a 1px sliver never peeks through.
  */
 object SystemBarChrome {
 
@@ -41,10 +39,9 @@ object SystemBarChrome {
       window.attributes = params
     }
 
-    // Status stays transparent so top chrome is full-bleed.
-    window.statusBarColor = Color.TRANSPARENT
-    // Pre-35: opaque nav matching the shell. API 35+: this is a no-op; the
-    // window/decor fill below is what seals the physical bottom edge.
+    // Same opaque shell on status + nav (pre-35). API 35+: no-op for bar
+    // colors; window/decor fill below seals both physical edges.
+    window.statusBarColor = shellColor
     window.navigationBarColor = shellColor
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
       // A transparent divider is a 1px see-through hairline on many OEMs.

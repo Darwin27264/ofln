@@ -120,6 +120,7 @@ export function buildSeatAssistantPlaceholder(
 export function buildNativeMessagesForSeat(
   transcript: ChatMessage[],
   systemPrompt: string,
+  opts?: { seatLabel?: string },
 ): ChatMessage[] {
   const withoutTrailingAssistant =
     transcript.length > 0 &&
@@ -129,10 +130,28 @@ export function buildNativeMessagesForSeat(
       : transcript;
 
   const sysIdx = withoutTrailingAssistant.findIndex((m) => m.role === 'system');
+  let withSys: ChatMessage[];
   if (sysIdx >= 0) {
-    const withSys = withoutTrailingAssistant.slice();
+    withSys = withoutTrailingAssistant.slice();
     withSys[sysIdx] = { ...withSys[sysIdx], content: systemPrompt };
-    return withSys;
+  } else {
+    withSys = [{ role: 'system', content: systemPrompt }, ...withoutTrailingAssistant];
   }
-  return [{ role: 'system', content: systemPrompt }, ...withoutTrailingAssistant];
+
+  // Chat templates expect a user turn before the next assistant completion.
+  // After seat 1, the transcript ends on an assistant — append a short cue so
+  // seat 2+ generate as a reply, not a continuation of the prior speaker.
+  const last = withSys[withSys.length - 1];
+  if (last?.role === 'assistant' && last.content?.trim()) {
+    const label = opts?.seatLabel?.trim() || 'this speaker';
+    withSys = [
+      ...withSys,
+      {
+        role: 'user',
+        content: `[Perspective] Your turn as ${label}. Reply to the user's topic and prior speakers briefly.`,
+      },
+    ];
+  }
+
+  return withSys;
 }

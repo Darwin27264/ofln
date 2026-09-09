@@ -17,7 +17,11 @@ import { createStyles } from '../styles/styles';
 import { useTheme } from '../context/ThemeContext';
 import { showAlert } from '../components/CustomAlert';
 import { BottomSheet } from '../components/BottomSheet';
-import { useScrollPadForFloatingBack } from '../utils/layoutInsets';
+import { FloatingBackButton } from '../components/FloatingBackButton';
+import {
+  useFloatingBackBottom,
+  useScrollPadForFloatingBack,
+} from '../utils/layoutInsets';
 import {
   savePerspectivePreset,
   generateSeatId,
@@ -54,6 +58,7 @@ export default function PerspectiveEditorScreen({
 }: PerspectiveEditorScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
 
   const [editing, setEditing] = useState<PerspectivePreset>(() =>
@@ -272,64 +277,16 @@ export default function PerspectiveEditorScreen({
     <View
       style={[
         styles.container,
-        { flex: 1, backgroundColor: theme.colors.background },
+        { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
       ]}
     >
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          paddingHorizontal: 20,
-          paddingTop: 8,
-          paddingBottom: 12,
-          borderBottomWidth: 1,
-          borderBottomColor: theme.colors.border,
-        }}
-      >
-        <TouchableOpacity
-          onPress={onCancel}
-          style={{ padding: 8 }}
-          accessibilityLabel="Cancel"
-        >
-          <Ionicons name="close" size={24} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text
-          style={{
-            fontSize: 20,
-            fontWeight: '600',
-            color: theme.colors.text,
-            fontFamily: 'Poppins',
-          }}
-        >
-          {preset ? 'Edit perspective' : 'Create perspective'}
-        </Text>
-        <TouchableOpacity
-          onPress={() => void persistEditing()}
-          style={{
-            backgroundColor: theme.colors.primary,
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 20,
-          }}
-        >
-          <Text
-            style={{
-              color: theme.colors.primaryText,
-              fontSize: 16,
-              fontWeight: '600',
-              fontFamily: 'Poppins',
-            }}
-          >
-            Save
-          </Text>
-        </TouchableOpacity>
-      </View>
+      <Text style={styles.settingsTitle}>
+        {preset ? 'Edit perspective' : 'Create perspective'}
+      </Text>
 
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{
-          padding: 20,
           paddingBottom: scrollPadBottom,
         }}
         keyboardShouldPersistTaps="handled"
@@ -633,6 +590,34 @@ export default function PerspectiveEditorScreen({
           ) : null}
         </View>
       </ScrollView>
+
+      <View style={{ position: 'absolute', left: 15, bottom: backBottom }}>
+        <FloatingBackButton onPress={onCancel} />
+      </View>
+      <TouchableOpacity
+        onPress={() => void persistEditing()}
+        accessibilityLabel="Save perspective"
+        style={{
+          position: 'absolute',
+          right: 15,
+          bottom: backBottom,
+          backgroundColor: theme.colors.primary,
+          paddingHorizontal: 16,
+          paddingVertical: 8,
+          borderRadius: 24,
+        }}
+      >
+        <Text
+          style={{
+            color: theme.colors.primaryText,
+            fontSize: 16,
+            fontWeight: '600',
+            fontFamily: 'Poppins',
+          }}
+        >
+          Save
+        </Text>
+      </TouchableOpacity>
 
       <BottomSheet
         visible={!!seatPicker && !!pickerSeat}

@@ -12,6 +12,8 @@ import {
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
+import { FloatingBackButton } from "../components/FloatingBackButton";
+import { FrostedPanel, SETTINGS_BLOCK } from "../components/FrostedGlass";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 
 const packageJson = require("../../package.json");
@@ -135,7 +137,7 @@ function GuideCard({
   onHeight,
 }: {
   section: GuideSection;
-  colors: { card: string; border: string; text: string; textSecondary: string };
+  colors: { border: string; text: string; textSecondary: string };
   width: number;
   minHeight?: number;
   onHeight?: (height: number) => void;
@@ -143,39 +145,39 @@ function GuideCard({
   return (
     <View
       onLayout={(e) => onHeight?.(e.nativeEvent.layout.height)}
-      style={{
-        width,
-        backgroundColor: colors.card,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: colors.border,
-        padding: 16,
-        minHeight,
-      }}
+      style={{ width, minHeight }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
-        <Ionicons name={section.icon as any} size={22} color={colors.text} style={{ marginRight: 10 }} />
+      <FrostedPanel
+        style={{
+          padding: SETTINGS_BLOCK.padding,
+          minHeight,
+          flex: 1,
+        }}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+          <Ionicons name={section.icon as any} size={22} color={colors.text} style={{ marginRight: 10 }} />
+          <Text
+            style={{
+              fontSize: 17,
+              fontWeight: "600",
+              color: colors.text,
+              fontFamily: "Poppins",
+            }}
+          >
+            {section.title}
+          </Text>
+        </View>
         <Text
           style={{
-            fontSize: 17,
-            fontWeight: "600",
-            color: colors.text,
+            fontSize: 14,
+            color: colors.textSecondary,
+            lineHeight: 22,
             fontFamily: "Poppins",
           }}
         >
-          {section.title}
+          {section.body}
         </Text>
-      </View>
-      <Text
-        style={{
-          fontSize: 14,
-          color: colors.textSecondary,
-          lineHeight: 22,
-          fontFamily: "Poppins",
-        }}
-      >
-        {section.body}
-      </Text>
+      </FrostedPanel>
     </View>
   );
 }
@@ -184,7 +186,6 @@ function GuideCarousel({
   colors,
 }: {
   colors: {
-    card: string;
     border: string;
     text: string;
     textSecondary: string;
@@ -231,7 +232,7 @@ function GuideCarousel({
   );
 
   return (
-    <View style={{ marginBottom: 12 }}>
+    <View style={{ marginBottom: SETTINGS_BLOCK.gap }}>
       <ScrollView
         horizontal
         pagingEnabled
@@ -294,7 +295,7 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
         },
       ]}
     >
-      <Text style={[styles.settingsTitle, { marginBottom: 24 }]}>About</Text>
+      <Text style={styles.settingsTitle}>About</Text>
 
       <ScrollView
         style={{ flex: 1 }}
@@ -347,48 +348,48 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
           onPress={onReviewOnboarding}
           accessibilityLabel="Review onboarding"
           accessibilityHint="Opens the first-run guide again"
-          style={{
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            backgroundColor: theme.colors.surface,
-            borderRadius: 14,
-            paddingVertical: 14,
-            paddingHorizontal: 16,
-            marginBottom: 28,
-            flexDirection: "row",
-            alignItems: "center",
-          }}
+          activeOpacity={0.85}
+          style={{ marginBottom: 28 }}
         >
-          <Ionicons
-            name="map-outline"
-            size={22}
-            color={theme.colors.text}
-            style={{ marginRight: 12 }}
-          />
-          <View style={{ flex: 1 }}>
-            <Text
-              style={{
-                fontSize: 16,
-                fontWeight: "600",
-                fontFamily: "Poppins",
-                color: theme.colors.text,
-                marginBottom: 2,
-              }}
-            >
-              Review onboarding
-            </Text>
-            <Text
-              style={{
-                fontSize: 13,
-                fontFamily: "Poppins",
-                color: theme.colors.textSecondary,
-                lineHeight: 18,
-              }}
-            >
-              Replay the first-run guide.
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={theme.colors.textTertiary} />
+          <FrostedPanel
+            style={{
+              paddingVertical: 14,
+              paddingHorizontal: SETTINGS_BLOCK.padding,
+              flexDirection: "row",
+              alignItems: "center",
+            }}
+          >
+            <Ionicons
+              name="map-outline"
+              size={22}
+              color={theme.colors.text}
+              style={{ marginRight: 12 }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "600",
+                  fontFamily: "Poppins",
+                  color: theme.colors.text,
+                  marginBottom: 2,
+                }}
+              >
+                Review onboarding
+              </Text>
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontFamily: "Poppins",
+                  color: theme.colors.textSecondary,
+                  lineHeight: 18,
+                }}
+              >
+                Replay the first-run guide.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.colors.textTertiary} />
+          </FrostedPanel>
         </TouchableOpacity>
 
         <Text
@@ -405,15 +406,12 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
 
         <GuideCarousel colors={theme.colors} />
 
-        <View
+        <FrostedPanel
           style={{
-            backgroundColor: theme.colors.card,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: theme.colors.warning,
-            padding: 16,
-            marginTop: 12,
+            padding: SETTINGS_BLOCK.padding,
+            marginTop: SETTINGS_BLOCK.gap,
             marginBottom: 24,
+            borderColor: theme.colors.warning,
           }}
           accessibilityRole="summary"
           accessibilityLabel="On-device model limitations"
@@ -448,7 +446,7 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
             Smaller models can ramble, repeat, or invent details — normal for on-device AI, not a
             network error. Try rephrasing, regenerating, or a larger model when quality matters.
           </Text>
-        </View>
+        </FrostedPanel>
 
         <Text
           style={{
@@ -461,13 +459,9 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
         >
           Library versions
         </Text>
-        <View
+        <FrostedPanel
           style={{
-            backgroundColor: theme.colors.card,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            paddingHorizontal: 16,
+            paddingHorizontal: SETTINGS_BLOCK.padding,
             paddingVertical: 8,
             marginBottom: 24,
           }}
@@ -507,34 +501,11 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
               </Text>
             </View>
           ))}
-        </View>
+        </FrostedPanel>
       </ScrollView>
 
       <View style={{ position: "absolute", bottom: backBottom, left: 15, backgroundColor: "transparent" }}>
-        <TouchableOpacity
-          onPress={onBack}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            backgroundColor: theme.colors.primary,
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 30,
-          }}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
-          <Text
-            style={{
-              color: theme.colors.primaryText,
-              fontSize: 20,
-              fontFamily: "Poppins",
-              marginLeft: 8,
-              marginBottom: 2,
-            }}
-          >
-            Back
-          </Text>
-        </TouchableOpacity>
+        <FloatingBackButton onPress={onBack} />
       </View>
     </View>
   );

@@ -18,7 +18,9 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { createStyles } from '../styles/styles';
 import { useTheme } from '../context/ThemeContext';
 import { showAlert } from '../components/CustomAlert';
+import { FloatingBackButton } from '../components/FloatingBackButton';
 import { BottomSheet } from '../components/BottomSheet';
+import { FrostedPanel, SETTINGS_BLOCK } from '../components/FrostedGlass';
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from '../utils/layoutInsets';
 import { formatBytesShort } from '../utils/diskPreflight';
 import {
@@ -91,28 +93,15 @@ function SectionHeader({
 
 function SectionCard({
   children,
-  colors,
   style,
 }: {
   children: React.ReactNode;
-  colors: { card: string; border: string };
   style?: object;
 }) {
   return (
-    <View
-      style={[
-        {
-          borderRadius: 16,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.card,
-          overflow: 'hidden',
-        },
-        style,
-      ]}
-    >
+    <FrostedPanel style={style}>
       {children}
-    </View>
+    </FrostedPanel>
   );
 }
 
@@ -472,7 +461,7 @@ export default function StorageScreen({
         { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
       ]}
     >
-      <Text style={[styles.settingsTitle, { marginBottom: 6 }]}>Storage</Text>
+      <Text style={styles.settingsTitle}>Storage</Text>
       <Text
         style={{
           fontFamily: 'Poppins',
@@ -507,8 +496,8 @@ export default function StorageScreen({
           subtitle="Downloaded GGUF files on this device"
           colors={theme.colors}
         />
-        <SectionCard colors={theme.colors} style={{ marginBottom: 32 }}>
-          <View style={{ padding: 16 }}>
+        <SectionCard style={{ marginBottom: 16 }}>
+          <View style={{ padding: SETTINGS_BLOCK.padding }}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
               <View style={{ flex: 1 }}>
                 <Text
@@ -685,8 +674,8 @@ export default function StorageScreen({
           subtitle="Saved on this device only"
           colors={theme.colors}
         />
-        <SectionCard colors={theme.colors} style={{ marginBottom: 32 }}>
-          <View style={{ padding: 16 }}>
+        <SectionCard style={{ marginBottom: 16 }}>
+          <View style={{ padding: SETTINGS_BLOCK.padding }}>
             <Text
               style={{
                 fontFamily: 'Poppins',
@@ -774,8 +763,8 @@ export default function StorageScreen({
           subtitle="Model files re-download on restore; tokens are never included"
           colors={theme.colors}
         />
-        <SectionCard colors={theme.colors}>
-          <View style={{ padding: 16 }}>
+        <SectionCard>
+          <View style={{ padding: SETTINGS_BLOCK.padding }}>
             <Text
               style={{
                 fontFamily: 'Poppins',
@@ -1021,32 +1010,7 @@ export default function StorageScreen({
           backgroundColor: 'transparent',
         }}
       >
-        <TouchableOpacity
-          onPress={onBack}
-          disabled={backupLocked}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: theme.colors.primary,
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 30,
-            opacity: backupLocked ? 0.5 : 1,
-          }}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
-          <Text
-            style={{
-              color: theme.colors.primaryText,
-              fontSize: 20,
-              fontFamily: 'Poppins',
-              marginLeft: 8,
-              marginBottom: 2,
-            }}
-          >
-            Back
-          </Text>
-        </TouchableOpacity>
+        <FloatingBackButton onPress={onBack} disabled={backupLocked} />
       </View>
     </View>
   );

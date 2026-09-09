@@ -24,7 +24,10 @@ export interface ThemeColors {
   primary: string;
   primaryText: string;
   secondary: string;
+  /** Warm gold — lava / ambient / rare emphasis (not CTA chrome). */
   accent: string;
+  /** Label/icon color on `accent` fills. */
+  accentText: string;
 
   // Status
   success: string;
@@ -44,29 +47,32 @@ interface Theme {
 const lightTheme: Theme = {
   mode: 'light',
   colors: {
+    // Soft elevation vs white — visible, but not muddy on list cards.
     background: '#FFFFFF',
-    surface: '#F8F9FA',
-    card: '#FFFFFF',
+    surface: '#F7F7F7',
+    card: '#F4F4F4',
     overlay: 'rgba(0, 0, 0, 0.1)',
 
     text: '#000000',
     textSecondary: '#334155',
-    textTertiary: '#94A3B8',
+    textTertiary: '#64748B',
 
     border: '#E2E8F0',
     borderLight: '#F1F5F9',
 
     primary: '#000000',
     primaryText: '#FFFFFF',
-    secondary: '#EAEAEA',
-    accent: '#2563EB',
+    secondary: '#F0F0F0',
+    // Matches AmbientHue / lava deepLight + onboarding Next
+    accent: '#C9A227',
+    accentText: '#FFFFFF',
 
     success: '#34C759',
     warning: '#FF9F0A',
     error: '#FF453A',
 
     transparent: 'transparent',
-    glass: 'rgba(255, 255, 255, 0.75)',
+    glass: '#F2F2F2',
   },
 };
 
@@ -88,7 +94,9 @@ const darkTheme: Theme = {
     primary: '#FFFFFF',
     primaryText: '#000000',
     secondary: '#2A2A2A',
-    accent: '#3B82F6',
+    // Matches AmbientHue / lava softDark + onboarding Next
+    accent: '#F0D78C',
+    accentText: '#1A1608',
 
     success: '#34C759',
     warning: '#FF9F0A',

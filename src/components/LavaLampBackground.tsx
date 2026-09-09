@@ -1,7 +1,7 @@
 /**
  * Soft edge glow that drifts (lava-lamp feel).
- * Gold / fade-yellow along the rim; each guide page parks the hue in a
- * distinctly different region so page changes read as a real relocate.
+ * Dense overlapping radials so individual discs don't read; gold / fade-yellow.
+ * Each guide page parks the wash in a different region.
  */
 import React, { useEffect, useId, useMemo, useRef } from 'react';
 import {
@@ -22,10 +22,14 @@ import { EASING } from '../utils/animationConfig';
 
 const { width: W, height: H } = Dimensions.get('window');
 
-type GlowId = 'br' | 'bl' | 're' | 'le';
+type Region = 'br' | 'bl' | 're' | 'le';
 
 type GlowBase = {
-  id: GlowId;
+  id: string;
+  region: Region;
+  /** Extra offset on top of the page-region home */
+  jitterX?: number;
+  jitterY?: number;
   width: number;
   height: number;
   left: number;
@@ -37,37 +41,32 @@ type GlowBase = {
   duration: number;
 };
 
-/** Per-page resting offsets from the base left/top — deliberately far apart. */
-const PAGE_HOMES: Record<number, Record<GlowId, { x: number; y: number }>> = {
-  // Step 0 — bottom-right pool (toward Next)
+/** Per-page resting offsets — deliberately far apart. */
+const PAGE_HOMES: Record<number, Record<Region, { x: number; y: number }>> = {
   0: {
     br: { x: 0, y: 0 },
     bl: { x: 0, y: 0 },
     re: { x: 0, y: 0 },
     le: { x: 0, y: 0 },
   },
-  // Step 1 — left / lower-left wash
   1: {
     br: { x: -W * 0.55, y: H * 0.08 },
     bl: { x: W * 0.42, y: -H * 0.12 },
     re: { x: -W * 0.6, y: H * 0.35 },
     le: { x: W * 0.45, y: H * 0.28 },
   },
-  // Step 2 — mid-right / features list
   2: {
     br: { x: W * 0.08, y: -H * 0.22 },
     bl: { x: W * 0.55, y: -H * 0.18 },
     re: { x: -W * 0.35, y: H * 0.12 },
     le: { x: W * 0.15, y: H * 0.4 },
   },
-  // Step 3 — top / upper (foundation pick)
   3: {
     br: { x: W * 0.12, y: -H * 0.48 },
     bl: { x: W * 0.2, y: -H * 0.4 },
     re: { x: -W * 0.15, y: -H * 0.05 },
     le: { x: W * 0.5, y: H * 0.15 },
   },
-  // Step 4 — bottom-center gather (handoff toward chat)
   4: {
     br: { x: -W * 0.2, y: -H * 0.08 },
     bl: { x: W * 0.35, y: -H * 0.05 },
@@ -78,13 +77,17 @@ const PAGE_HOMES: Record<number, Record<GlowId, { x: number; y: number }>> = {
 
 const PAGE_COUNT = 5;
 
-function homeFor(step: number, id: GlowId) {
+function homeFor(step: number, region: Region, jitterX = 0, jitterY = 0) {
   const page = ((step % PAGE_COUNT) + PAGE_COUNT) % PAGE_COUNT;
-  return PAGE_HOMES[page][id];
+  const h = PAGE_HOMES[page][region];
+  return { x: h.x + jitterX, y: h.y + jitterY };
 }
 
 function SoftGlow({
   id,
+  region,
+  jitterX = 0,
+  jitterY = 0,
   width,
   height,
   left,
@@ -98,15 +101,15 @@ function SoftGlow({
 }: GlowBase & { pulseKey: number }) {
   const idleTx = useRef(new Animated.Value(0)).current;
   const idleTy = useRef(new Animated.Value(0)).current;
-  const homeTx = useRef(new Animated.Value(homeFor(pulseKey, id).x)).current;
-  const homeTy = useRef(new Animated.Value(homeFor(pulseKey, id).y)).current;
+  const initial = homeFor(pulseKey, region, jitterX, jitterY);
+  const homeTx = useRef(new Animated.Value(initial.x)).current;
+  const homeTy = useRef(new Animated.Value(initial.y)).current;
   const bloom = useRef(new Animated.Value(1)).current;
   const wash = useRef(new Animated.Value(peak)).current;
   const reactId = useId().replace(/:/g, '');
   const gradId = `lava-${id}-${reactId}`;
   const mounted = useRef(false);
 
-  // Idle drift around the current page home
   useEffect(() => {
     wash.setValue(peak);
     const loop = Animated.loop(
@@ -127,14 +130,28 @@ function SoftGlow({
         ]),
         Animated.parallel([
           Animated.timing(idleTx, {
-            toValue: -dx * 0.55,
-            duration: duration * 0.9,
+            toValue: -dx * 0.75,
+            duration: duration * 0.85,
             easing: Easing.inOut(Easing.sin),
             useNativeDriver: true,
           }),
           Animated.timing(idleTy, {
-            toValue: -dy * 0.45,
-            duration: duration * 0.9,
+            toValue: -dy * 0.7,
+            duration: duration * 0.85,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(idleTx, {
+            toValue: dx * 0.35,
+            duration: duration * 0.7,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+          Animated.timing(idleTy, {
+            toValue: -dy * 0.3,
+            duration: duration * 0.7,
             easing: Easing.inOut(Easing.sin),
             useNativeDriver: true,
           }),
@@ -142,13 +159,13 @@ function SoftGlow({
         Animated.parallel([
           Animated.timing(idleTx, {
             toValue: 0,
-            duration: duration * 0.75,
+            duration: duration * 0.65,
             easing: Easing.inOut(Easing.sin),
             useNativeDriver: true,
           }),
           Animated.timing(idleTy, {
             toValue: 0,
-            duration: duration * 0.75,
+            duration: duration * 0.65,
             easing: Easing.inOut(Easing.sin),
             useNativeDriver: true,
           }),
@@ -159,9 +176,8 @@ function SoftGlow({
     return () => loop.stop();
   }, [dx, dy, duration, idleTx, idleTy, peak, wash]);
 
-  // Page change — relocate to a new region (not a surge that returns home)
   useEffect(() => {
-    const next = homeFor(pulseKey, id);
+    const next = homeFor(pulseKey, region, jitterX, jitterY);
     if (!mounted.current) {
       mounted.current = true;
       homeTx.setValue(next.x);
@@ -171,40 +187,40 @@ function SoftGlow({
     const anim = Animated.parallel([
       Animated.timing(homeTx, {
         toValue: next.x,
-        duration: 880,
+        duration: 720,
         easing: EASING.EASE_OUT,
         useNativeDriver: true,
       }),
       Animated.timing(homeTy, {
         toValue: next.y,
-        duration: 880,
+        duration: 720,
         easing: EASING.EASE_OUT,
         useNativeDriver: true,
       }),
       Animated.sequence([
         Animated.timing(bloom, {
-          toValue: 1.12,
-          duration: 420,
+          toValue: 1.16,
+          duration: 360,
           easing: EASING.EASE_OUT,
           useNativeDriver: true,
         }),
         Animated.timing(bloom, {
           toValue: 1,
-          duration: 700,
+          duration: 620,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
       ]),
       Animated.sequence([
         Animated.timing(wash, {
-          toValue: Math.min(0.85, peak * 1.4),
-          duration: 360,
+          toValue: Math.min(0.75, peak * 1.55),
+          duration: 300,
           easing: EASING.EASE_OUT,
           useNativeDriver: true,
         }),
         Animated.timing(wash, {
           toValue: peak,
-          duration: 900,
+          duration: 800,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
@@ -212,7 +228,7 @@ function SoftGlow({
     ]);
     anim.start();
     return () => anim.stop();
-  }, [pulseKey, id, homeTx, homeTy, bloom, wash, peak]);
+  }, [pulseKey, region, jitterX, jitterY, homeTx, homeTy, bloom, wash, peak]);
 
   const translateX = Animated.add(idleTx, homeTx);
   const translateY = Animated.add(idleTy, homeTy);
@@ -233,9 +249,9 @@ function SoftGlow({
       <Svg width={width} height={height}>
         <Defs>
           <RadialGradient id={gradId} cx="50%" cy="50%" rx="50%" ry="50%">
-            <Stop offset="0%" stopColor={color} stopOpacity={1} />
-            <Stop offset="35%" stopColor={color} stopOpacity={0.45} />
-            <Stop offset="70%" stopColor={color} stopOpacity={0.12} />
+            <Stop offset="0%" stopColor={color} stopOpacity={0.7} />
+            <Stop offset="28%" stopColor={color} stopOpacity={0.32} />
+            <Stop offset="58%" stopColor={color} stopOpacity={0.1} />
             <Stop offset="100%" stopColor={color} stopOpacity={0} />
           </RadialGradient>
         </Defs>
@@ -265,53 +281,167 @@ export function LavaLampBackground({ pulseKey = 0 }: Props) {
 
   const glows: GlowBase[] = useMemo(
     () => [
+      // Bottom-right cluster
       {
         id: 'br',
-        width: W * 1.4,
-        height: H * 0.75,
-        left: W * 0.02,
-        top: H * 0.45,
+        region: 'br',
+        width: W * 1.35,
+        height: H * 0.7,
+        left: W * 0.05,
+        top: H * 0.46,
         color: goldSoft,
-        peak: isDark ? 0.5 : 0.3,
-        dx: -48,
-        dy: -56,
-        duration: 7800,
+        peak: isDark ? 0.34 : 0.2,
+        dx: -92,
+        dy: -108,
+        duration: 5200,
       },
+      {
+        id: 'br2',
+        region: 'br',
+        jitterX: -W * 0.12,
+        jitterY: -H * 0.06,
+        width: W * 0.85,
+        height: H * 0.48,
+        left: W * 0.22,
+        top: H * 0.52,
+        color: fadeYellow,
+        peak: isDark ? 0.22 : 0.13,
+        dx: 70,
+        dy: -80,
+        duration: 6100,
+      },
+      {
+        id: 'br3',
+        region: 'br',
+        jitterX: W * 0.08,
+        jitterY: H * 0.05,
+        width: W * 0.7,
+        height: H * 0.4,
+        left: W * 0.28,
+        top: H * 0.58,
+        color: goldDeep,
+        peak: isDark ? 0.18 : 0.1,
+        dx: -60,
+        dy: 72,
+        duration: 6800,
+      },
+      // Bottom-left cluster
       {
         id: 'bl',
-        width: W * 1.15,
-        height: H * 0.62,
-        left: -W * 0.48,
-        top: H * 0.52,
+        region: 'bl',
+        width: W * 1.1,
+        height: H * 0.58,
+        left: -W * 0.42,
+        top: H * 0.5,
         color: goldDeep,
-        peak: isDark ? 0.36 : 0.2,
-        dx: 56,
-        dy: -40,
-        duration: 9200,
+        peak: isDark ? 0.26 : 0.14,
+        dx: 100,
+        dy: -72,
+        duration: 5600,
       },
+      {
+        id: 'bl2',
+        region: 'bl',
+        jitterX: W * 0.1,
+        jitterY: -H * 0.08,
+        width: W * 0.75,
+        height: H * 0.42,
+        left: -W * 0.2,
+        top: H * 0.58,
+        color: goldSoft,
+        peak: isDark ? 0.16 : 0.09,
+        dx: -68,
+        dy: 64,
+        duration: 7200,
+      },
+      // Right edge cluster
       {
         id: 're',
-        width: W * 0.9,
-        height: H * 0.58,
-        left: W * 0.42,
-        top: H * 0.08,
+        region: 're',
+        width: W * 0.95,
+        height: H * 0.55,
+        left: W * 0.4,
+        top: H * 0.1,
         color: fadeYellow,
-        peak: isDark ? 0.28 : 0.16,
-        dx: -36,
-        dy: 64,
-        duration: 10000,
+        peak: isDark ? 0.22 : 0.12,
+        dx: -78,
+        dy: 110,
+        duration: 6000,
       },
       {
-        id: 'le',
-        width: W * 0.8,
-        height: H * 0.52,
-        left: -W * 0.38,
-        top: H * 0.05,
+        id: 're2',
+        region: 're',
+        jitterX: -W * 0.08,
+        jitterY: H * 0.1,
+        width: W * 0.65,
+        height: H * 0.4,
+        left: W * 0.52,
+        top: H * 0.22,
         color: goldSoft,
-        peak: isDark ? 0.2 : 0.1,
-        dx: 44,
-        dy: 52,
-        duration: 11000,
+        peak: isDark ? 0.14 : 0.08,
+        dx: 55,
+        dy: -90,
+        duration: 7000,
+      },
+      // Left edge cluster
+      {
+        id: 'le',
+        region: 'le',
+        width: W * 0.85,
+        height: H * 0.5,
+        left: -W * 0.35,
+        top: H * 0.06,
+        color: goldSoft,
+        peak: isDark ? 0.16 : 0.09,
+        dx: 88,
+        dy: 96,
+        duration: 6400,
+      },
+      {
+        id: 'le2',
+        region: 'le',
+        jitterX: W * 0.1,
+        jitterY: H * 0.08,
+        width: W * 0.6,
+        height: H * 0.38,
+        left: -W * 0.18,
+        top: H * 0.16,
+        color: goldDeep,
+        peak: isDark ? 0.12 : 0.07,
+        dx: -50,
+        dy: -70,
+        duration: 7600,
+      },
+      // Soft mid fillers — stitch clusters together
+      {
+        id: 'mid',
+        region: 'br',
+        jitterX: -W * 0.25,
+        jitterY: -H * 0.2,
+        width: W * 0.9,
+        height: H * 0.5,
+        left: W * 0.05,
+        top: H * 0.32,
+        color: fadeYellow,
+        peak: isDark ? 0.12 : 0.07,
+        dx: 64,
+        dy: 58,
+        duration: 8000,
+      },
+      {
+        id: 'mid2',
+        region: 'bl',
+        jitterX: W * 0.2,
+        jitterY: -H * 0.15,
+        width: W * 0.8,
+        height: H * 0.45,
+        left: W * 0.1,
+        top: H * 0.38,
+        color: goldSoft,
+        peak: isDark ? 0.1 : 0.06,
+        dx: -72,
+        dy: -48,
+        duration: 7400,
       },
     ],
     [goldDeep, goldSoft, fadeYellow, isDark],

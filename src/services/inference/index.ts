@@ -43,6 +43,7 @@ export {
   buildCompletionParams,
   type BuildCompletionParamsInput,
   type BuiltCompletionParams,
+  type PromptHeuristicMode,
 } from './completionParams';
 
 export {

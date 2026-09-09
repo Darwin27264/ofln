@@ -31,6 +31,7 @@ import {
   finalizeVisibleAndThought,
   adaptSystemPromptForThinking,
   isThinkingMetaLoop,
+  type PromptHeuristicMode,
 } from './inference';
 
 import type {
@@ -39,6 +40,17 @@ import type {
   StreamCallbacks,
   CompletionResult,
 } from '../types/ai';
+
+/** Optional knobs for Perspective / non-standard message tails. */
+export type NativeCompletionOptions = {
+  /**
+   * Text used for thinking / n_predict heuristics.
+   * Defaults to the last message content (wrong when that message is an assistant).
+   */
+  heuristicUserText?: string;
+  /** `debate` skips casual-chat simple caps and prefers Auto thinking off. */
+  heuristicMode?: PromptHeuristicMode;
+};
 
 export interface StreamChatParams {
   messages: ChatMessage[];
@@ -335,12 +347,20 @@ export async function nativeCompletion(
   settings: ModelSettings,
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
+  options?: NativeCompletionOptions,
 ): Promise<CompletionResult> {
-  const userText = messages[messages.length - 1]?.content || '';
+  const lastContent = messages[messages.length - 1]?.content || '';
+  const lastUserContent =
+    [...messages].reverse().find((m) => m.role === 'user')?.content || '';
+  const userText =
+    options?.heuristicUserText?.trim() ||
+    lastUserContent ||
+    lastContent;
   const completion = buildCompletionParams({
     userText,
     modelName,
     settings,
+    heuristicMode: options?.heuristicMode,
   });
   const {
     n_predict: nPredict,
@@ -493,7 +513,7 @@ export async function nativeCompletion(
             inThinkBlock = true;
             currentThought += token.replace(/<think>/gi, '');
             callbacks.onThought?.(currentThought);
-            // Don't stream think tokens into the bubble — ThinkingIndicator
+            // Don't stream think tokens into the bubble — TextBlink "Thinking"
             // stays visible while content is empty.
             return;
           }

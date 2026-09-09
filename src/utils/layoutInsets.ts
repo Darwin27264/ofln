@@ -1,9 +1,10 @@
 /**
  * Floating chrome (Back pills, docked actions) layout offsets.
  *
- * Edge-to-edge: transparent status + nav/home indicator; the app shell paints
- * full height under them. Back is offset by a real bottom inset (or a
- * minimum fallback when the OS reports 0) so it never sits in the system nav.
+ * Edge-to-edge: status + nav/home indicator share the opaque shell color;
+ * the app still lays out full-height under them. Back is offset by a real
+ * bottom inset (or a minimum fallback when the OS reports 0) so it never
+ * sits in the system nav.
  */
 import { Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -24,8 +25,8 @@ export const FLOATING_BACK_BOTTOM = FLOATING_BACK_GAP;
  */
 const ANDROID_MIN_NAV_CLEARANCE = 28;
 
-/** Approximate height of the filled Back capsule (padding + icon/text). */
-const FLOATING_BACK_CONTROL_H = 44;
+/** Approximate height of the filled Back icon control (padding + icon). */
+const FLOATING_BACK_CONTROL_H = 40;
 
 /**
  * Fixed pad only (legacy). Prefer `useScrollPadForFloatingBack` so padding

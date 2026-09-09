@@ -14,13 +14,16 @@ import {
   ScrollView,
   Switch,
 } from "react-native";
-import Ionicons from "react-native-vector-icons/Ionicons";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { launchImageLibrary } from "react-native-image-picker";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
-import { useScrollPadForFloatingBack } from "../utils/layoutInsets";
+import { FloatingBackButton } from "../components/FloatingBackButton";
+import {
+  useFloatingBackBottom,
+  useScrollPadForFloatingBack,
+} from "../utils/layoutInsets";
 import {
   savePersona,
   generatePersonaId,
@@ -44,6 +47,7 @@ export default function PersonaEditorScreen({
 }: PersonaEditorScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
 
   const isEditMode = !!persona;
@@ -281,57 +285,19 @@ export default function PersonaEditorScreen({
   );
 
   return (
-    <View style={[styles.container, { flex: 1, backgroundColor: theme.colors.background }]}>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          paddingHorizontal: 20,
-          paddingTop: 8,
-          paddingBottom: 12,
-          borderBottomWidth: 1,
-          borderBottomColor: theme.colors.border,
-        }}
-      >
-        <TouchableOpacity onPress={onCancel} style={{ padding: 8 }}>
-          <Ionicons name="close" size={24} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text
-          style={{
-            fontSize: 20,
-            fontWeight: "600",
-            color: theme.colors.text,
-            fontFamily: "Poppins",
-          }}
-        >
-          {isEditMode ? "Edit Persona" : "Create Persona"}
-        </Text>
-        <TouchableOpacity
-          onPress={handleSave}
-          style={{
-            backgroundColor: theme.colors.primary,
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 20,
-          }}
-        >
-          <Text
-            style={{
-              color: theme.colors.primaryText,
-              fontSize: 16,
-              fontWeight: "600",
-              fontFamily: "Poppins",
-            }}
-          >
-            Save
-          </Text>
-        </TouchableOpacity>
-      </View>
+    <View
+      style={[
+        styles.container,
+        { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
+      ]}
+    >
+      <Text style={styles.settingsTitle}>
+        {isEditMode ? "Edit Persona" : "Create Persona"}
+      </Text>
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 20, paddingBottom: scrollPadBottom }}
+        contentContainerStyle={{ paddingBottom: scrollPadBottom }}
         showsVerticalScrollIndicator={true}
       >
         {renderSection("Basics", (
@@ -707,6 +673,34 @@ export default function PersonaEditorScreen({
           </View>
         ), "tune")}
       </ScrollView>
+
+      <View style={{ position: "absolute", left: 15, bottom: backBottom }}>
+        <FloatingBackButton onPress={onCancel} />
+      </View>
+      <TouchableOpacity
+        onPress={handleSave}
+        accessibilityLabel="Save persona"
+        style={{
+          position: "absolute",
+          right: 15,
+          bottom: backBottom,
+          backgroundColor: theme.colors.primary,
+          paddingHorizontal: 16,
+          paddingVertical: 8,
+          borderRadius: 24,
+        }}
+      >
+        <Text
+          style={{
+            color: theme.colors.primaryText,
+            fontSize: 16,
+            fontWeight: "600",
+            fontFamily: "Poppins",
+          }}
+        >
+          Save
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }

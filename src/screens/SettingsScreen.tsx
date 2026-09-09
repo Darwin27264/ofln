@@ -8,11 +8,17 @@ import {
   StyleProp,
   ViewStyle,
   TextStyle,
+  StyleSheet,
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { BottomSheet } from "../components/BottomSheet";
+import { FrostedGlass, FrostedPanel, SETTINGS_BLOCK } from "../components/FrostedGlass";
+import {
+  FloatingBackButton,
+  FloatingIconButton,
+} from "../components/FloatingBackButton";
 import { useFloatingBackBottom } from "../utils/layoutInsets";
 import { EASING } from "../utils/animationConfig";
 import { getPersonas } from "../services/personaService";
@@ -50,6 +56,11 @@ interface Props {
   onGoToStorage: () => void;
 }
 
+/** Grid tiles: slightly larger buttons, tighter gutters (same overall footprint). */
+const SETTINGS_TILE_HEIGHT = 130;
+const SETTINGS_TILE_GAP = SETTINGS_BLOCK.gap;
+const SETTINGS_TILE_GUTTER = SETTINGS_BLOCK.gutter;
+
 type SettingsTileProps = {
   styles: ReturnType<typeof createStyles>;
   icon: string;
@@ -57,7 +68,8 @@ type SettingsTileProps = {
   stat?: string | null;
   onPress: () => void;
   touchStyle?: StyleProp<ViewStyle>;
-  blockStyle?: StyleProp<ViewStyle>;
+  /** Optional solid wash on top of frost (e.g. quick-settings On state). */
+  overlayColor?: string | Animated.AnimatedInterpolation<string | number>;
   iconColor: string;
   labelColor?: string | Animated.AnimatedInterpolation<string | number>;
   iconCircleBg: string;
@@ -76,7 +88,7 @@ function SettingsTile({
   stat,
   onPress,
   touchStyle,
-  blockStyle,
+  overlayColor,
   iconColor,
   labelColor,
   iconCircleBg,
@@ -84,11 +96,24 @@ function SettingsTile({
   badgeTextColor,
   info,
 }: SettingsTileProps) {
+  const { isDark } = useTheme();
   const showStat = typeof stat === "string" && stat.length > 0;
 
   return (
     <TouchableOpacity style={touchStyle} onPress={onPress} activeOpacity={0.85}>
-      <Animated.View style={[styles.settingsBlock, blockStyle]}>
+      <Animated.View style={styles.settingsBlock}>
+        <FrostedGlass
+          style={StyleSheet.absoluteFillObject}
+          blurAmount={SETTINGS_BLOCK.blurAmount}
+          // Light: soft white frost (readable). Dark: deeper shaded glass.
+          tintOpacity={isDark ? SETTINGS_BLOCK.tintDark : SETTINGS_BLOCK.tintLight}
+        />
+        {overlayColor != null ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[StyleSheet.absoluteFillObject, { backgroundColor: overlayColor as any }]}
+          />
+        ) : null}
         <View style={[styles.blockIconCircle, { backgroundColor: iconCircleBg }]}>
           <Ionicons name={icon as any} size={18} color={iconColor} />
         </View>
@@ -219,7 +244,7 @@ export default function SettingsScreen({
   }, [assistantDisplayMode, chatModeAnim]);
   const chatModeBackground = chatModeAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [theme.colors.secondary, theme.colors.primary],
+    outputRange: ["transparent", theme.colors.primary],
   });
   const chatModeTextColor = chatModeAnim.interpolate({
     inputRange: [0, 1],
@@ -235,7 +260,7 @@ export default function SettingsScreen({
   }, [isDark, darkModeAnim]);
   const darkModeBackground = darkModeAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [theme.colors.secondary, theme.colors.primary],
+    outputRange: ["transparent", theme.colors.primary],
   });
   const darkModeTextColor = darkModeAnim.interpolate({
     inputRange: [0, 1],
@@ -243,8 +268,11 @@ export default function SettingsScreen({
   });
 
   const mutedBadgeBg = isDark
-    ? "rgba(255, 255, 255, 0.12)"
-    : "rgba(0, 0, 0, 0.08)";
+    ? "rgba(255, 255, 255, 0.14)"
+    : "rgba(0, 0, 0, 0.12)";
+  const mutedBadgeText = isDark
+    ? theme.colors.textSecondary
+    : theme.colors.text;
   const onBadgeBg = isDark
     ? "rgba(0, 0, 0, 0.18)"
     : "rgba(255, 255, 255, 0.22)";
@@ -268,7 +296,7 @@ export default function SettingsScreen({
         ? theme.colors.warning
         : perfLevel === "Low" || perfLevel === "Very Low"
           ? theme.colors.error
-          : theme.colors.textTertiary;
+          : mutedBadgeText;
   const perfBadgeBg =
     perfLevel == null
       ? mutedBadgeBg
@@ -290,12 +318,18 @@ export default function SettingsScreen({
         },
       ]}
     >
-      <Text style={[styles.settingsTitle, { marginBottom: 40 }]}>Settings</Text>
+      <Text style={styles.settingsTitle}>Settings</Text>
       <View style={{ marginBottom: 0 }}>
-        <View style={{ flexDirection: "row", marginBottom: 10, height: 128 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            marginBottom: SETTINGS_TILE_GAP,
+            height: SETTINGS_TILE_HEIGHT,
+          }}
+        >
           <SettingsTile
             styles={styles}
-            touchStyle={{ flex: 1, marginRight: 5 }}
+            touchStyle={{ flex: 1, marginRight: SETTINGS_TILE_GUTTER }}
             icon="speedometer-outline"
             label="Performance"
             stat={perfLevel}
@@ -307,7 +341,7 @@ export default function SettingsScreen({
           />
           <SettingsTile
             styles={styles}
-            touchStyle={{ flex: 1, marginLeft: 5 }}
+            touchStyle={{ flex: 1, marginLeft: SETTINGS_TILE_GUTTER }}
             icon="cube-outline"
             label="Models"
             stat={modelsStat}
@@ -315,24 +349,24 @@ export default function SettingsScreen({
             iconColor={theme.colors.text}
             iconCircleBg={iconCircleDefault}
             badgeBg={mutedBadgeBg}
-            badgeTextColor={theme.colors.textTertiary}
+            badgeTextColor={mutedBadgeText}
           />
         </View>
-        <View style={{ flexDirection: "row", height: 128 }}>
+        <View style={{ flexDirection: "row", height: SETTINGS_TILE_HEIGHT }}>
           <SettingsTile
             styles={styles}
-            touchStyle={{ flex: 1, marginRight: 5 }}
+            touchStyle={{ flex: 1, marginRight: SETTINGS_TILE_GUTTER }}
             icon="pulse-outline"
             label="Diagnostics"
             onPress={onGoToDiagnostics}
             iconColor={theme.colors.text}
             iconCircleBg={iconCircleDefault}
             badgeBg={mutedBadgeBg}
-            badgeTextColor={theme.colors.textTertiary}
+            badgeTextColor={mutedBadgeText}
           />
           <SettingsTile
             styles={styles}
-            touchStyle={{ flex: 1, marginLeft: 5 }}
+            touchStyle={{ flex: 1, marginLeft: SETTINGS_TILE_GUTTER }}
             icon="person-circle-outline"
             label="Personas"
             stat={personasStat}
@@ -340,24 +374,30 @@ export default function SettingsScreen({
             iconColor={theme.colors.text}
             iconCircleBg={iconCircleDefault}
             badgeBg={mutedBadgeBg}
-            badgeTextColor={theme.colors.textTertiary}
+            badgeTextColor={mutedBadgeText}
           />
         </View>
-        <View style={{ flexDirection: "row", height: 128, marginTop: 10 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            height: SETTINGS_TILE_HEIGHT,
+            marginTop: SETTINGS_TILE_GAP,
+          }}
+        >
           <SettingsTile
             styles={styles}
-            touchStyle={{ flex: 1, marginRight: 5 }}
+            touchStyle={{ flex: 1, marginRight: SETTINGS_TILE_GUTTER }}
             icon="checkbox-outline"
             label="Tasks"
             onPress={() => {}}
             iconColor={theme.colors.text}
             iconCircleBg={iconCircleDefault}
             badgeBg={mutedBadgeBg}
-            badgeTextColor={theme.colors.textTertiary}
+            badgeTextColor={mutedBadgeText}
           />
           <SettingsTile
             styles={styles}
-            touchStyle={{ flex: 1, marginLeft: 5 }}
+            touchStyle={{ flex: 1, marginLeft: SETTINGS_TILE_GUTTER }}
             icon="git-compare-outline"
             label="Perspective"
             stat={perspectivesStat}
@@ -365,16 +405,21 @@ export default function SettingsScreen({
             iconColor={theme.colors.text}
             iconCircleBg={iconCircleDefault}
             badgeBg={mutedBadgeBg}
-            badgeTextColor={theme.colors.textTertiary}
+            badgeTextColor={mutedBadgeText}
           />
         </View>
-        <View style={{ height: 128, marginTop: 10 }}>
+        <View style={{ height: SETTINGS_TILE_HEIGHT, marginTop: SETTINGS_TILE_GAP }}>
           <TouchableOpacity
             style={{ flex: 1 }}
             onPress={onGoToStorage}
             activeOpacity={0.85}
           >
             <View style={styles.settingsBlock}>
+              <FrostedGlass
+                style={StyleSheet.absoluteFillObject}
+                blurAmount={SETTINGS_BLOCK.blurAmount}
+                tintOpacity={isDark ? SETTINGS_BLOCK.tintDark : SETTINGS_BLOCK.tintLight}
+              />
               <View
                 style={[
                   styles.blockIconCircle,
@@ -408,7 +453,7 @@ export default function SettingsScreen({
                     <Text
                       style={[
                         styles.blockStatText,
-                        { color: theme.colors.textTertiary },
+                        { color: mutedBadgeText },
                       ]}
                     >
                       {storageUsedLabel} used
@@ -427,7 +472,7 @@ export default function SettingsScreen({
                     <Text
                       style={[
                         styles.blockStatText,
-                        { color: theme.colors.textTertiary },
+                        { color: mutedBadgeText },
                       ]}
                     >
                       {storageChatCount} conversation
@@ -464,13 +509,18 @@ export default function SettingsScreen({
             width: 52,
             height: 32,
             borderRadius: 16,
-            backgroundColor: theme.colors.secondary,
+            overflow: "hidden",
             borderWidth: 1,
             borderColor: theme.colors.border,
             alignItems: "center",
             justifyContent: "center",
           }}
         >
+          <FrostedGlass
+            style={StyleSheet.absoluteFillObject}
+            blurAmount={14}
+            tintOpacity={isDark ? 0.58 : 0.5}
+          />
           <Ionicons
             name="options-outline"
             size={20}
@@ -490,47 +540,13 @@ export default function SettingsScreen({
           justifyContent: "space-between",
         }}
       >
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={onBackToConversation}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            backgroundColor: theme.colors.primary,
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 30,
-          }}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
-          <Text
-            style={{
-              color: theme.colors.primaryText,
-              fontSize: 20,
-              fontFamily: "Poppins",
-              marginLeft: 8,
-              marginBottom: 2,
-            }}
-          >
-            Back
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
+        <FloatingBackButton onPress={onBackToConversation} />
+        <FloatingIconButton
+          icon="information"
           onPress={onGoToInfo}
-          activeOpacity={0.85}
           accessibilityLabel="About"
           accessibilityHint="Opens about the app and how-to tips"
-          style={{
-            backgroundColor: theme.colors.primary,
-            borderRadius: 30,
-            paddingHorizontal: 12,
-            paddingVertical: 8,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Ionicons name="information" size={24} color={theme.colors.primaryText} />
-        </TouchableOpacity>
+        />
       </View>
 
       <BottomSheet
@@ -540,21 +556,27 @@ export default function SettingsScreen({
         subtitle="Display preferences"
         fitContent
       >
-        <View style={{ flexDirection: "row", height: 128, justifyContent: "space-between" }}>
+        <View
+          style={{
+            flexDirection: "row",
+            height: SETTINGS_TILE_HEIGHT,
+            justifyContent: "space-between",
+          }}
+        >
           <SettingsTile
             styles={styles}
-            touchStyle={{ flex: 1, marginRight: 5 }}
+            touchStyle={{ flex: 1, marginRight: SETTINGS_TILE_GUTTER }}
             icon="chatbubble-outline"
             label={"Chat\nMode"}
             stat={bubblesMode ? "On" : "Off"}
             onPress={toggleChatMode}
-            blockStyle={{ backgroundColor: chatModeBackground }}
+            overlayColor={chatModeBackground}
             iconColor={bubblesMode ? theme.colors.primaryText : theme.colors.text}
             labelColor={chatModeTextColor}
             iconCircleBg={bubblesMode ? iconCircleOn : iconCircleDefault}
             badgeBg={bubblesMode ? onBadgeBg : mutedBadgeBg}
             badgeTextColor={
-              bubblesMode ? theme.colors.primaryText : theme.colors.textTertiary
+              bubblesMode ? theme.colors.primaryText : mutedBadgeText
             }
             info={{
               onPress: () => setChatModeInfoOpen(true),
@@ -563,18 +585,18 @@ export default function SettingsScreen({
           />
           <SettingsTile
             styles={styles}
-            touchStyle={{ flex: 1, marginLeft: 5 }}
+            touchStyle={{ flex: 1, marginLeft: SETTINGS_TILE_GUTTER }}
             icon={isDark ? "moon" : "moon-outline"}
             label={"Dark\nMode"}
             stat={isDark ? "On" : "Off"}
             onPress={toggleTheme}
-            blockStyle={{ backgroundColor: darkModeBackground }}
+            overlayColor={darkModeBackground}
             iconColor={isDark ? theme.colors.primaryText : theme.colors.text}
             labelColor={darkModeTextColor}
             iconCircleBg={isDark ? iconCircleOn : iconCircleDefault}
             badgeBg={isDark ? onBadgeBg : mutedBadgeBg}
             badgeTextColor={
-              isDark ? theme.colors.primaryText : theme.colors.textTertiary
+              isDark ? theme.colors.primaryText : mutedBadgeText
             }
           />
         </View>
@@ -583,12 +605,17 @@ export default function SettingsScreen({
           style={[
             styles.settingsBlock,
             {
-              height: 128,
-              marginTop: 10,
+              height: SETTINGS_TILE_HEIGHT,
+              marginTop: SETTINGS_TILE_GAP,
               flex: 0,
             },
           ]}
         >
+          <FrostedGlass
+            style={StyleSheet.absoluteFillObject}
+            blurAmount={SETTINGS_BLOCK.blurAmount}
+            tintOpacity={isDark ? SETTINGS_BLOCK.tintDark : SETTINGS_BLOCK.tintLight}
+          />
           <View style={[styles.blockIconCircle, { backgroundColor: iconCircleDefault }]}>
             <Ionicons name="text-outline" size={18} color={theme.colors.text} />
           </View>

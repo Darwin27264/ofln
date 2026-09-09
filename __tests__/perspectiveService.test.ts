@@ -142,4 +142,28 @@ describe('perspectiveOrchestrator', () => {
     expect(out[0].content).toBe('debate-sys');
     expect(out[1].role).toBe('user');
   });
+
+  it('buildNativeMessagesForSeat appends a turn cue after a prior speaker', () => {
+    const out = buildNativeMessagesForSeat(
+      [
+        { role: 'system', content: 'old' },
+        { role: 'user', content: 'Meaning of life is to suffer' },
+        {
+          role: 'assistant',
+          content: 'That is a bold claim that does not hold up under scrutiny.',
+        },
+        { role: 'assistant', content: '' },
+      ],
+      'advocate-sys',
+      { seatLabel: 'Advocate' },
+    );
+    expect(out[0].content).toBe('advocate-sys');
+    expect(out.map((m) => m.role)).toEqual([
+      'system',
+      'user',
+      'assistant',
+      'user',
+    ]);
+    expect(out[out.length - 1].content).toContain('Your turn as Advocate');
+  });
 });

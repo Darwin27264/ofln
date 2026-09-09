@@ -962,10 +962,10 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                       justifyContent: "center",
                     }}
                   >
-                    <Icon name="play-circle-filled" size={18} color="#fff" />
+                    <Icon name="play-circle-filled" size={18} color={theme.colors.accentText} />
                     <Text
                       style={{
-                        color: "#fff",
+                        color: theme.colors.accentText,
                         fontSize: 14,
                         fontWeight: "600",
                         fontFamily: "Poppins",

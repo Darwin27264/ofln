@@ -48,10 +48,10 @@ export function lerpHexColor(from: string, to: string, t: number): string {
 }
 
 /**
- * Native chrome: status bar stays transparent (shell paints under it).
- * `navBarColor` (defaults to the shell hex) paints the window / decor — and
- * the pre-35 Android nav bar — so the physical bottom never shows a 1px gap.
- * API 35+ ignores navigationBarColor; the window fill is what seals the edge.
+ * Native chrome: status and nav bars share the same opaque shell hex so top
+ * and bottom system chrome match. That color also paints the window / decor
+ * (and pre-35 Android bar colors) so physical edges never show a 1px gap.
+ * API 35+ ignores bar colors; the window fill is what seals the edge.
  * `statusBarColor` also drives light/dark glyph contrast.
  */
 export function applySystemBarTheme({
@@ -68,5 +68,5 @@ export function applySystemBarTheme({
 
   const darkIcons = isColorLight(statusBarColor);
   const nav = navBarColor ?? statusBarColor;
-  SystemBars.setSystemBarColors('transparent', nav, darkIcons);
+  SystemBars.setSystemBarColors(statusBarColor, nav, darkIcons);
 }

@@ -12,10 +12,10 @@ import {
   ScrollView,
   ActivityIndicator,
 } from "react-native";
-import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
+import { FloatingBackButton } from "../components/FloatingBackButton";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import {
   clearHfToken,
@@ -108,7 +108,7 @@ export default function HfTokenScreen({ onBack }: Props) {
         },
       ]}
     >
-      <Text style={[styles.settingsTitle, { marginBottom: 24 }]}>Hugging Face</Text>
+      <Text style={styles.settingsTitle}>Hugging Face</Text>
 
       <ScrollView
         style={{ flex: 1 }}
@@ -134,7 +134,7 @@ export default function HfTokenScreen({ onBack }: Props) {
             style={{
               borderWidth: 1,
               borderColor: theme.colors.border,
-              backgroundColor: theme.colors.glass,
+              backgroundColor: theme.colors.secondary,
               borderRadius: 14,
               padding: 14,
               marginBottom: 16,
@@ -178,7 +178,7 @@ export default function HfTokenScreen({ onBack }: Props) {
           style={{
             borderWidth: 1,
             borderColor: theme.colors.border,
-            backgroundColor: theme.colors.glass,
+            backgroundColor: theme.colors.secondary,
             borderRadius: 14,
             paddingHorizontal: 14,
             paddingVertical: 12,
@@ -258,30 +258,7 @@ export default function HfTokenScreen({ onBack }: Props) {
           justifyContent: "flex-start",
         }}
       >
-        <TouchableOpacity
-          onPress={onBack}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            backgroundColor: theme.colors.primary,
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 30,
-          }}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
-          <Text
-            style={{
-              color: theme.colors.primaryText,
-              fontSize: 20,
-              fontFamily: "Poppins",
-              marginLeft: 8,
-              marginBottom: 2,
-            }}
-          >
-            Back
-          </Text>
-        </TouchableOpacity>
+        <FloatingBackButton onPress={onBack} />
       </View>
     </View>
   );

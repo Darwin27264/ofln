@@ -21,6 +21,8 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import { MessageMarkdown } from './MessageMarkdown';
 import { StreamingMessageText } from './StreamingMessageText';
+import { Diamond } from './loading-ui/Diamond';
+import { TextBlink } from './loading-ui/TextBlink';
 import { lineHeightForChatFont, bubbleMetricsForChatFont } from '../utils/chatFontSize';
 import { FrostedGlass } from './FrostedGlass';
 import { PersonaAvatar } from './PersonaAvatar';
@@ -69,69 +71,25 @@ export type MessageListItem = {
   attachments?: MessageListAttachment[];
 } & MessagePersonaFields;
 
-const ThinkingIndicator: React.FC<{ theme: { colors: Record<string, string> } }> = React.memo(
-  ({ theme }) => {
-    const dot1 = useRef(new Animated.Value(0)).current;
-    const dot2 = useRef(new Animated.Value(0)).current;
-    const dot3 = useRef(new Animated.Value(0)).current;
+/** Waiting for first tokens — loading-ui Diamond. */
+const ChatLoadingIndicator: React.FC<{ color: string }> = React.memo(({ color }) => (
+  <View style={{ paddingVertical: 4, paddingHorizontal: 2, justifyContent: 'center' }}>
+    <Diamond size={18} color={color} />
+  </View>
+));
+ChatLoadingIndicator.displayName = 'ChatLoadingIndicator';
 
-    useEffect(() => {
-      const animateDot = (dot: Animated.Value, delay: number) =>
-        Animated.loop(
-          Animated.sequence([
-            Animated.delay(delay),
-            Animated.timing(dot, {
-              toValue: 1,
-              duration: ANIMATION_DURATIONS.SLOW,
-              easing: EASING.STANDARD,
-              useNativeDriver: true,
-            }),
-            Animated.timing(dot, {
-              toValue: 0,
-              duration: ANIMATION_DURATIONS.SLOW,
-              easing: EASING.STANDARD,
-              useNativeDriver: true,
-            }),
-          ]),
-        );
-
-      const animations = [animateDot(dot1, 0), animateDot(dot2, 100), animateDot(dot3, 200)];
-      animations.forEach((anim) => anim.start());
-      return () => animations.forEach((anim) => anim.stop());
-    }, [dot1, dot2, dot3]);
-
-    const dotSize = 8;
-    const dotSpacing = 6;
-
-    return (
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          paddingVertical: 4,
-          paddingHorizontal: 4,
-        }}
-      >
-        {[dot1, dot2, dot3].map((dot, i) => (
-          <Animated.View
-            key={i}
-            style={{
-              width: dotSize,
-              height: dotSize,
-              borderRadius: dotSize / 2,
-              backgroundColor: theme.colors.textSecondary,
-              marginRight: i < 2 ? dotSpacing : 0,
-              opacity: dot.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }),
-              transform: [
-                { scale: dot.interpolate({ inputRange: [0, 1], outputRange: [1, 1.2] }) },
-              ],
-            }}
-          />
-        ))}
-      </View>
-    );
-  },
-);
+/** Model is in a thinking / CoT phase — loading-ui TextBlink. */
+const ThinkingIndicator: React.FC<{ color: string }> = React.memo(({ color }) => (
+  <View style={{ paddingVertical: 4, paddingHorizontal: 2, justifyContent: 'center' }}>
+    <TextBlink
+      accessibilityLabel="Thinking"
+      style={{ fontSize: 14, color }}
+    >
+      Thinking
+    </TextBlink>
+  </View>
+));
 ThinkingIndicator.displayName = 'ThinkingIndicator';
 
 const PulsingPersonaAvatar: React.FC<{
@@ -880,7 +838,11 @@ export function MessageList({
                   (!msg.content || msg.content.trim().length === 0) &&
                   isGenerating &&
                   isLastVisible ? (
-                    <ThinkingIndicator theme={theme} />
+                    msg.thought !== undefined ? (
+                      <ThinkingIndicator color={theme.colors.textSecondary} />
+                    ) : (
+                      <ChatLoadingIndicator color={theme.colors.textSecondary} />
+                    )
                   ) : msg.role === 'assistant' &&
                     (!msg.content || msg.content.trim().length === 0) &&
                     msg.thought ? (

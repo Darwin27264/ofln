@@ -74,6 +74,25 @@ describe('resolveThinkingModeForTurn', () => {
     ).toBeUndefined();
   });
 
+  it('preferNoThinking forces Auto off for jinja_enable', () => {
+    expect(
+      resolveThinkingModeForTurn({
+        thinkingMode: 'auto',
+        strategy: 'jinja_enable',
+        userText: COMPLEX,
+        preferNoThinking: true,
+      }),
+    ).toBe(false);
+    expect(
+      resolveThinkingModeForTurn({
+        thinkingMode: 'on',
+        strategy: 'jinja_enable',
+        userText: SIMPLE,
+        preferNoThinking: true,
+      }),
+    ).toBe(true);
+  });
+
   it('missing thinkingMode defaults to auto', () => {
     expect(
       resolveThinkingModeForTurn({
@@ -190,5 +209,53 @@ describe('buildCompletionParams', () => {
       expect.arrayContaining(['<think>', 'Thinking Process:']),
     );
     expect(params.stop).toEqual(expect.arrayContaining(['</s>', '<|im_end|>']));
+  });
+
+  it('debate mode honors n_predict and prefers Auto thinking off', () => {
+    const shortTopic = 'Meaning of life is to suffer';
+    const priorSpeaker =
+      'That is a bold claim, but it does not hold up under scrutiny. '.repeat(8);
+
+    const fromTopic = buildCompletionParams({
+      userText: shortTopic,
+      modelName: 'Qwen3.5-0.8B-Instruct-Q4_0.gguf',
+      settings: {
+        ...baseSettings,
+        n_predict: 384,
+        thinkingMode: 'auto',
+      },
+      heuristicMode: 'debate',
+    });
+    expect(fromTopic.enable_thinking).toBe(false);
+    expect(fromTopic.n_predict).toBe(384);
+    expect(fromTopic.stop).toEqual(
+      expect.arrayContaining(['<think>', 'Thinking Process:']),
+    );
+
+    // Even if a caller mistakenly passed the prior assistant as userText,
+    // debate Auto still prefers thinking off.
+    const fromPrior = buildCompletionParams({
+      userText: priorSpeaker,
+      modelName: 'Qwen3.5-0.8B-Instruct-Q4_0.gguf',
+      settings: {
+        ...baseSettings,
+        n_predict: 384,
+        thinkingMode: 'auto',
+      },
+      heuristicMode: 'debate',
+    });
+    expect(fromPrior.enable_thinking).toBe(false);
+    expect(fromPrior.n_predict).toBe(384);
+  });
+
+  it('debate mode still honors explicit thinking On', () => {
+    const params = buildCompletionParams({
+      userText: 'hi',
+      modelName: 'Qwen3.5-4B-Instruct-Q4_0.gguf',
+      settings: { ...baseSettings, n_predict: 384, thinkingMode: 'on' },
+      heuristicMode: 'debate',
+    });
+    expect(params.enable_thinking).toBe(true);
+    expect(params.n_predict).toBe(512);
   });
 });

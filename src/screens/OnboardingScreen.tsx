@@ -14,7 +14,6 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Svg, { Circle as SvgCircle, Defs, RadialGradient, Stop } from 'react-native-svg';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createStyles } from '../styles/styles';
 import { useTheme } from '../context/ThemeContext';
 import { PageFadeIn } from '../components/PageFadeIn';
@@ -91,7 +90,6 @@ export default function OnboardingScreen({
 }: Props) {
   const { theme, isDark } = useTheme();
   const styles = createStyles(theme.colors);
-  const insets = useSafeAreaInsets();
   const backBottom = useFloatingBackBottom();
   const [step, setStep] = useState<Step>(0);
   const [totalMemoryBytes, setTotalMemoryBytes] = useState<number | null>(null);
@@ -99,9 +97,9 @@ export default function OnboardingScreen({
     ONBOARDING_MODEL_CANDIDATES[0],
   );
 
-  // Warm gold accent on Next — matches lava edge glow
-  const nextFill = isDark ? '#F0D78C' : '#C9A227';
-  const nextIcon = isDark ? '#1A1608' : '#FFFFFF';
+  // Warm gold accent on Next — theme accent (lava family)
+  const nextFill = theme.colors.accent;
+  const nextIcon = theme.colors.accentText;
 
   useEffect(() => {
     let cancelled = false;
@@ -131,6 +129,10 @@ export default function OnboardingScreen({
     }
     void finish(skipDestination);
   }, [finish, skipDestination, step]);
+
+  const exitTutorial = useCallback(() => {
+    void finish(skipDestination);
+  }, [finish, skipDestination]);
 
   const goNext = useCallback(() => {
     setStep((s) => (s < LAST_STEP ? ((s + 1) as Step) : s));
@@ -191,27 +193,27 @@ export default function OnboardingScreen({
     <View style={[local.screen, { backgroundColor: theme.colors.background }]}>
       <LavaLampBackground pulseKey={step} />
 
+      {/* Exit — leave the guide immediately (first-run still marks complete) */}
+      <TouchableOpacity
+        onPress={exitTutorial}
+        accessibilityRole="button"
+        accessibilityLabel="Exit tutorial"
+        accessibilityHint="Leaves the guide and continues into the app"
+        style={[local.topTextHit, { top: 8, left: 20 }]}
+        activeOpacity={0.7}
+      >
+        <Text style={[local.topText, { color: theme.colors.textSecondary }]}>Exit</Text>
+      </TouchableOpacity>
+
       {/* Skip — advances one step; exits only on the last page */}
       <TouchableOpacity
         onPress={skip}
         accessibilityRole="button"
         accessibilityLabel={step < LAST_STEP ? 'Skip this step' : 'Skip onboarding'}
-        style={[
-          local.skipHit,
-          {
-            top: Math.max(insets.top, 0) + 2,
-            borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.08)',
-          },
-        ]}
+        style={[local.topTextHit, { top: 8, right: 20 }]}
         activeOpacity={0.7}
       >
-        <FrostedGlass
-          style={StyleSheet.absoluteFillObject}
-          blurAmount={20}
-          tintOpacity={isDark ? 0.18 : 0.28}
-          inverted={isDark}
-        />
-        <Text style={[local.skipText, { color: theme.colors.textSecondary }]}>Skip</Text>
+        <Text style={[local.topText, { color: theme.colors.textSecondary }]}>Skip</Text>
       </TouchableOpacity>
 
       <PageFadeIn key={`onboarding-step-${step}`}>
@@ -219,7 +221,7 @@ export default function OnboardingScreen({
           style={[
             local.content,
             {
-              paddingTop: Math.max(insets.top, 0) + 44,
+              paddingTop: 44,
               paddingBottom: backBottom + bottomChromePad,
             },
           ]}
@@ -230,7 +232,7 @@ export default function OnboardingScreen({
                 <Text style={[local.eyebrow, { color: theme.colors.textTertiary }]}>
                   {eyebrowForStep}
                 </Text>
-                <Text style={[styles.settingsTitle, local.title]}>{titleForStep}</Text>
+                <Text style={styles.settingsTitle}>{titleForStep}</Text>
                 <Text style={[local.body, { color: theme.colors.textSecondary }]}>
                   {bodyForStep}
                 </Text>
@@ -302,7 +304,7 @@ export default function OnboardingScreen({
                 <Text style={[local.eyebrow, { color: theme.colors.textTertiary }]}>
                   {eyebrowForStep}
                 </Text>
-                <Text style={[styles.settingsTitle, local.title]}>{titleForStep}</Text>
+                <Text style={styles.settingsTitle}>{titleForStep}</Text>
                 <Text style={[local.body, { color: theme.colors.textSecondary }]}>
                   {bodyForStep}
                 </Text>
@@ -387,7 +389,7 @@ export default function OnboardingScreen({
               <Text style={[local.eyebrow, { color: theme.colors.textTertiary }]}>
                 {eyebrowForStep}
               </Text>
-              <Text style={[styles.settingsTitle, local.title]}>{titleForStep}</Text>
+              <Text style={styles.settingsTitle}>{titleForStep}</Text>
               <Text style={[local.body, { color: theme.colors.textSecondary }]}>
                 {bodyForStep}
               </Text>
@@ -497,21 +499,14 @@ const local = StyleSheet.create({
   screen: {
     flex: 1,
   },
-  skipHit: {
+  topTextHit: {
     position: 'absolute',
-    right: 20,
     zIndex: 20,
-    borderRadius: 20,
-    paddingHorizontal: 14,
+    paddingHorizontal: 4,
     paddingVertical: 8,
-    overflow: 'hidden',
-    minWidth: 64,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
   },
-  skipText: {
-    fontSize: 14,
+  topText: {
+    fontSize: 16,
     fontFamily: 'Poppins',
     fontWeight: '500',
   },
@@ -533,9 +528,6 @@ const local = StyleSheet.create({
     fontWeight: '500',
     letterSpacing: 0.4,
     marginBottom: 8,
-  },
-  title: {
-    marginBottom: 10,
   },
   body: {
     fontSize: 16,

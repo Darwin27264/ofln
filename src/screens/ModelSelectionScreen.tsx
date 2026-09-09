@@ -37,8 +37,10 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
+import { FloatingBackButton } from "../components/FloatingBackButton";
 import { BottomSheet } from "../components/BottomSheet";
 import { SegmentedTabBar } from "../components/SegmentedTabBar";
+import { FrostedPanel, SETTINGS_BLOCK } from "../components/FrostedGlass";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import { pick, isErrorWithCode, errorCodes } from "@react-native-documents/picker";
 import { saveLocalModel, removeLocalModel, LocalModelInfo } from "../services/localModelService";
@@ -81,6 +83,10 @@ import {
   type StarterShelfTabId,
 } from "../services/starterModels";
 import { formatDownloadProgressLine } from "../utils/downloadProgressFormat";
+
+const ADD_MODEL_TILE_HEIGHT = 96;
+const ADD_MODEL_TILE_GAP = SETTINGS_BLOCK.gap;
+const ADD_MODEL_TILE_GUTTER = SETTINGS_BLOCK.gutter;
 
 // Type for quantization options (used internally in this file)
 interface QuantizationOption {
@@ -142,6 +148,37 @@ const REPUTABLE_AUTHORS = [
 export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const iconCircleBg = theme.colors.card;
+
+  const renderAddModelTile = (
+    label: string,
+    icon: string,
+    onPress: () => void,
+    touchStyle: object,
+  ) => (
+    <TouchableOpacity
+      style={touchStyle}
+      onPress={onPress}
+      activeOpacity={0.85}
+      accessibilityLabel={label}
+    >
+      <FrostedPanel
+        style={{
+          flex: 1,
+          height: "100%",
+          padding: SETTINGS_BLOCK.padding,
+          justifyContent: "flex-end",
+        }}
+      >
+        <View style={[styles.blockIconCircle, { backgroundColor: iconCircleBg }]}>
+          <Ionicons name={icon as any} size={18} color={theme.colors.text} />
+        </View>
+        <View style={styles.blockTextContainer}>
+          <Text style={styles.blockText}>{label}</Text>
+        </View>
+      </FrostedPanel>
+    </TouchableOpacity>
+  );
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
   
@@ -1723,58 +1760,11 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
 
   return (
     <View style={[styles.container, { padding: 20, flex: 1, backgroundColor: theme.colors.background }]}>
-      {/* Header */}
-      <View style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: theme.colors.background,
-        zIndex: 1,
-        paddingHorizontal: 20,
-        paddingTop: 8,
-        paddingBottom: 0,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-      }}>
-        <Text style={styles.settingsTitle}>Models</Text>
-        <TouchableOpacity
-          onPress={() => setCurrentPage("hfToken")}
-          accessibilityLabel="Hugging Face access token"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            backgroundColor: theme.colors.glass,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            borderRadius: 20,
-            paddingHorizontal: 12,
-            paddingVertical: 8,
-          }}
-        >
-          <Ionicons name="key-outline" size={18} color={theme.colors.text} />
-          <Text
-            style={{
-              marginLeft: 6,
-              fontSize: 13,
-              fontFamily: "Poppins",
-              color: theme.colors.text,
-              fontWeight: "600",
-            }}
-          >
-            HF token
-          </Text>
-        </TouchableOpacity>
-      </View>
+      <Text style={styles.settingsTitle}>Models</Text>
 
       {/* Scrollable content */}
-      <ScrollView 
-        style={{ 
-          marginTop: 45,
-          flex: 1,
-        }}
+      <ScrollView
+        style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
       >
@@ -1997,134 +1987,50 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           </View>
         </View>
 
-        {/* Add Models Buttons */}
-        <View style={{ marginBottom: 12, flexDirection: "row", gap: 12 }}>
-          <TouchableOpacity
-            onPress={openHFPanel}
+        {/* Add models — 2×2 settings-style tiles */}
+        <View style={{ marginBottom: ADD_MODEL_TILE_GAP }}>
+          <View
             style={{
-              flex: 1,
-              backgroundColor: theme.colors.primary,
-              borderRadius: 16,
-              paddingVertical: 16,
-              paddingHorizontal: 20,
               flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.2,
-              shadowRadius: 8,
-              elevation: 4,
+              height: ADD_MODEL_TILE_HEIGHT,
+              marginBottom: ADD_MODEL_TILE_GAP,
             }}
           >
-            <Icon name="cloud-download" size={24} color={theme.colors.primaryText} />
-            <Text
-              style={{
-                color: theme.colors.primaryText,
-                fontSize: 16,
-                fontWeight: "600",
-                fontFamily: "Poppins",
-                marginLeft: 8,
-              }}
-            >
-              HuggingFace
-            </Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            onPress={handlePickLocalModel}
-            style={{
-              flex: 1,
-              backgroundColor: theme.colors.accent || theme.colors.primary,
-              borderRadius: 16,
-              paddingVertical: 16,
-              paddingHorizontal: 20,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.2,
-              shadowRadius: 8,
-              elevation: 4,
-            }}
-          >
-            <Icon name="folder" size={24} color="#fff" />
-            <Text
-              style={{
-                color: "#fff",
-                fontSize: 16,
-                fontWeight: "600",
-                fontFamily: "Poppins",
-                marginLeft: 8,
-              }}
-            >
-              Local
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Custom HuggingFace URL */}
-        <View style={{ marginBottom: 12 }}>
-          <TouchableOpacity
-            onPress={() => setShowCustomUrlModal(true)}
-            style={{
-              backgroundColor: theme.colors.primary,
-              borderRadius: 16,
-              paddingVertical: 16,
-              paddingHorizontal: 20,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.2,
-              shadowRadius: 8,
-              elevation: 4,
-            }}
-          >
-            <Icon name="link" size={24} color={theme.colors.primaryText} />
-            <Text
-              style={{
-                color: theme.colors.primaryText,
-                fontSize: 16,
-                fontWeight: "600",
-                fontFamily: "Poppins",
-                marginLeft: 8,
-              }}
-            >
-              Import from URL
-            </Text>
-          </TouchableOpacity>
+            {renderAddModelTile(
+              "HuggingFace",
+              "cloud-download-outline",
+              openHFPanel,
+              { flex: 1, marginRight: ADD_MODEL_TILE_GUTTER },
+            )}
+            {renderAddModelTile(
+              "Local",
+              "folder-outline",
+              () => {
+                void handlePickLocalModel();
+              },
+              { flex: 1, marginLeft: ADD_MODEL_TILE_GUTTER },
+            )}
+          </View>
+          <View style={{ flexDirection: "row", height: ADD_MODEL_TILE_HEIGHT }}>
+            {renderAddModelTile(
+              "Repo URL",
+              "link-outline",
+              () => setShowCustomUrlModal(true),
+              { flex: 1, marginRight: ADD_MODEL_TILE_GUTTER },
+            )}
+            {renderAddModelTile(
+              "HF token",
+              "key-outline",
+              () => setCurrentPage("hfToken"),
+              { flex: 1, marginLeft: ADD_MODEL_TILE_GUTTER },
+            )}
+          </View>
         </View>
       </ScrollView>
 
       {/* Back button */}
       <View style={{ position: "absolute", bottom: backBottom, left: 15, backgroundColor: "transparent" }}>
-        <TouchableOpacity
-          onPress={() => setCurrentPage("settings")}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            backgroundColor: theme.colors.primary,
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 24,
-          }}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
-          <Text
-            style={{
-              color: theme.colors.primaryText,
-              fontSize: 20,
-              fontFamily: "Poppins",
-              marginLeft: 8,
-              marginBottom: 2,
-            }}
-          >
-            Back
-          </Text>
-        </TouchableOpacity>
+        <FloatingBackButton onPress={() => setCurrentPage("settings")} />
       </View>
 
       {/* HuggingFace Panel */}

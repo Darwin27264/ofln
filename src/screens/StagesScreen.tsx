@@ -18,6 +18,7 @@ import { LineChart } from 'react-native-chart-kit';
 import { createStyles } from '../styles/styles';
 import { useTheme } from '../context/ThemeContext';
 import { showAlert } from '../components/CustomAlert';
+import { FloatingBackButton } from '../components/FloatingBackButton';
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from '../utils/layoutInsets';
 import {
   getAccelerationStatusSnapshot,
@@ -39,12 +40,18 @@ import {
 } from '../services/performanceTracking';
 import { llamaProvider } from '../providers/llamaProvider';
 import { EASING, OVERLAY_MOTION } from '../utils/animationConfig';
-import { FrostedGlass } from '../components/FrostedGlass';
+import {
+  FrostedGlass,
+  FrostedPanel,
+  SETTINGS_BLOCK,
+} from '../components/FrostedGlass';
 
 /* ──────────────────────────────────── constants ──────────────────────────────────── */
-const RADIUS = 30;
+const RADIUS = SETTINGS_BLOCK.radius;
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const GRAPH_WIDTH = (SCREEN_WIDTH - 50) / 2;
+/** Screen pad 20×2 + Settings-style gutter×2 between the pair. */
+const GRAPH_WIDTH =
+  (SCREEN_WIDTH - 40 - SETTINGS_BLOCK.gutter * 2) / 2;
 const GRAPH_HEIGHT = 120;
 const GRAPH_SHIFT = 18;
 const STAT_CARD_HEIGHT = GRAPH_HEIGHT + 30;
@@ -505,14 +512,12 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   
   const perfColor = (p?: 'High' | 'Medium' | 'Low' | 'Very Low') =>
     p === 'High'
-      ? theme.colors.success
+      ? 'rgba(52, 199, 89, 0.32)'
       : p === 'Medium'
-      ? theme.colors.warning
-      : p === 'Low'
-      ? theme.colors.error
-      : p === 'Very Low'
-      ? theme.colors.error // Use error color for very low, maybe with different opacity
-      : theme.colors.secondary;
+      ? 'rgba(255, 159, 10, 0.32)'
+      : p === 'Low' || p === 'Very Low'
+      ? 'rgba(255, 69, 58, 0.28)'
+      : undefined;
 
   // Error handling
   if (error) {
@@ -636,7 +641,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   
   return (
     <View style={[{ flex: 1, backgroundColor: theme.colors.background, padding: 20 }]}>
-      <Text style={[shared.settingsTitle, stylesLocalWithTheme.title, { color: theme.colors.text }]}>Performance</Text>
+      <Text style={[shared.settingsTitle, { color: theme.colors.text }]}>Performance</Text>
 
       <ScrollView
         style={stylesLocalWithTheme.scroll}
@@ -646,8 +651,13 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
         {selectedModel && stats && (
           <>
             {/* Stats cards */}
-            <View style={stylesLocal.row}>
-              <View style={[stylesLocalWithTheme.statCard, { marginRight: 10, backgroundColor: theme.colors.glass }]}>
+            <View style={stylesLocalWithTheme.row}>
+              <FrostedPanel
+                style={[
+                  stylesLocalWithTheme.statCard,
+                  { marginRight: SETTINGS_BLOCK.gutter },
+                ]}
+              >
                 <View style={stylesLocalWithTheme.statInner}>
                   <Text style={[stylesLocalWithTheme.statValue, { color: theme.colors.text }]}>
                     {stats.valid}
@@ -658,27 +668,33 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
                       : `valid of ${stats.total} logged`}
                   </Text>
                 </View>
-              </View>
+              </FrostedPanel>
 
-              <View style={[stylesLocalWithTheme.statCard, { backgroundColor: perfColor(stats.perf) }]}>
+              <FrostedPanel
+                style={[
+                  stylesLocalWithTheme.statCard,
+                  { marginLeft: SETTINGS_BLOCK.gutter },
+                ]}
+                overlayColor={perfColor(stats.perf)}
+              >
                 <View style={stylesLocalWithTheme.statInner}>
-                  <Text style={[stylesLocalWithTheme.perfValue, { color: (stats.perf === 'High' || stats.perf === 'Medium') ? theme.colors.primaryText : theme.colors.text }]}>
+                  <Text style={[stylesLocalWithTheme.perfValue, { color: theme.colors.text }]}>
                     {stats.perf}
                   </Text>
-                  <Text style={[stylesLocalWithTheme.statCaption, { color: (stats.perf === 'High' || stats.perf === 'Medium') ? theme.colors.primaryText : theme.colors.text }]}>
+                  <Text style={[stylesLocalWithTheme.statCaption, { color: theme.colors.textSecondary }]}>
                     from avg tok/s
                   </Text>
                 </View>
-              </View>
+              </FrostedPanel>
             </View>
 
             {/* Graph cards */}
             <View style={stylesLocalWithTheme.row}>
               <TouchableOpacity
                 onPress={() => { setGraphType('tps'); setModalVisible(true); }}
-                style={{ marginRight: 10 }}
+                style={{ marginRight: SETTINGS_BLOCK.gutter }}
               >
-                <View style={[stylesLocalWithTheme.graphCard, { backgroundColor: theme.colors.surface }]}>
+                <FrostedPanel style={stylesLocalWithTheme.graphCard}>
                   <Text style={[stylesLocalWithTheme.graphValue, { color: theme.colors.text }]}>{stats.avgTps.toFixed(1)}</Text>
                   <Text style={[stylesLocalWithTheme.graphCaption, { color: theme.colors.textSecondary }]}>avg tok/s</Text>
                   {stats.tpsData.length ? (
@@ -686,13 +702,14 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
                   ) : (
                     <ActivityIndicator color={theme.colors.text} />
                   )}
-                </View>
+                </FrostedPanel>
               </TouchableOpacity>
 
               <TouchableOpacity
                 onPress={() => { setGraphType('inf'); setModalVisible(true); }}
+                style={{ marginLeft: SETTINGS_BLOCK.gutter }}
               >
-                <View style={[stylesLocalWithTheme.graphCard, { backgroundColor: theme.colors.surface }]}>
+                <FrostedPanel style={stylesLocalWithTheme.graphCard}>
                   <Text style={[stylesLocalWithTheme.graphValue, { color: theme.colors.text }]}>{stats.avgTime.toFixed(0)}</Text>
                   <Text style={[stylesLocalWithTheme.graphCaption, { color: theme.colors.textSecondary }]}>avg decode ms</Text>
                   {stats.timeData.length ? (
@@ -700,14 +717,14 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
                   ) : (
                     <ActivityIndicator color={theme.colors.text} />
                   )}
-                </View>
+                </FrostedPanel>
               </TouchableOpacity>
             </View>
           </>
         )}
 
         {/* Avg resource usage from usage log (not realtime) */}
-        <View style={[stylesLocalWithTheme.statusCard, { backgroundColor: theme.colors.glass }]}>
+        <FrostedPanel style={stylesLocalWithTheme.statusCard}>
           <View style={stylesLocalWithTheme.statusHeader}>
             <Ionicons name="analytics-outline" size={20} color={theme.colors.text} />
             <Text style={[stylesLocalWithTheme.statusTitle, { color: theme.colors.text }]}>
@@ -781,10 +798,10 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           <Text style={[stylesLocalWithTheme.statusFootnote, { color: theme.colors.textSecondary }]}>
             Tok/s uses native decode timing when available. Empty/failed runs are excluded.
           </Text>
-        </View>
+        </FrostedPanel>
 
         {/* Hardware acceleration — available vs currently on */}
-        <View style={[stylesLocalWithTheme.statusCard, { backgroundColor: theme.colors.glass }]}>
+        <FrostedPanel style={stylesLocalWithTheme.statusCard}>
           <View style={stylesLocalWithTheme.statusHeader}>
             <Ionicons name="hardware-chip-outline" size={20} color={theme.colors.text} />
             <Text style={[stylesLocalWithTheme.statusTitle, { color: theme.colors.text }]}>
@@ -857,10 +874,10 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           >
             Q4_0 / Q6_K may use GPU or NPU on Android. Metrics are private to your device.
           </Text>
-        </View>
+        </FrostedPanel>
 
         {/* Suggestions */}
-        <View style={[stylesLocalWithTheme.suggestionCard, { backgroundColor: theme.colors.glass }]}>
+        <FrostedPanel style={stylesLocalWithTheme.suggestionCard}>
           <View style={stylesLocalWithTheme.suggestionHeader}>
             <Text style={[stylesLocalWithTheme.suggestionTitle, { color: theme.colors.text }]}>Suggestions</Text>
             <Ionicons name="bulb-outline" size={22} color={theme.colors.text} />
@@ -868,11 +885,11 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           {getSuggestions().map((msg, i) => (
             <Text key={i} style={[stylesLocalWithTheme.suggestionText, { color: theme.colors.textSecondary }]}>{msg}</Text>
           ))}
-        </View>
+        </FrostedPanel>
 
         {/* Personal tok/s history — preview 5, expand for all */}
         {selectedModel && recentHistory.length > 0 && (
-          <View style={[stylesLocalWithTheme.statusCard, { backgroundColor: theme.colors.glass }]}>
+          <FrostedPanel style={stylesLocalWithTheme.statusCard}>
             <View style={stylesLocalWithTheme.statusHeader}>
               <Ionicons name="time-outline" size={20} color={theme.colors.text} />
               <Text style={[stylesLocalWithTheme.statusTitle, { color: theme.colors.text }]}>
@@ -984,7 +1001,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
                 ? `${recentHistory.length} completion(s) for this model from on-device usage log.`
                 : `Showing ${Math.min(5, recentHistory.length)} of ${recentHistory.length} completion(s) from on-device usage log.`}
             </Text>
-          </View>
+          </FrostedPanel>
         )}
       </ScrollView>
 
@@ -1095,10 +1112,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
 
       {/* Navigation buttons */}
       <View style={[stylesLocalWithTheme.fixedBtn, { left: 15, bottom: backBottom, backgroundColor: "transparent" }]}>
-        <TouchableOpacity style={[stylesLocalWithTheme.btn, { backgroundColor: theme.colors.primary }]} onPress={onBack}>
-          <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
-          <Text style={stylesLocalWithTheme.btnText}>Back</Text>
-        </TouchableOpacity>
+        <FloatingBackButton onPress={onBack} />
       </View>
 
       <View style={[stylesLocalWithTheme.fixedBtn, { right: 15, bottom: backBottom, backgroundColor: 'transparent' }]}>
@@ -1163,43 +1177,51 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
 const createStylesLocal = (colors: any) => StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 0 },
-  title: { marginBottom: 20 },
-  row: { flexDirection: 'row', marginBottom: 10 },
+  row: { flexDirection: 'row', marginBottom: SETTINGS_BLOCK.gap },
 
   statCard: {
     width: GRAPH_WIDTH,
     height: STAT_CARD_HEIGHT,
-    borderRadius: RADIUS,
     position: 'relative',
   },
-  statInner: { position: 'absolute', bottom: 15, left: 15 },
-  statValue: { fontSize: 42, fontWeight: '700' },
-  perfValue: { fontSize: 34, fontWeight: '700' },
-  statCaption: { fontSize: 12 },
+  statInner: {
+    position: 'absolute',
+    bottom: SETTINGS_BLOCK.padding,
+    left: SETTINGS_BLOCK.padding,
+  },
+  statValue: { fontSize: 42, fontWeight: '700', fontFamily: 'Poppins' },
+  perfValue: { fontSize: 34, fontWeight: '700', fontFamily: 'Poppins' },
+  statCaption: { fontSize: 12, fontFamily: 'Poppins' },
 
   graphCard: {
-    borderRadius: RADIUS,
     paddingTop: 10,
     width: GRAPH_WIDTH,
     height: GRAPH_HEIGHT + 60,
-    overflow: 'hidden',
   },
-  graphValue: { fontSize: 36, fontWeight: '600', paddingLeft: 10 },
-  graphCaption: { fontSize: 12, marginBottom: 5, paddingLeft: 10 },
+  graphValue: {
+    fontSize: 36,
+    fontWeight: '600',
+    paddingLeft: SETTINGS_BLOCK.padding,
+    fontFamily: 'Poppins',
+  },
+  graphCaption: {
+    fontSize: 12,
+    marginBottom: 5,
+    paddingLeft: SETTINGS_BLOCK.padding,
+    fontFamily: 'Poppins',
+  },
 
   suggestionCard: {
-    borderRadius: RADIUS,
-    padding: 20,
-    marginBottom: 20,
+    padding: SETTINGS_BLOCK.padding,
+    marginBottom: SETTINGS_BLOCK.gap,
   },
   suggestionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  suggestionTitle: { fontSize: 18, marginRight: 6 },
-  suggestionText: { fontSize: 14, marginBottom: 4 },
+  suggestionTitle: { fontSize: 18, marginRight: 6, fontFamily: 'Poppins' },
+  suggestionText: { fontSize: 14, marginBottom: 4, fontFamily: 'Poppins' },
 
   statusCard: {
-    borderRadius: RADIUS,
-    padding: 16,
-    marginBottom: 10,
+    padding: SETTINGS_BLOCK.padding,
+    marginBottom: SETTINGS_BLOCK.gap,
   },
   statusHeader: {
     flexDirection: 'row',

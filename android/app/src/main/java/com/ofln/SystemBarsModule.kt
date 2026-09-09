@@ -11,18 +11,23 @@ class SystemBarsModule(private val ctx: ReactApplicationContext)
   override fun getName() = "SystemBars"
 
   /**
-   * Status bar stays transparent (RN shell paints under it).
-   * [navColor] is the opaque shell hex used to paint the window / decor /
-   * pre-35 nav bar so the physical bottom edge never shows a 1px gap.
+   * Status and nav bars share the opaque shell hex (window / decor / pre-35
+   * bar colors) so top and bottom system chrome match and physical edges
+   * never show a 1px gap.
    */
   @ReactMethod
   fun setSystemBarColors(statusColor: String, navColor: String, darkIcons: Boolean) {
     val activity = currentActivity ?: return
 
     activity.runOnUiThread {
-      val fill = parseBarColor(navColor)
-      // Never seal with transparent — that is the 1px gap we're closing.
-      if (fill == Color.TRANSPARENT) return@runOnUiThread
+      val status = parseBarColor(statusColor)
+      val nav = parseBarColor(navColor)
+      // Prefer nav, then status — never seal with transparent.
+      val fill = when {
+        nav != Color.TRANSPARENT -> nav
+        status != Color.TRANSPARENT -> status
+        else -> return@runOnUiThread
+      }
       SystemBarChrome.apply(activity.window, fill, darkIcons)
     }
   }

@@ -18,6 +18,7 @@ import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
 import { PersonaCard } from "../components/PersonaCard";
+import { FloatingBackButton } from "../components/FloatingBackButton";
 import { BottomSheet } from "../components/BottomSheet";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import {
@@ -549,14 +550,6 @@ export default function PersonasLibraryScreen({
     minHeight: 42,
   };
 
-  const pillButtonTextStyle = {
-    color: theme.colors.primaryText,
-    fontSize: 20,
-    fontFamily: "Poppins",
-    marginLeft: 8,
-    marginBottom: 2,
-  };
-
   return (
       <View style={[styles.container, { padding: 20, flex: 1, backgroundColor: theme.colors.background }]}>
       <Text style={styles.settingsTitle}>Personas</Text>
@@ -613,10 +606,7 @@ export default function PersonasLibraryScreen({
       </ScrollView>
 
       <View style={[fixedBtnStyle, { left: 15 }]}>
-        <TouchableOpacity onPress={onBack} style={pillButtonStyle}>
-          <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
-          <Text style={pillButtonTextStyle}>Back</Text>
-        </TouchableOpacity>
+        <FloatingBackButton onPress={onBack} />
       </View>
 
       <View

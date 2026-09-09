@@ -17,6 +17,9 @@ import {
 } from './promptHeuristics';
 import { buildStopSequences } from './thinkStreamParser';
 
+/** How prompt-length heuristics apply to this completion turn. */
+export type PromptHeuristicMode = 'default' | 'debate';
+
 export interface BuildCompletionParamsInput {
   userText: string;
   modelName: string;
@@ -27,6 +30,11 @@ export interface BuildCompletionParamsInput {
     /** Optional for older call sites; defaults to auto. */
     thinkingMode?: ModelSettings['thinkingMode'];
   };
+  /**
+   * `debate`: honor settings.n_predict (no 96-token simple cap); Auto thinking
+   * prefers off so Perspective seats stay mobile-safe.
+   */
+  heuristicMode?: PromptHeuristicMode;
 }
 
 export interface BuiltCompletionParams {
@@ -52,9 +60,10 @@ export function buildCompletionParams(
   input: BuildCompletionParamsInput,
 ): BuiltCompletionParams {
   const { userText, modelName, settings } = input;
+  const heuristicMode = input.heuristicMode ?? 'default';
+  const debate = heuristicMode === 'debate';
   const policy = resolveModelPolicy(modelName);
   const family = policy.family;
-  const simple = isSimplePrompt(userText);
   // Qwen tiny (≤1B): HF warns 0.8B loops more in thinking mode.
   const tinyQwen = family.id === 'qwen3' && policy.sizeTier === 'tiny';
 
@@ -63,15 +72,23 @@ export function buildCompletionParams(
     thinkingMode: settings.thinkingMode,
     strategy: policy.thinking.strategy,
     userText,
+    preferNoThinking: debate,
   });
 
   const thinkingActive = !!enableThinking;
-  let n_predict = resolveNPredict(userText, settings.n_predict, thinkingActive);
+  // Debate seats must keep the configured reply budget (e.g. 384), not the
+  // casual-chat 96-token simple-prompt cap that truncates mid-sentence.
+  let n_predict = resolveNPredict(userText, settings.n_predict, thinkingActive, {
+    skipSimpleCap: debate,
+  });
 
   // Cap thinking budget on tiny Qwen so loops cannot burn the whole phone turn.
   if (thinkingActive && tinyQwen) {
     n_predict = Math.min(n_predict, 384);
   }
+
+  // Debate non-thinking: treat like simple for anti-CoT stops / anti-loop sampling.
+  const simple = debate ? !thinkingActive : isSimplePrompt(userText);
 
   let temperature = settings.temperature;
   let top_p = settings.top_p;

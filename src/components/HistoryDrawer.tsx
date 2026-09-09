@@ -28,6 +28,7 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import { FrostedGlass } from './FrostedGlass';
+import { FloatingBackButton } from './FloatingBackButton';
 import { StaggerFadeIn } from './StaggerFadeIn';
 import { useTheme } from '../context/ThemeContext';
 import type { ChatConversation, Message } from '../services/chatHistoryService';
@@ -64,7 +65,7 @@ const SEARCH_PILL_H = 44;
 /** Icon + "Search" label pill (not a circle). */
 const SEARCH_PILL_COLLAPSED_W = 108;
 const BOTTOM_CHROME_PAD_H = 15;
-const BACK_ROW_H = 48;
+const BACK_ROW_H = 42;
 
 /** Gap between the expanded search pill and the top of the keyboard. */
 const SEARCH_ABOVE_KEYBOARD_GAP = 32;
@@ -1781,32 +1782,7 @@ export function HistoryDrawer({
             justifyContent: 'space-between',
           }}
         >
-          <TouchableOpacity
-            onPress={onClose}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              backgroundColor: theme.colors.primary,
-              paddingHorizontal: 16,
-              paddingVertical: 8,
-              borderRadius: 30,
-            }}
-            activeOpacity={0.85}
-            accessibilityLabel="Back"
-          >
-            <Ionicons name="arrow-back" size={24} color={theme.colors.primaryText} />
-            <Text
-              style={{
-                color: theme.colors.primaryText,
-                fontSize: 20,
-                fontFamily: 'Poppins',
-                marginLeft: 8,
-                marginBottom: 2,
-              }}
-            >
-              Back
-            </Text>
-          </TouchableOpacity>
+          <FloatingBackButton onPress={onClose} />
 
           <TouchableOpacity
             onPress={() => {

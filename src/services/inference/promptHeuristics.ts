@@ -93,6 +93,11 @@ export function resolveThinkingModeForTurn(opts: {
   thinkingMode?: ThinkingMode | null;
   strategy: ThinkingStrategy;
   userText: string;
+  /**
+   * Multi-seat debate: Auto prefers off so CoT does not burn the seat budget
+   * or meta-loop on stacked system prompts. Explicit On/Off still honored.
+   */
+  preferNoThinking?: boolean;
 }): boolean | undefined {
   // On/Off only force the Jinja flag (mainly Qwen). always_on is a no-op vs Auto here.
   if (opts.strategy !== 'jinja_enable') {
@@ -102,6 +107,7 @@ export function resolveThinkingModeForTurn(opts: {
   const mode: ThinkingMode = opts.thinkingMode ?? 'auto';
   if (mode === 'on') return true;
   if (mode === 'off') return false;
+  if (opts.preferNoThinking) return false;
   // auto: identical to historical resolveEnableThinking path
   return resolveEnableThinking(opts.userText, true);
 }
@@ -175,11 +181,12 @@ export function resolveNPredict(
   userText: string,
   settingsNPredict: number,
   thinking: boolean,
+  opts?: { skipSimpleCap?: boolean },
 ): number {
   if (thinking) {
     return Math.max(settingsNPredict, 512);
   }
-  if (isSimplePrompt(userText)) {
+  if (!opts?.skipSimpleCap && isSimplePrompt(userText)) {
     return Math.min(settingsNPredict, 96);
   }
   return settingsNPredict;

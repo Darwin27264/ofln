@@ -38,9 +38,10 @@ import {
   buildSeatSystemPrompt,
   resolveSeatModelFileName,
 } from '../services/perspectiveOrchestrator';
-import type {
-  PerspectiveDebateOverrides,
-  PerspectiveSeat,
+import {
+  seatDisplayName,
+  type PerspectiveDebateOverrides,
+  type PerspectiveSeat,
 } from '../services/perspectiveService';
 
 import type {
@@ -990,9 +991,12 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
             opts.personas,
             settings.systemPrompt,
           );
+          // Clear prior seat's thinking indicator before this completion.
+          setCurrentThought('');
           const nativeMessages = buildNativeMessagesForSeat(
             messagesRef.current,
             systemPrompt,
+            { seatLabel: seatDisplayName(seat) },
           );
 
           if (typeof nativeContext.stopCompletion === 'function') {
@@ -1019,6 +1023,10 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
               settings,
               { onToken, onThought },
               abortController.signal,
+              {
+                heuristicUserText: typed || displayContent,
+                heuristicMode: 'debate',
+              },
             );
 
             if (generationId !== generationIdRef.current) {
