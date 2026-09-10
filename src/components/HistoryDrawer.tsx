@@ -152,7 +152,7 @@ function splitIntoColumns(chats: ChatConversation[]): [ChatConversation[], ChatC
 type ChatHistoryCardProps = {
   chat: ChatConversation;
   currentChatId: string | null;
-  theme: { colors: Record<string, string> };
+  theme: { mode: 'light' | 'dark'; colors: Record<string, string> };
   onPress: () => void;
   onLongPress: (event: any) => void;
   isEditing: boolean;
@@ -164,6 +164,13 @@ type ChatHistoryCardProps = {
   isSelected?: boolean;
   onToggleSelect?: () => void;
 };
+
+/** Current-chat fill — lighter than `card` so the active thread reads clearly. */
+function currentChatBackground(theme: ChatHistoryCardProps['theme']): string {
+  // Dark: secondary (#2A2A2A) is too close to card (#1A1A1A); lift further.
+  if (theme.mode === 'dark') return '#3A3A3A';
+  return theme.colors.secondary;
+}
 
 const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(
   ({
@@ -223,13 +230,17 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(
         onPress={isMultiselectMode ? onToggleSelect : onPress}
         onLongPress={isMultiselectMode ? undefined : onLongPress}
         style={{
-          backgroundColor: isCurrentChat ? theme.colors.secondary : theme.colors.card,
+          backgroundColor: isCurrentChat
+            ? currentChatBackground(theme)
+            : theme.colors.card,
           borderRadius: CARD_RADIUS,
           borderWidth: 1,
           borderColor: isSelected
             ? theme.colors.primary
             : isCurrentChat
-              ? theme.colors.border
+              ? theme.mode === 'dark'
+                ? '#5A5A5A'
+                : theme.colors.border
               : theme.colors.borderLight,
           padding: 16,
           marginBottom: GAP,
@@ -1785,10 +1796,7 @@ export function HistoryDrawer({
           <FloatingBackButton onPress={onClose} />
 
           <TouchableOpacity
-            onPress={() => {
-              onNewChat();
-              onClose();
-            }}
+            onPress={onNewChat}
             style={[
               topRightPillStyle,
               {

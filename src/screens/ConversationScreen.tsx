@@ -636,8 +636,11 @@ export default function ConversationScreen({
   const panelAnim = useRef(new Animated.Value(-panelWidth)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  /** Shell/system-bar frost — drops at close *start* so it crossfades with the slide. */
+  const [historyChromeOpen, setHistoryChromeOpen] = useState(false);
   const panelAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const panelWantOpenRef = useRef(false);
+  const panelCloseCallbacksRef = useRef<Array<() => void>>([]);
 
   useEffect(() => {
     if (!isPanelOpen && isMultiselectMode) {
@@ -646,10 +649,10 @@ export default function ConversationScreen({
     }
   }, [isPanelOpen, isMultiselectMode, multiselectHeaderHeight, multiselectHeaderOpacity]);
 
-  // Frosted shell/system bars follow both panels through their full close.
+  // Frosted shell/system bars follow history chrome (synced to slide) + model panel.
   useEffect(() => {
-    onHistoryPanelChange?.(isPanelOpen || isModelSelectorChromeOpen);
-  }, [isPanelOpen, isModelSelectorChromeOpen, onHistoryPanelChange]);
+    onHistoryPanelChange?.(historyChromeOpen || isModelSelectorChromeOpen);
+  }, [historyChromeOpen, isModelSelectorChromeOpen, onHistoryPanelChange]);
 
   // Always restore system bars if this screen unmounts while frosted chrome was up
   useEffect(() => {
@@ -945,7 +948,9 @@ export default function ConversationScreen({
     panelWantOpenRef.current = opening;
 
     if (opening) {
+      panelCloseCallbacksRef.current = [];
       setIsPanelOpen(true);
+      setHistoryChromeOpen(true);
       const anim = Animated.parallel([
         Animated.spring(panelAnim, {
           toValue: 0,
@@ -956,8 +961,8 @@ export default function ConversationScreen({
         }),
         Animated.timing(backdropOpacity, {
           toValue: 1,
-          duration: 100,
-          easing: EASING.STANDARD,
+          duration: 160,
+          easing: EASING.DECELERATE,
           useNativeDriver: true,
         }),
       ]);
@@ -971,17 +976,21 @@ export default function ConversationScreen({
       return;
     }
 
+    // Drop shell frost with the slide — not after it — so close feels one beat.
+    setHistoryChromeOpen(false);
+
     const anim = Animated.parallel([
       Animated.timing(panelAnim, {
         toValue: -panelWidth,
-        duration: 200,
-        easing: EASING.EASE_OUT,
+        duration: ANIMATION_DURATIONS.PAGE,
+        // Accelerate off-screen — ease-out on exit crawls at the end and fights BlurView.
+        easing: EASING.ACCELERATE,
         useNativeDriver: true,
       }),
       Animated.timing(backdropOpacity, {
         toValue: 0,
-        duration: 200,
-        easing: EASING.EASE_OUT,
+        duration: ANIMATION_DURATIONS.PAGE,
+        easing: EASING.ACCELERATE,
         useNativeDriver: true,
       }),
     ]);
@@ -994,42 +1003,70 @@ export default function ConversationScreen({
       setIsPanelOpen(false);
       setHistorySearchQuery('');
       if (isMultiselectMode) exitMultiselectMode();
+      const pending = panelCloseCallbacksRef.current;
+      panelCloseCallbacksRef.current = [];
+      pending.forEach((cb) => {
+        try {
+          cb();
+        } catch (e) {
+          console.error('History panel close callback failed:', e);
+        }
+      });
     });
   }, [panelAnim, panelWidth, backdropOpacity, isMultiselectMode, exitMultiselectMode]);
 
+  /** Close the drawer, then run work so BlurView isn’t recompositing a changing underlay mid-slide. */
+  const closePanelThen = useCallback(
+    (afterClose: () => void) => {
+      const alreadyClosed =
+        !panelWantOpenRef.current && !isPanelOpen && !panelAnimationRef.current;
+      if (alreadyClosed) {
+        afterClose();
+        return;
+      }
+      panelCloseCallbacksRef.current.push(afterClose);
+      // Start close only once; further callers just queue work for settle.
+      if (panelWantOpenRef.current) {
+        togglePanel();
+      }
+    },
+    [togglePanel, isPanelOpen],
+  );
+
   // Handle chat selection — re-enable stick-to-newest for the loaded thread.
   const handleChatSelect = useCallback(
-    async (chat: ChatConversation) => {
-      setAutoScrollEnabled(true);
-      onLoadChat(chat.id, chat.messages);
-      if (chat.isPerspective && chat.perspectivePresetSnapshot) {
-        setIsPerspectiveMode(true);
-        setPerspectiveSnapshot(
-          chat.perspectivePresetSnapshot as PerspectivePresetSnapshot,
-        );
-        setActivePerspectivePreset(
-          chat.perspectivePresetId
-            ? ({
-                id: chat.perspectivePresetId,
-                name: chat.perspectivePresetSnapshot.name,
-                seats: chat.perspectivePresetSnapshot.seats as PerspectivePreset['seats'],
-                overrides: chat.perspectivePresetSnapshot.overrides,
-                createdAt: 0,
-                updatedAt: 0,
-              } as PerspectivePreset)
-            : null,
-        );
-        perspectiveMarkedChatRef.current = chat.id;
-      } else {
-        setIsPerspectiveMode(false);
-        setActivePerspectivePreset(null);
-        setPerspectiveSnapshot(null);
-        perspectiveMarkedChatRef.current = null;
-      }
-      setIsTemporaryMode(false);
-      togglePanel();
+    (chat: ChatConversation) => {
+      closePanelThen(() => {
+        setAutoScrollEnabled(true);
+        onLoadChat(chat.id, chat.messages);
+        if (chat.isPerspective && chat.perspectivePresetSnapshot) {
+          setIsPerspectiveMode(true);
+          setPerspectiveSnapshot(
+            chat.perspectivePresetSnapshot as PerspectivePresetSnapshot,
+          );
+          setActivePerspectivePreset(
+            chat.perspectivePresetId
+              ? ({
+                  id: chat.perspectivePresetId,
+                  name: chat.perspectivePresetSnapshot.name,
+                  seats: chat.perspectivePresetSnapshot.seats as PerspectivePreset['seats'],
+                  overrides: chat.perspectivePresetSnapshot.overrides,
+                  createdAt: 0,
+                  updatedAt: 0,
+                } as PerspectivePreset)
+              : null,
+          );
+          perspectiveMarkedChatRef.current = chat.id;
+        } else {
+          setIsPerspectiveMode(false);
+          setActivePerspectivePreset(null);
+          setPerspectiveSnapshot(null);
+          perspectiveMarkedChatRef.current = null;
+        }
+        setIsTemporaryMode(false);
+      });
     },
-    [onLoadChat, togglePanel, setAutoScrollEnabled],
+    [onLoadChat, closePanelThen, setAutoScrollEnabled],
   );
 
   // Helper function to format month/year
@@ -1130,6 +1167,11 @@ export default function ConversationScreen({
     onNewChat();
     aiChat.newChat();
   }, [aiChat.newChat, onNewChat]);
+
+  /** History drawer "New chat" — close first so the underlay doesn’t thrash mid-slide. */
+  const handleHistoryNewChat = useCallback(() => {
+    closePanelThen(handleNewChatPress);
+  }, [closePanelThen, handleNewChatPress]);
 
   /**
    * Handle chat deletion
@@ -2949,7 +2991,7 @@ export default function ConversationScreen({
           onClose={togglePanel}
           onChatPress={handleChatSelect}
           onChatLongPress={handleLongPress}
-          onNewChat={handleNewChatPress}
+          onNewChat={handleHistoryNewChat}
           menuVisible={menuVisible}
           menuPosition={menuPosition}
           selectedMenuChatId={selectedChatId}
