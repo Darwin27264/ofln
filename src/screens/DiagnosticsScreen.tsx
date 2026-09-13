@@ -1,5 +1,5 @@
 // DiagnosticsScreen.tsx — logs, acceleration check, and llama.rn smoke tests
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -11,9 +11,11 @@ import {
   Platform,
   Animated,
   ActivityIndicator,
+  Dimensions,
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import Clipboard from "@react-native-clipboard/clipboard";
+import { LineChart } from "react-native-chart-kit";
 import { initLlama, getBackendDevicesInfo } from "llama.rn";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
@@ -26,8 +28,14 @@ import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/lay
 import { getAccelerationConfig } from "../services/accelerationCapabilityService";
 import { checkFileExists } from "../services/llamaService";
 import { DEFAULT_SETTINGS } from "../services/modelSettingsService";
-import { useFadeScalePresence } from "../hooks/useFadeScalePresence";
-import { OVERLAY_MOTION } from "../utils/animationConfig";
+import {
+  formatThermalHint,
+  formatThermalLabel,
+  getThermalLevel,
+  thermalLevelToGraphValue,
+  type ThermalLevel,
+} from "../services/thermalService";
+import { EASING, OVERLAY_MOTION } from "../utils/animationConfig";
 
 interface Props {
   onBack: () => void;
@@ -39,6 +47,13 @@ interface Props {
 
 /** Match Settings tile height for the 2-up action blocks. */
 const SETTINGS_TILE_HEIGHT_DIAG = 130;
+/** Full content width — same as Acceleration + Smoke row. */
+const THERMAL_CARD_WIDTH = Dimensions.get("window").width - 40;
+const THERMAL_Y_LABEL_W = 34;
+const THERMAL_CHART_WIDTH = THERMAL_CARD_WIDTH - THERMAL_Y_LABEL_W;
+const THERMAL_CHART_HEIGHT = 72;
+const THERMAL_CHART_SHIFT = 14;
+const THERMAL_HISTORY_LEN = 24;
 
 function SectionLabel({ label, color }: { label: string; color: string }) {
   return (
@@ -60,7 +75,7 @@ function SectionLabel({ label, color }: { label: string; color: string }) {
 }
 
 export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: Props) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const styles = createStyles(theme.colors);
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
@@ -74,10 +89,88 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
   const [logPathSheetOpen, setLogPathSheetOpen] = useState(false);
   const [noModelSheetOpen, setNoModelSheetOpen] = useState(false);
   const [androidOnlySheetOpen, setAndroidOnlySheetOpen] = useState(false);
+  const [thermalLevel, setThermalLevel] = useState<ThermalLevel>("unknown");
+  const [thermalHistory, setThermalHistory] = useState<number[]>([]);
+  const [thermalRefreshing, setThermalRefreshing] = useState(false);
+  const thermalChartAnim = useRef(new Animated.Value(THERMAL_CHART_WIDTH)).current;
+  const thermalAnimatedOnce = useRef(false);
   const testScrollRef = useRef<ScrollView>(null);
+  /** Full-screen logs page: fade only (no scale) — scale on opaque fill looks glitchy. */
   const logOverlayOpacity = useRef(new Animated.Value(0)).current;
-  const logOverlayScale = useRef(new Animated.Value(OVERLAY_MOTION.FROM_SCALE)).current;
-  const logOverlayMounted = useFadeScalePresence(errorLogVisible, logOverlayOpacity, logOverlayScale);
+  const [logOverlayMounted, setLogOverlayMounted] = useState(false);
+  const [logOverlaySettled, setLogOverlaySettled] = useState(false);
+
+  // Mount before paint so the first frame is opacity 0 (no flash).
+  useLayoutEffect(() => {
+    if (!errorLogVisible) return;
+    setLogOverlayMounted(true);
+    setLogOverlaySettled(false);
+    logOverlayOpacity.setValue(0);
+  }, [errorLogVisible, logOverlayOpacity]);
+
+  // Enter/exit fade; after enter, unbind opacity (PageFadeIn pattern) then load content.
+  useEffect(() => {
+    if (!logOverlayMounted) return;
+
+    if (errorLogVisible) {
+      const anim = Animated.timing(logOverlayOpacity, {
+        toValue: 1,
+        duration: OVERLAY_MOTION.FADE_IN_MS,
+        easing: EASING.EASE_OUT,
+        useNativeDriver: true,
+      });
+      anim.start(({ finished }) => {
+        if (!finished) return;
+        logOverlayOpacity.setValue(1);
+        requestAnimationFrame(() => {
+          setLogOverlaySettled(true);
+        });
+      });
+      return () => anim.stop();
+    }
+
+    setLogOverlaySettled(false);
+    const anim = Animated.timing(logOverlayOpacity, {
+      toValue: 0,
+      duration: OVERLAY_MOTION.FADE_OUT_MS,
+      easing: EASING.EASE_IN,
+      useNativeDriver: true,
+    });
+    let exited = false;
+    anim.start(({ finished }) => {
+      if (!finished || exited) return;
+      exited = true;
+      setLogOverlayMounted(false);
+    });
+    return () => {
+      if (!exited) anim.stop();
+    };
+  }, [errorLogVisible, logOverlayMounted, logOverlayOpacity]);
+
+  const graphLineColor = isDark ? "#FFFFFF" : "#6B7280";
+
+  const thermalChartConfig = useMemo(() => {
+    const hexToRgba = (hex: string, alpha: number) => {
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    };
+    return {
+      backgroundColor: "transparent",
+      backgroundGradientFrom: "transparent",
+      backgroundGradientTo: "transparent",
+      backgroundGradientFromOpacity: 0,
+      backgroundGradientToOpacity: 0,
+      color: (o = 1) => hexToRgba(graphLineColor, o),
+      labelColor: () => "transparent",
+      strokeWidth: 2,
+      decimalPlaces: 0,
+      propsForDots: { r: "0" },
+      fillShadowGradient: graphLineColor,
+      fillShadowGradientOpacity: 0.25,
+    };
+  }, [graphLineColor]);
 
   const appendTestLog = (msg: string) => {
     if (__DEV__) {
@@ -85,6 +178,62 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
     }
     setTestLogLines((prev) => [...prev, msg]);
   };
+
+  const refreshThermal = async (opts?: { log?: boolean }) => {
+    setThermalRefreshing(true);
+    try {
+      const level = await getThermalLevel({ force: true });
+      setThermalLevel(level);
+      const y = thermalLevelToGraphValue(level);
+      setThermalHistory((prev) => {
+        const next = [...prev, y];
+        return next.length > THERMAL_HISTORY_LEN
+          ? next.slice(next.length - THERMAL_HISTORY_LEN)
+          : next;
+      });
+      if (opts?.log) {
+        appendTestLog(
+          `Thermal: ${formatThermalLabel(level)} — ${formatThermalHint(level)}`,
+        );
+      }
+    } catch {
+      setThermalLevel("unknown");
+      if (opts?.log) {
+        appendTestLog("Thermal: failed to read native status.");
+      }
+    } finally {
+      setThermalRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshThermal();
+    const id = setInterval(() => {
+      void refreshThermal();
+    }, 2500);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount poll only
+  }, []);
+
+  useEffect(() => {
+    if (thermalHistory.length < 2 || thermalAnimatedOnce.current) {
+      return;
+    }
+    thermalAnimatedOnce.current = true;
+    thermalChartAnim.setValue(0);
+    Animated.timing(thermalChartAnim, {
+      toValue: THERMAL_CHART_WIDTH,
+      duration: 700,
+      useNativeDriver: false,
+    }).start();
+  }, [thermalHistory.length, thermalChartAnim]);
+
+  const thermalSeries =
+    thermalHistory.length >= 2
+      ? thermalHistory
+      : thermalHistory.length === 1
+        ? [thermalHistory[0], thermalHistory[0]]
+        : [1, 1];
 
   const refreshLogContent = async () => {
     setLogsLoading(true);
@@ -99,9 +248,17 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
     }
   };
 
-  const handleViewLogs = () => {
-    setErrorLogVisible(true);
+  // Defer heavy TextInput mount until after fade settles — avoids mid-animation hitch.
+  useEffect(() => {
+    if (!logOverlaySettled || !errorLogVisible) return;
     void refreshLogContent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per settled open
+  }, [logOverlaySettled, errorLogVisible]);
+
+  const handleViewLogs = () => {
+    setErrorLogContent("");
+    setLogsLoading(true);
+    setErrorLogVisible(true);
   };
 
   const handleClearErrorLog = () => {
@@ -552,6 +709,148 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
           </TouchableOpacity>
         </View>
 
+        {/* Device thermal — Stages-style line chart (Cool / Warm / Hot) */}
+        <TouchableOpacity
+          onPress={() => void refreshThermal({ log: true })}
+          activeOpacity={0.85}
+          style={{ marginBottom: 20 }}
+          accessibilityLabel={`Device thermal ${formatThermalLabel(thermalLevel)}`}
+        >
+          <FrostedPanel
+            style={{
+              width: THERMAL_CARD_WIDTH,
+              height: SETTINGS_TILE_HEIGHT_DIAG,
+              overflow: "hidden",
+              paddingTop: 10,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "baseline",
+                paddingHorizontal: SETTINGS_BLOCK.padding,
+                zIndex: 2,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 22,
+                  fontWeight: "600",
+                  color:
+                    thermalLevel === "critical"
+                      ? theme.colors.error
+                      : thermalLevel === "serious"
+                        ? theme.colors.warning
+                        : theme.colors.text,
+                  fontFamily: "Poppins",
+                  marginRight: 8,
+                }}
+              >
+                {thermalRefreshing && thermalHistory.length === 0
+                  ? "…"
+                  : formatThermalLabel(thermalLevel)}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: theme.colors.textSecondary,
+                  fontFamily: "Poppins",
+                  flex: 1,
+                }}
+              >
+                thermal
+              </Text>
+              {thermalRefreshing ? (
+                <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+              ) : null}
+            </View>
+
+            <View
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                marginTop: 2,
+              }}
+            >
+              <View
+                style={{
+                  width: THERMAL_Y_LABEL_W,
+                  justifyContent: "space-between",
+                  paddingVertical: 6,
+                  paddingLeft: 8,
+                }}
+              >
+                {(["Hot", "Warm", "Cool"] as const).map((band) => (
+                  <Text
+                    key={band}
+                    style={{
+                      fontSize: 9,
+                      color: theme.colors.textSecondary,
+                      fontFamily: "Poppins",
+                      fontWeight: "600",
+                    }}
+                  >
+                    {band}
+                  </Text>
+                ))}
+              </View>
+
+              <View
+                style={{
+                  flex: 1,
+                  height: THERMAL_CHART_HEIGHT + THERMAL_CHART_SHIFT,
+                  overflow: "hidden",
+                }}
+              >
+                <Animated.View
+                  style={{
+                    width: thermalChartAnim,
+                    height: THERMAL_CHART_HEIGHT + THERMAL_CHART_SHIFT,
+                    position: "absolute",
+                    bottom: -THERMAL_CHART_SHIFT,
+                    left: 0,
+                    overflow: "hidden",
+                  }}
+                >
+                  <LineChart
+                    data={{
+                      labels: thermalSeries.map(() => ""),
+                      datasets: [
+                        {
+                          data: thermalSeries,
+                        },
+                        {
+                          // Invisible anchors so chart-kit keeps Cool→Hot scale
+                          data: [1, 3],
+                          color: () => "transparent",
+                          strokeWidth: 0,
+                          withDots: false,
+                        },
+                      ],
+                    }}
+                    width={THERMAL_CHART_WIDTH}
+                    height={THERMAL_CHART_HEIGHT + THERMAL_CHART_SHIFT}
+                    chartConfig={thermalChartConfig}
+                    bezier
+                    withDots={false}
+                    withInnerLines={false}
+                    withVerticalLabels={false}
+                    withHorizontalLabels={false}
+                    withVerticalLines={false}
+                    withHorizontalLines={false}
+                    style={{
+                      backgroundColor: "transparent",
+                      paddingLeft: 0,
+                      paddingRight: 0,
+                      marginLeft: -8,
+                    }}
+                  />
+                </Animated.View>
+              </View>
+            </View>
+          </FrostedPanel>
+        </TouchableOpacity>
+
         {/* 3. Live test output */}
         <SectionLabel label="Test output" color={theme.colors.textSecondary} />
 
@@ -590,17 +889,18 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
         <FloatingBackButton onPress={onBack} />
       </View>
 
-      {/* Full-screen logs viewer — absolute overlay (not RN Modal) */}
+      {/* Full-screen logs viewer — fade-only absolute overlay (not RN Modal) */}
       {logOverlayMounted && (
         <Animated.View
+          collapsable={false}
           style={[
             StyleSheet.absoluteFillObject,
             {
               backgroundColor: theme.colors.background,
               zIndex: 10000,
               elevation: 10000,
-              opacity: logOverlayOpacity,
-              transform: [{ scale: logOverlayScale }],
+              // Unbind opacity after settle so Android isn't stuck on a native opacity layer.
+              ...(logOverlaySettled ? {} : { opacity: logOverlayOpacity }),
             },
           ]}
         >

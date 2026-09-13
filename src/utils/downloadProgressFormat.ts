@@ -68,36 +68,43 @@ export function formatBytesPerSecond(bps: number): string {
   return `${formatBytesShort(bps)}/s`;
 }
 
-/** Calm ETA: "~30s", "~4m", "~1h". */
+/** Calm ETA: always a single short token ("~5s", "~4m", "~2h") — never wraps. */
 export function formatEtaSeconds(etaSeconds: number): string {
   if (!(etaSeconds >= 0) || !Number.isFinite(etaSeconds)) return '';
-  if (etaSeconds < 5) return '~a few seconds';
   if (etaSeconds < 60) return `~${Math.max(5, Math.round(etaSeconds / 5) * 5)}s`;
   const mins = Math.round(etaSeconds / 60);
   if (mins < 60) return `~${mins}m`;
-  const hours = Math.floor(mins / 60);
-  const rem = mins % 60;
-  if (rem === 0) return `~${hours}h`;
-  return `~${hours}h ${rem}m`;
+  const hours = Math.max(1, Math.round(mins / 60));
+  return `~${hours}h`;
 }
 
 /**
- * One calm secondary line under percent, e.g. "1.2 MB/s · ~4m".
- * Empty when rate is unknown (early progress / stalled).
+ * Speed on the first line, ETA on the second (newline-separated).
+ * Each line is a short token so ModelCard can pin numberOfLines={1} per row.
  */
 export function formatDownloadProgressLine(
   info: Pick<DownloadProgressInfo, 'bytesPerSecond' | 'etaSeconds'>,
 ): string {
-  const parts: string[] = [];
-  if (info.bytesPerSecond != null && info.bytesPerSecond > 0) {
-    const speed = formatBytesPerSecond(info.bytesPerSecond);
-    if (speed) parts.push(speed);
-  }
-  if (info.etaSeconds != null && info.etaSeconds > 0) {
-    const eta = formatEtaSeconds(info.etaSeconds);
-    if (eta) parts.push(eta);
-  }
-  return parts.join(' · ');
+  const speed =
+    info.bytesPerSecond != null && info.bytesPerSecond > 0
+      ? formatBytesPerSecond(info.bytesPerSecond)
+      : '';
+  const eta =
+    info.etaSeconds != null && info.etaSeconds > 0
+      ? formatEtaSeconds(info.etaSeconds)
+      : '';
+  if (speed && eta) return `${speed}\n${eta}`;
+  return speed || eta;
+}
+
+/** Split {@link formatDownloadProgressLine} into fixed speed / eta rows. */
+export function splitDownloadProgressLines(detail: string | undefined | null): {
+  speed: string;
+  eta: string;
+} {
+  if (!detail) return { speed: '', eta: '' };
+  const [speed = '', eta = ''] = detail.split('\n');
+  return { speed: speed.trim(), eta: eta.trim() };
 }
 
 /** Append a sample and trim to window; mutates and returns the array. */

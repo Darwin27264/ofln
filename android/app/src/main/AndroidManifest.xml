@@ -8,6 +8,13 @@
     <!-- Platform STT (S30) — OS speech recognition. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- Source Monitor: periodic wake + foreground service while analyzing. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- Android 11+ package visibility for OS TTS / STT engines (S29 / S30). -->
     <queries>
       <intent>
@@ -39,5 +46,11 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
+
+      <!-- react-native-background-actions foreground service -->
+      <service
+        android:name="com.asterinet.react.bgactions.RNBackgroundActionsTask"
+        android:foregroundServiceType="dataSync"
+        android:exported="false" />
     </application>
 </manifest>

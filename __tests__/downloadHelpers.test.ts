@@ -62,11 +62,18 @@ describe('sizesMatch (S07)', () => {
     expect(sizesMatch(100, 0)).toBe(true);
   });
 
-  it('allows 64KB tolerance', () => {
+  it('allows 64KB absolute tolerance', () => {
     const expected = 1_000_000;
     expect(sizesMatch(expected, expected)).toBe(true);
     expect(sizesMatch(expected + 64 * 1024, expected)).toBe(true);
     expect(sizesMatch(expected - 64 * 1024, expected)).toBe(true);
     expect(sizesMatch(expected + 64 * 1024 + 1, expected)).toBe(false);
+  });
+
+  it('allows 5% relative tolerance for large GGUFs', () => {
+    const expected = 2_000_000_000;
+    expect(sizesMatch(expected * 0.96, expected)).toBe(true);
+    expect(sizesMatch(expected * 1.04, expected)).toBe(true);
+    expect(sizesMatch(expected * 0.9, expected)).toBe(false);
   });
 });

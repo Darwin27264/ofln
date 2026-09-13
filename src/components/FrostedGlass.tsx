@@ -8,6 +8,8 @@ import {
   StyleSheet,
   View,
   ViewProps,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import { BlurView } from "@react-native-community/blur";
 import { useTheme } from "../context/ThemeContext";

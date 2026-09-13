@@ -13,6 +13,7 @@ import {
   MAX_OCR_CHARS,
   type NormalizedMedia,
 } from './mediaNormalizeService';
+import { withOcrRamHeadroom } from './ocrRamGuard';
 
 /** Collapse 3+ newlines to at most two. */
 function collapseBlankLines(text: string): string {
@@ -30,24 +31,28 @@ export async function extractTextFromImage(
 ): Promise<string> {
   const trimmed = (uri || '').trim();
   if (!trimmed) {
-    if (__DEV__) console.warn('[ocrService] Empty or invalid image URI');
+    console.warn('[ocrService] Empty or invalid image URI');
     return '';
   }
 
-  let media: NormalizedMedia | null = null;
-  try {
-    media = await normalizeMediaToFile(trimmed);
-    const result = await TextRecognition.recognize(toFileUri(media.path));
-    const raw = (result?.text ?? '').trim();
-    const text = truncateForPrompt(collapseBlankLines(raw), maxChars);
-    if (__DEV__ && raw) {
+  const { result, unloadedModel } = await withOcrRamHeadroom(async () => {
+    let media: NormalizedMedia | null = null;
+    try {
+      media = await normalizeMediaToFile(trimmed);
+      const ocr = await TextRecognition.recognize(toFileUri(media.path));
+      const raw = (ocr?.text ?? '').trim();
+      const text = truncateForPrompt(collapseBlankLines(raw), maxChars);
       console.log('[ocrService] Extracted length:', text.length, '(raw:', raw.length, ')');
+      return text;
+    } catch (error) {
+      console.warn('[ocrService] OCR failed:', error);
+      return '';
+    } finally {
+      await cleanupNormalizedMedia(media);
     }
-    return text;
-  } catch (error) {
-    if (__DEV__) console.warn('[ocrService] OCR failed:', error);
-    return '';
-  } finally {
-    await cleanupNormalizedMedia(media);
+  });
+  if (unloadedModel) {
+    console.log('[ocrService] LLM was unloaded for OCR peak-RAM headroom');
   }
+  return result;
 }

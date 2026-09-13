@@ -13,6 +13,7 @@ OFLN is designed as a **local-first** chat app: after a model file is on the dev
 |------|--------|--------|
 | Chat history | Local SQLite / app storage | Not uploaded by OFLN |
 | Personas, settings, Stages usage log | Local storage | Stages metrics are personal / on-device only |
+| Source Monitor tasks and run results | Local storage | Task definitions + fetched/analysis text; included in full backups (capped) |
 | GGUF model weights | App documents (or local import path) | Large files; never included in backups |
 | Hugging Face token (optional) | OS Keychain / Keystore | Never written into backup ZIP/JSON |
 | Temporary chats | Local until discarded | Same privacy as normal chats while active |
@@ -25,7 +26,7 @@ OFLN does **not** train models on your conversations and does **not** send promp
 
 ## When the network is used
 
-Network access is for **model discovery and download** (and whatever your **OS** does for speech), not for cloud chat completion.
+Network access is for **model discovery and download**, **user-configured Source Monitor URLs**, and whatever your **OS** does for speech — not for cloud chat completion.
 
 | Action | Host / channel | What is sent |
 |--------|----------------|--------------|
@@ -34,6 +35,7 @@ Network access is for **model discovery and download** (and whatever your **OS**
 | Custom HF URL fetch | Same — metadata then download | Same as above |
 | Optional HF token | Stored in Keychain; attached **only** for `huggingface.co` hosts | Token never sent to non-HF URLs by OFLN’s auth helper |
 | Backup re-download after restore | Catalogued download URLs (typically HF) | Same download path as a normal model pull |
+| Source Monitor / LLM prompt tasks (Settings → Tasks) | **URL you configure** (Source Monitor only) | Periodic GET for Source Monitor; **LLM prompt** tasks stay on-device (no fetch). Results stored locally |
 
 **Inference / chat:** runs via on-device `llama.rn` / llama.cpp. No OFLN cloud completion endpoint.
 
@@ -57,9 +59,10 @@ Network access is for **model discovery and download** (and whatever your **OS**
 ## Honest limits
 
 - **Browsing and downloading models requires network** (usually Hugging Face). Claiming “zero Internet permission” would be inaccurate while HF download remains a product feature.
+- **Source Monitor tasks contact URLs you choose** on a schedule (or when you tap Run now). Disable or delete tasks if you want no extra network beyond model downloads.
 - **Gated Hugging Face repos** need a token you provide; OFLN only uses it for HF hosts.
 - **Third-party model hosts:** if you paste a non-HF URL, the download client fetches that URL. Prefer trusted sources.
-- **OS services** (STT, TTS, share targets, system updates) have their own privacy policies.
+- **OS services** (STT, TTS, share targets, system updates, background fetch) have their own privacy policies. iOS may defer long on-device analysis until the app is open again.
 
 ---
 

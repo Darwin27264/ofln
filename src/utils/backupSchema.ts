@@ -11,6 +11,12 @@ import {
   isPerspectivePreset,
   type PerspectivePreset,
 } from '../services/perspectiveService';
+import {
+  isSourceMonitorTask,
+  isTaskRun,
+  type SourceMonitorTask,
+  type TaskRun,
+} from '../services/taskService';
 
 /** Magic — distinguish OFLN backups from arbitrary JSON/ZIP. */
 export const BACKUP_FORMAT = 'ofln-backup' as const;
@@ -62,6 +68,10 @@ export type BackupPayloadV1 = {
   personas?: Persona[];
   /** Perspective debate presets (optional; older backups omit). */
   perspectivePresets?: PerspectivePreset[];
+  /** Source Monitor tasks (optional; older backups omit). */
+  tasks?: SourceMonitorTask[];
+  /** Recent task runs, capped on export (optional). */
+  taskRuns?: TaskRun[];
   settings?: BackupSettingsV1;
   models?: BackupModelEntry[];
   /** Stages / performance log (opaque JSON array when valid). */
@@ -296,6 +306,14 @@ export function parseBackupPayload(raw: unknown): ParseBackupResult {
     ? o.perspectivePresets.filter(isPerspectivePreset)
     : undefined;
 
+  const tasks = Array.isArray(o.tasks)
+    ? o.tasks.filter(isSourceMonitorTask)
+    : undefined;
+
+  const taskRuns = Array.isArray(o.taskRuns)
+    ? o.taskRuns.filter(isTaskRun).slice(0, 200)
+    : undefined;
+
   let settings: BackupSettingsV1 | undefined;
   if (o.settings && typeof o.settings === 'object') {
     const s = o.settings as Record<string, unknown>;
@@ -363,6 +381,8 @@ export function parseBackupPayload(raw: unknown): ParseBackupResult {
       chats,
       personas,
       perspectivePresets,
+      tasks,
+      taskRuns,
       settings,
       models,
       usageLog,

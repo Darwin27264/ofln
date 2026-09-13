@@ -33,9 +33,10 @@ function assertKeychainAvailable(): void {
 export function isHuggingFaceUrl(url: string): boolean {
   try {
     const host = new URL(url).hostname.toLowerCase();
-    return host === 'huggingface.co' || host.endsWith('.huggingface.co');
+    // Only the main site — NOT cdn-lfs / cas-bridge (Bearer breaks CDN downloads).
+    return host === 'huggingface.co';
   } catch {
-    return /https?:\/\/([^/]*\.)?huggingface\.co([/:?]|$)/i.test(url);
+    return /^https?:\/\/huggingface\.co([/:?]|$)/i.test(url);
   }
 }
 

@@ -38,6 +38,14 @@ import {
   type PerspectiveChatMeta,
 } from './perspectiveService';
 import {
+  getAllTaskRuns,
+  getTasks,
+  mergeTaskRunsImport,
+  mergeTasksImport,
+  replaceAllTaskRuns,
+  replaceAllTasks,
+} from './taskService';
+import {
   exportAllModelSettings,
   importModelSettingsMap,
 } from './modelSettingsService';
@@ -100,6 +108,8 @@ export type ImportBackupResult = {
   chatsImported: number;
   personasImported: number;
   perspectivePresetsImported: number;
+  tasksImported: number;
+  taskRunsImported: number;
   settingsApplied: boolean;
   themeMode: 'light' | 'dark' | null;
   models: ModelQueueResult | null;
@@ -219,16 +229,30 @@ async function collectSettings(): Promise<BackupSettingsV1> {
 }
 
 async function buildFullPayload(): Promise<BackupPayloadV1> {
-  const [chatsRaw, personas, perspectivePresets, settings, models, usageLog] =
+  const [chatsRaw, personas, perspectivePresets, tasks, taskRuns, settings, models, usageLog] =
     await Promise.all([
       chatHistoryService.getAllChats(),
       getPersonas(),
       getPerspectivePresets(),
+      getTasks(),
+      getAllTaskRuns(),
       collectSettings(),
       collectModelEntries(),
       readUsageLog(),
     ]);
   const chats = await attachPerspectiveMetaToChats(chatsRaw);
+  // Cap run payloads in backups (fetched text can be large).
+  const cappedRuns = taskRuns.slice(0, 100).map((r) => ({
+    ...r,
+    fetchedText:
+      r.fetchedText && r.fetchedText.length > 4000
+        ? `${r.fetchedText.slice(0, 4000)}\n\n[…truncated for backup]`
+        : r.fetchedText,
+    resultText:
+      r.resultText && r.resultText.length > 8000
+        ? `${r.resultText.slice(0, 8000)}\n\n[…truncated for backup]`
+        : r.resultText,
+  }));
   return {
     format: BACKUP_FORMAT,
     schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -238,6 +262,8 @@ async function buildFullPayload(): Promise<BackupPayloadV1> {
     chats: chats.map(sanitizeChatForBackup),
     personas,
     perspectivePresets,
+    tasks,
+    taskRuns: cappedRuns,
     settings,
     models,
     usageLog,
@@ -269,6 +295,8 @@ function fullPayloadToZipBytes(payload: BackupPayloadV1): Uint8Array {
       'chats.json',
       'personas.json',
       'perspectives.json',
+      'tasks.json',
+      'task_runs.json',
       'settings.json',
       'models.json',
       'stages.json',
@@ -281,6 +309,11 @@ function fullPayloadToZipBytes(payload: BackupPayloadV1): Uint8Array {
     {
       name: 'perspectives.json',
       data: utf8ToBytes(JSON.stringify(payload.perspectivePresets ?? [], null, 2)),
+    },
+    { name: 'tasks.json', data: utf8ToBytes(JSON.stringify(payload.tasks ?? [], null, 2)) },
+    {
+      name: 'task_runs.json',
+      data: utf8ToBytes(JSON.stringify(payload.taskRuns ?? [], null, 2)),
     },
     { name: 'settings.json', data: utf8ToBytes(JSON.stringify(payload.settings ?? {}, null, 2)) },
     { name: 'models.json', data: utf8ToBytes(JSON.stringify(payload.models ?? [], null, 2)) },
@@ -326,6 +359,8 @@ function zipBytesToPayload(buf: Uint8Array): BackupPayloadV1 {
     chats: readJson('chats.json'),
     personas: readJson('personas.json'),
     perspectivePresets: readJson('perspectives.json'),
+    tasks: readJson('tasks.json'),
+    taskRuns: readJson('task_runs.json'),
     settings: readJson('settings.json'),
     models: readJson('models.json'),
     usageLog: readJson('stages.json'),
@@ -558,6 +593,8 @@ export async function importBackup(opts: {
     let chatsImported = 0;
     let personasImported = 0;
     let perspectivePresetsImported = 0;
+    let tasksImported = 0;
+    let taskRunsImported = 0;
     let settingsApplied = false;
     let themeMode: 'light' | 'dark' | null = null;
 
@@ -592,6 +629,24 @@ export async function importBackup(opts: {
         await mergePerspectivePresetsImport(payload.perspectivePresets);
       }
       perspectivePresetsImported = payload.perspectivePresets.length;
+    }
+
+    if (payload.tasks) {
+      if (mode === 'replace') {
+        await replaceAllTasks(payload.tasks);
+      } else {
+        await mergeTasksImport(payload.tasks);
+      }
+      tasksImported = payload.tasks.length;
+    }
+
+    if (payload.taskRuns) {
+      if (mode === 'replace') {
+        await replaceAllTaskRuns(payload.taskRuns);
+      } else {
+        await mergeTaskRunsImport(payload.taskRuns);
+      }
+      taskRunsImported = payload.taskRuns.length;
     }
 
     if (payload.settings) {
@@ -665,6 +720,8 @@ export async function importBackup(opts: {
       chatsImported,
       personasImported,
       perspectivePresetsImported,
+      tasksImported,
+      taskRunsImported,
       settingsApplied,
       themeMode,
       models: queueResult,
@@ -703,6 +760,16 @@ export function formatImportSummary(result: ImportBackupResult): string {
       `${result.perspectivePresetsImported} perspective preset${result.perspectivePresetsImported === 1 ? '' : 's'}.`,
     );
   }
+  if (result.tasksImported > 0) {
+    lines.push(
+      `${result.tasksImported} task${result.tasksImported === 1 ? '' : 's'}.`,
+    );
+  }
+  if (result.taskRunsImported > 0) {
+    lines.push(
+      `${result.taskRunsImported} task run${result.taskRunsImported === 1 ? '' : 's'}.`,
+    );
+  }
   if (result.settingsApplied) {
     lines.push('Settings restored.');
   }
@@ -719,6 +786,7 @@ export function formatImportSummary(result: ImportBackupResult): string {
     result.chatsImported === 0 &&
     result.personasImported === 0 &&
     result.perspectivePresetsImported === 0 &&
+    result.tasksImported === 0 &&
     !result.settingsApplied
   ) {
     lines.push('Nothing new was applied.');

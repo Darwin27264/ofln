@@ -7,7 +7,6 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   ScrollView,
   InteractionManager,
@@ -58,7 +57,6 @@ export default function PersonasLibraryScreen({
   const scrollPadBottom = useScrollPadForFloatingBack();
 
   const [personas, setPersonas] = useState<Persona[]>([]);
-  const [searchQuery, setSearchQuery] = useState<string>("");
   const [expandedPersonaId, setExpandedPersonaId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -332,21 +330,8 @@ export default function PersonasLibraryScreen({
     initializePersonas();
   }, [loadPersonas, seedSamplePersonas]);
 
-  const filteredPersonas = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return personas;
-    }
-    const query = searchQuery.toLowerCase();
-    return personas.filter(
-      (persona) =>
-        persona.name.toLowerCase().includes(query) ||
-        persona.tagline?.toLowerCase().includes(query) ||
-        persona.tags?.some((tag) => tag.toLowerCase().includes(query))
-    );
-  }, [personas, searchQuery]);
-
   const sortedPersonas = useMemo(() => {
-    return [...filteredPersonas].sort((a, b) => {
+    return [...personas].sort((a, b) => {
       if (a.lastUsed && b.lastUsed) {
         return b.lastUsed - a.lastUsed;
       }
@@ -354,7 +339,7 @@ export default function PersonasLibraryScreen({
       if (b.lastUsed) return 1;
       return b.createdAt - a.createdAt;
     });
-  }, [filteredPersonas]);
+  }, [personas]);
 
   const handleAddPersona = useCallback(() => {
     if (onEditPersona) {
@@ -460,25 +445,6 @@ export default function PersonasLibraryScreen({
     [expandedPersonaId, handleEditPersona, handleDuplicatePersona, handleDeletePersona, handleToggleExpand, onUsePersona]
   );
 
-  const searchContainerStyle = {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    backgroundColor: theme.colors.surface,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  };
-
-  const searchInputStyle = {
-    flex: 1,
-    marginLeft: 8,
-    color: theme.colors.text,
-    fontFamily: "Poppins",
-    fontSize: 16,
-  };
-
   const emptyStateContainerStyle = {
     flex: 1,
     justifyContent: "center" as const,
@@ -559,42 +525,16 @@ export default function PersonasLibraryScreen({
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
       >
-        {personas.length > 0 && (
-          <View style={{ marginBottom: 16 }}>
-            <View style={searchContainerStyle}>
-              <Icon name="search" size={20} color={theme.colors.textSecondary} />
-              <TextInput
-                style={searchInputStyle}
-                placeholder="Search personas..."
-                placeholderTextColor={theme.colors.textTertiary}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-              />
-              {searchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchQuery("")}>
-                  <Icon name="close" size={20} color={theme.colors.textSecondary} />
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        )}
-
         {!isLoading && sortedPersonas.length === 0 && (
           <View style={emptyStateContainerStyle}>
             <Icon name="person-outline" size={64} color={theme.colors.textTertiary} />
-            <Text style={emptyStateTitleStyle}>
-              {searchQuery ? "No personas found" : "No personas yet"}
-            </Text>
+            <Text style={emptyStateTitleStyle}>No personas yet</Text>
             <Text style={emptyStateTextStyle}>
-              {searchQuery
-                ? "Try adjusting your search query."
-                : "Personas change how the model roleplays in chat."}
+              Personas change how the model roleplays in chat.
             </Text>
-            {!searchQuery && (
-              <TouchableOpacity onPress={handleAddPersona} style={emptyStateButtonStyle}>
-                <Text style={emptyStateButtonTextStyle}>Create a persona</Text>
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity onPress={handleAddPersona} style={emptyStateButtonStyle}>
+              <Text style={emptyStateButtonTextStyle}>Create a persona</Text>
+            </TouchableOpacity>
           </View>
         )}
 

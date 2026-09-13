@@ -54,7 +54,8 @@ const COPY: Record<Exclude<UserFacingErrorKind, 'cancelled'>, UserFacingError> =
   network: {
     kind: 'network',
     title: 'Connection problem',
-    message: 'The download could not finish. Check your connection and try again.',
+    message:
+      'The download could not finish. Progress is kept when possible — tap download again to resume.',
   },
   generic_load: {
     kind: 'generic_load',
@@ -113,7 +114,7 @@ export function classifyLoadError(
   if (!t) return 'generic_load';
 
   if (
-    /\b(oom|out of memory|cannot allocate|failed to allocate|not enough memory|too large for the android emulator)\b/.test(
+    /\b(oom|out of memory|cannot allocate|failed to allocate|not enough memory|not enough free ram|not enough ram|insufficient_ram|too large for the android emulator)\b/.test(
       t,
     ) ||
     t.includes('enomem')
@@ -121,7 +122,7 @@ export function classifyLoadError(
     return 'oom';
   }
   if (
-    /\b(corrupt|incomplete|damaged|invalid gguf|magic|chat formatting failed|failed to open|truncate)\b/.test(
+    /\b(corrupt|incomplete|damaged|invalid gguf|magic|chat formatting failed|failed to open|truncate|unknown error|chat_template)\b/.test(
       t,
     )
   ) {
@@ -146,11 +147,63 @@ export function classifyLoadError(
   return 'generic_load';
 }
 
+/** True when a thrown error is from post-download / explicit model load, not the HTTP transfer. */
+export function isModelLoadPhaseError(err: unknown): boolean {
+  if (err && typeof err === 'object' && (err as { oflnPhase?: string }).oflnPhase === 'load') {
+    return true;
+  }
+  const t = rawErrorText(err);
+  return (
+    t.includes("couldn't load model") ||
+    t.includes('failed to load model') ||
+    t.includes('chat formatting failed') ||
+    t.includes('not enough free ram') ||
+    t.includes('too large for the android emulator')
+  );
+}
+
+/**
+ * After download-or-load flows: prefer load copy when the file is on disk and init failed,
+ * so users do not see a misleading "connection" download alert.
+ */
+export function toUserFacingDownloadOrLoadError(
+  err: unknown,
+  statusError?: string | null,
+): UserFacingError | null {
+  if (isDownloadCancelled(err)) return null;
+
+  if (isModelLoadPhaseError(err) || statusError) {
+    const loadKind = classifyLoadError(err, statusError);
+    // Only fall through to download copy when this truly looks like a transfer failure.
+    if (
+      isModelLoadPhaseError(err) ||
+      loadKind === 'oom' ||
+      loadKind === 'corrupt' ||
+      loadKind === 'generic_load' ||
+      loadKind === 'not_found'
+    ) {
+      return toUserFacingLoadError(err, statusError);
+    }
+  }
+
+  const dlKind = classifyDownloadError(err);
+  if (dlKind === 'cancelled') return null;
+  if (dlKind === 'generic_download' && classifyLoadError(err, statusError) !== 'generic_load') {
+    return toUserFacingLoadError(err, statusError);
+  }
+  return { ...COPY[dlKind] };
+}
+
 export function classifyDownloadError(err: unknown): UserFacingErrorKind {
   if (isDownloadCancelled(err)) return 'cancelled';
 
   const t = rawErrorText(err);
   if (!t) return 'generic_download';
+
+  // Load failures must not be labeled as download/connection problems.
+  if (isModelLoadPhaseError(err)) {
+    return classifyLoadError(err);
+  }
 
   if (/\b(401|403|unauthorized|authentication|gated|access denied)\b/.test(t)) {
     return 'auth';
@@ -162,14 +215,19 @@ export function classifyDownloadError(err: unknown): UserFacingErrorKind {
     return 'not_found';
   }
   if (
-    /\b(network|timeout|timed out|econnreset|enotfound|econnrefused|unreachable|offline|socket)\b/.test(
+    /\b(network|timeout|timed out|econnreset|enotfound|econnrefused|unreachable|offline|socket|interrupted)\b/.test(
       t,
     ) ||
-    /status code:\s*5\d\d/.test(t)
+    /status code:\s*5\d\d/.test(t) ||
+    t.includes('tap download again to resume')
   ) {
     return 'network';
   }
-  if (t.includes('not enough memory') || /\b(oom|out of memory)\b/.test(t)) {
+  if (
+    t.includes('not enough memory') ||
+    t.includes('not enough free ram') ||
+    /\b(oom|out of memory)\b/.test(t)
+  ) {
     return 'oom';
   }
   if (

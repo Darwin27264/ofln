@@ -18,7 +18,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { createStyles } from "./src/styles/styles";
-import { downloadModel, DownloadCancellationToken, type DownloadProgressInfo } from "./src/api/model";
+import { downloadModel, DownloadCancellationToken, type DownloadProgressInfo, hasActiveDownloads } from "./src/api/model";
 import { resolveHfDownloadUrl } from "./src/services/hfModelHelpers";
 import { releaseAllLlama } from "llama.rn";
 import RNFS from "react-native-fs";
@@ -38,7 +38,7 @@ import {
 } from "./src/utils/chatFontSize";
 
 // Components
-import { CustomAlertProvider } from "./src/components/CustomAlert";
+import { CustomAlertProvider, showAlert } from "./src/components/CustomAlert";
 import { PageFadeIn } from "./src/components/PageFadeIn";
 import { EdgeGlow } from "./src/components/EdgeGlow";
 
@@ -57,8 +57,17 @@ import OnboardingScreen from "./src/screens/OnboardingScreen";
 import StorageScreen from "./src/screens/StorageScreen";
 import PerspectivesLibraryScreen from "./src/screens/PerspectivesLibraryScreen";
 import PerspectiveEditorScreen from "./src/screens/PerspectiveEditorScreen";
+import TasksLibraryScreen from "./src/screens/TasksLibraryScreen";
+import TaskEditorScreen from "./src/screens/TaskEditorScreen";
+import TaskRunDetailScreen from "./src/screens/TaskRunDetailScreen";
 import { Persona, getPersonas, updatePersonaLastUsed } from "./src/services/personaService";
 import type { PerspectivePreset } from "./src/services/perspectiveService";
+import type { SourceMonitorTask, TaskRun } from "./src/services/taskService";
+import {
+  initBackgroundTaskScheduling,
+  scheduleBackgroundFetch,
+} from "./src/services/backgroundTaskService";
+import { processDueTasks } from "./src/services/taskRunnerService";
 import { ModelInfo } from "./src/components/ModelCard";
 
 // Services (legacy helpers still used for download / existence checks)
@@ -67,6 +76,12 @@ import { validateLocalModels, LocalModelInfo } from "./src/services/localModelSe
 import { shouldShowOnboardingOnLaunch } from "./src/services/onboardingService";
 import type { StarterShelfTabId } from "./src/services/starterModels";
 import { toUserFacingLoadError } from "./src/utils/userFacingErrors";
+import {
+  acknowledgeSafeModeAndContinue,
+  beginNormalBootWatch,
+  checkAndMarkBootStart,
+  setSuppressModelAutoload,
+} from "./src/services/safeBootService";
 
 // Vercel AI SDK integration layer
 import { llamaProvider } from "./src/providers/llamaProvider";
@@ -186,6 +201,9 @@ function AppContent(): React.JSX.Element {
     | "perspectives"
     | "perspectiveEditor"
     | "personaEditor"
+    | "tasks"
+    | "taskEditor"
+    | "taskRunDetail"
     | "modelSettings"
     | "info"
     | "diagnostics"
@@ -223,6 +241,100 @@ function AppContent(): React.JSX.Element {
     };
   }, []);
 
+  // Safe Mode: detect uncleared boot_in_progress / model_load_in_progress (prior crash).
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { offerSafeMode, priorModelLoadCrash } = await checkAndMarkBootStart();
+        if (cancelled) return;
+        // Always arm the stability watch (module singleton — survives Fast Refresh).
+        beginNormalBootWatch();
+        if (!offerSafeMode) return;
+
+        showAlert(
+          "Safe Mode",
+          priorModelLoadCrash
+            ? "The previous model load likely crashed or ran out of memory. Autoload is paused. Lower context in Model settings or pick a smaller model, then load manually."
+            : "The previous launch did not finish cleanly (often during model load). Clear the active model selection so you can choose a smaller model or lower context?",
+          [
+            {
+              text: "Continue normally",
+              style: "cancel",
+              onPress: () => {
+                void acknowledgeSafeModeAndContinue().then(() => {
+                  if (!cancelled) beginNormalBootWatch();
+                });
+              },
+            },
+            {
+              text: "Clear model config",
+              style: "destructive",
+              onPress: () => {
+                void (async () => {
+                  try {
+                    await releaseAllLlama();
+                  } catch {
+                    /* ignore */
+                  }
+                  try {
+                    await llamaProvider.unloadModel();
+                  } catch {
+                    /* ignore */
+                  }
+                  setSelectedGGUF(null);
+                  setContext(null);
+                  await setSuppressModelAutoload(true);
+                  await acknowledgeSafeModeAndContinue();
+                  if (!cancelled) beginNormalBootWatch();
+                })();
+              },
+            },
+          ],
+          { cancelable: false, textAlign: "left" },
+        );
+      } catch (e) {
+        console.warn("[SafeBoot] launch check failed", e);
+        if (!cancelled) beginNormalBootWatch();
+      }
+    })();
+
+    // Do not cancel the shared boot watch on unmount — Fast Refresh remounts
+    // would leave boot_in_progress sticky and re-offer Safe Mode every launch.
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Source Monitor: OS background wake + catch-up when due.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await initBackgroundTaskScheduling();
+        if (!cancelled) {
+          await scheduleBackgroundFetch();
+          // Don't compete with first-run / in-progress model downloads for network+RAM.
+          if (!hasActiveDownloads()) {
+            await processDueTasks({
+              skipForegroundService: true,
+              forceAnalysis: false,
+              fallbackModelFileName: selectedGGUF,
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("Background task init failed", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally once on mount; selectedGGUF is read at first opportunity via catch-up later.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Leaving conversation always clears frosted chrome bar styling
   useEffect(() => {
     if (currentPage !== "conversation" && frostedChromeOpen) {
@@ -234,6 +346,10 @@ function AppContent(): React.JSX.Element {
   const [editingPerspective, setEditingPerspective] = useState<
     PerspectivePreset | null | undefined
   >(undefined);
+  const [editingTask, setEditingTask] = useState<
+    SourceMonitorTask | null | undefined
+  >(undefined);
+  const [viewingTaskRunId, setViewingTaskRunId] = useState<string | null>(null);
   const [pendingPerspectivePreset, setPendingPerspectivePreset] =
     useState<PerspectivePreset | null>(null);
   const [selectedModelForSettings, setSelectedModelForSettings] = useState<ModelInfo | null>(null);
@@ -355,14 +471,6 @@ function AppContent(): React.JSX.Element {
     }
   }, []);
 
-  useEffect(() => {
-    checkDownloadedModels();
-    // Load personas when navigating to relevant pages
-    if (currentPage === "personas" || currentPage === "conversation") {
-      loadAvailablePersonas();
-    }
-  }, [currentPage, checkDownloadedModels, loadAvailablePersonas]);
-
   /**
    * Check and update list of downloaded models
    * 
@@ -402,6 +510,14 @@ function AppContent(): React.JSX.Element {
       setLocalModels([]);
     }
   }, []); // No dependencies - only uses state setters and imported functions
+
+  useEffect(() => {
+    checkDownloadedModels();
+    // Load personas when navigating to relevant pages
+    if (currentPage === "personas" || currentPage === "conversation") {
+      loadAvailablePersonas();
+    }
+  }, [currentPage, checkDownloadedModels, loadAvailablePersonas]);
 
   /**
    * Navigate back to model selection screen
@@ -527,7 +643,11 @@ function AppContent(): React.JSX.Element {
       // Surface a typed failure so ModelSelection can show calm copy (not a silent miss).
       setSelectedGGUF(null);
       const uf = toUserFacingLoadError(null, llamaProvider.getStatus().error);
-      throw new Error(`${uf.title}: ${uf.message}`);
+      const loadErr = new Error(`${uf.title}: ${uf.message}`) as Error & {
+        oflnPhase?: string;
+      };
+      loadErr.oflnPhase = 'load';
+      throw loadErr;
     }
     
     // Model doesn't exist - download it (resumable .partial → rename on verify)
@@ -558,7 +678,11 @@ function AppContent(): React.JSX.Element {
       } else {
         setSelectedGGUF(null);
         const uf = toUserFacingLoadError(null, llamaProvider.getStatus().error);
-        throw new Error(`${uf.title}: ${uf.message}`);
+        const loadErr = new Error(`${uf.title}: ${uf.message}`) as Error & {
+          oflnPhase?: string;
+        };
+        loadErr.oflnPhase = 'load';
+        throw loadErr;
       }
     } catch (error) {
       // Pause / cancel — not a hard failure (ModelSelection owns paused UI)
@@ -570,9 +694,19 @@ function AppContent(): React.JSX.Element {
         console.log("Download paused or cancelled by user");
         return;
       }
-      
+
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      console.error("Download failed:", errorMessage);
+      const isLoad =
+        (error as { oflnPhase?: string })?.oflnPhase === 'load' ||
+        /couldn't load model|not enough memory|not enough free ram/i.test(errorMessage);
+      // Incomplete transfers keep a .partial — resume on next tap (avoid LogBox red for blips).
+      if (isLoad) {
+        console.warn("Model load after download failed:", errorMessage);
+      } else if (/interrupted|resume/i.test(errorMessage)) {
+        console.warn("Download interrupted (can resume):", errorMessage);
+      } else {
+        console.error("Download failed:", errorMessage);
+      }
       setSelectedGGUF(null); // Reset selection on error
       throw error; // Let ModelSelection show user-facing alert
     }
@@ -599,6 +733,7 @@ function AppContent(): React.JSX.Element {
         case "storage":
         case "personas":
         case "perspectives":
+        case "tasks":
         case "info":
           setCurrentPage("settings");
           return true;
@@ -609,6 +744,14 @@ function AppContent(): React.JSX.Element {
         case "perspectiveEditor":
           setEditingPerspective(undefined);
           setCurrentPage("perspectives");
+          return true;
+        case "taskEditor":
+          setEditingTask(undefined);
+          setCurrentPage("tasks");
+          return true;
+        case "taskRunDetail":
+          setViewingTaskRunId(null);
+          setCurrentPage("tasks");
           return true;
         case "modelSettings":
           setSelectedModelForSettings(null);
@@ -761,6 +904,7 @@ function AppContent(): React.JSX.Element {
           onGoToModelSelection={() => setCurrentPage("modelSelection")}
           onGoToPersonas={() => setCurrentPage("personas")}
           onGoToPerspectives={() => setCurrentPage("perspectives")}
+          onGoToTasks={() => setCurrentPage("tasks")}
           onGoToInfo={() => setCurrentPage("info")}
           onGoToDiagnostics={() => setCurrentPage("diagnostics")}
           onGoToStorage={() => setCurrentPage("storage")}
@@ -886,6 +1030,69 @@ function AppContent(): React.JSX.Element {
             onCancel={() => {
               setEditingPersona(undefined);
               setCurrentPage("personas");
+            }}
+          />
+        </PageFadeIn>
+      )}
+
+      {currentPage === "tasks" && (
+        <PageFadeIn key="tasks">
+          <TasksLibraryScreen
+            onBack={() => setCurrentPage("settings")}
+            fallbackModelFileName={selectedGGUF}
+            onEditTask={(task) => {
+              setEditingTask(task);
+              setCurrentPage("taskEditor");
+            }}
+            onOpenRun={(run) => {
+              setViewingTaskRunId(run.id);
+              setCurrentPage("taskRunDetail");
+            }}
+          />
+        </PageFadeIn>
+      )}
+
+      {currentPage === "taskEditor" && editingTask !== undefined && (
+        <PageFadeIn key="taskEditor">
+          <TaskEditorScreen
+            task={editingTask}
+            downloadedModels={downloadedModels}
+            onSave={() => {
+              setEditingTask(undefined);
+              setCurrentPage("tasks");
+            }}
+            onCancel={() => {
+              setEditingTask(undefined);
+              setCurrentPage("tasks");
+            }}
+            onDeleted={() => {
+              setEditingTask(undefined);
+              setCurrentPage("tasks");
+            }}
+          />
+        </PageFadeIn>
+      )}
+
+      {currentPage === "taskRunDetail" && viewingTaskRunId && (
+        <PageFadeIn key="taskRunDetail">
+          <TaskRunDetailScreen
+            runId={viewingTaskRunId}
+            onBack={() => {
+              setViewingTaskRunId(null);
+              setCurrentPage("tasks");
+            }}
+            onUseInChat={(run: TaskRun) => {
+              const body =
+                (run.resultText && run.resultText.trim()) ||
+                (run.fetchedText && run.fetchedText.trim()) ||
+                "";
+              const wrapped =
+                `[Task result: ${run.taskName}]\n` +
+                `[Source: ${run.sourceUrl}]\n\n` +
+                body;
+              setUserInput(wrapped.slice(0, 12000));
+              setViewingTaskRunId(null);
+              setCurrentPage("conversation");
             }}
           />
         </PageFadeIn>

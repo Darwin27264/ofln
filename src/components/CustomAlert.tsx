@@ -10,10 +10,13 @@ import {
   Platform,
   BackHandler,
   ScrollView,
+  Dimensions,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { FrostedGlass } from './FrostedGlass';
 import { OVERLAY_MOTION } from '../utils/animationConfig';
 import { useFadeScalePresence } from '../hooks/useFadeScalePresence';
+import { useFloatingBackBottom } from '../utils/layoutInsets';
 
 interface AlertButton {
   text: string;
@@ -25,7 +28,7 @@ type AlertTextAlign = 'center' | 'left';
 
 interface ShowAlertOptions {
   cancelable?: boolean;
-  /** Body (and title) alignment. Defaults to center; use left for long readable copy. */
+  /** Body (and title) alignment. Defaults to left to match BottomSheet popups. */
   textAlign?: AlertTextAlign;
 }
 
@@ -53,18 +56,20 @@ function resolveAlertOptions(
   options?: boolean | ShowAlertOptions,
 ): { cancelable: boolean; textAlign: AlertTextAlign } {
   if (typeof options === 'boolean') {
-    return { cancelable: options, textAlign: 'center' };
+    return { cancelable: options, textAlign: 'left' };
   }
   return {
     cancelable: options?.cancelable ?? true,
-    textAlign: options?.textAlign ?? 'center',
+    textAlign: options?.textAlign ?? 'left',
   };
 }
 
+const SIDE_INSET = 14;
+
 /**
- * In-tree absolute overlay alert (no RN Modal).
- * Modals nested under native-driven opacity/transform parents often fail on
- * Android — this pattern stays reliable while matching page enter/exit motion.
+ * Frosted floating-panel alert — same visual language as BottomSheet
+ * (Diagnostics smoke test, Storage import, Models info sheets).
+ * Absolute overlay (no RN Modal) so it stays reliable under native-driven parents.
  */
 export const CustomAlert: React.FC<CustomAlertProps> = ({
   visible,
@@ -73,12 +78,23 @@ export const CustomAlert: React.FC<CustomAlertProps> = ({
   buttons,
   onDismiss,
   cancelable = true,
-  textAlign = 'center',
+  textAlign = 'left',
 }) => {
   const { theme } = useTheme();
+  const bottomInset = useFloatingBackBottom();
   const alertOpacity = useRef(new Animated.Value(0)).current;
   const alertScale = useRef(new Animated.Value(OVERLAY_MOTION.FROM_SCALE)).current;
   const mounted = useFadeScalePresence(visible, alertOpacity, alertScale);
+  const [maxHeight, setMaxHeight] = useState(
+    () => Math.round(Dimensions.get('window').height * 0.85),
+  );
+
+  useEffect(() => {
+    const sub = Dimensions.addEventListener('change', ({ window }) => {
+      setMaxHeight(Math.round(window.height * 0.85));
+    });
+    return () => sub?.remove();
+  }, []);
 
   useEffect(() => {
     if (!visible || Platform.OS !== 'android') return;
@@ -107,6 +123,7 @@ export const CustomAlert: React.FC<CustomAlertProps> = ({
     }
   };
 
+  // Primary / destructive first; cancel last — matches Storage / Diagnostics sheets.
   const orderedButtons = [
     ...buttons.filter((b) => b.style !== 'cancel'),
     ...buttons.filter((b) => b.style === 'cancel'),
@@ -124,75 +141,97 @@ export const CustomAlert: React.FC<CustomAlertProps> = ({
             styles.overlay,
             {
               opacity: alertOpacity,
-              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              backgroundColor: 'rgba(0, 0, 0, 0.28)',
             },
           ]}
         />
       </TouchableWithoutFeedback>
 
-      <View style={styles.centerWrap} pointerEvents="box-none">
-        <Animated.View
-          style={[
-            styles.alertContainer,
-            {
-              backgroundColor: theme.colors.card,
-              borderColor: theme.colors.border,
-              transform: [{ scale: alertScale }],
-              opacity: alertOpacity,
-            },
-          ]}
+      <Animated.View
+        pointerEvents={visible ? 'auto' : 'none'}
+        style={[
+          styles.panel,
+          {
+            bottom: Math.max(SIDE_INSET, bottomInset),
+            maxHeight,
+            borderColor: theme.colors.border,
+            opacity: alertOpacity,
+            transform: [{ scale: alertScale }],
+          },
+        ]}
+      >
+        <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
+          <FrostedGlass variant="panel" style={StyleSheet.absoluteFillObject} />
+        </View>
+
+        <ScrollView
+          style={styles.fitScroll}
+          contentContainerStyle={styles.inner}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
+          bounces={false}
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={[styles.title, { color: theme.colors.text, textAlign }]}>{title}</Text>
-          <ScrollView
-            style={styles.messageScroll}
-            contentContainerStyle={styles.messageScrollContent}
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-          >
-            <Text style={[styles.message, { color: theme.colors.textSecondary, textAlign }]}>
+          <Text style={[styles.title, { color: theme.colors.text, textAlign }]}>
+            {title}
+          </Text>
+          {!!message && (
+            <Text
+              style={[
+                styles.message,
+                { color: theme.colors.textSecondary, textAlign },
+              ]}
+            >
               {message}
             </Text>
-          </ScrollView>
+          )}
+
           <View style={styles.buttonContainer}>
-            {orderedButtons.map((button, index) => (
-              <TouchableOpacity
-                key={`${button.text}-${index}`}
-                onPress={() => handleButtonPress(button)}
-                style={[
-                  styles.button,
-                  {
-                    backgroundColor:
-                      button.style === 'destructive'
-                        ? theme.colors.error
-                        : button.style === 'cancel'
-                          ? theme.colors.glass
-                          : theme.colors.primary,
-                    borderWidth: button.style === 'cancel' ? 1 : 0,
-                    borderColor: theme.colors.border,
-                    marginTop: index > 0 ? 10 : 0,
-                  },
-                ]}
-              >
-                <Text
+            {orderedButtons.map((button, index) => {
+              const isDestructive = button.style === 'destructive';
+              const isCancel = button.style === 'cancel';
+              return (
+                <TouchableOpacity
+                  key={`${button.text}-${index}`}
+                  onPress={() => handleButtonPress(button)}
                   style={[
-                    styles.buttonText,
+                    styles.button,
                     {
-                      color:
-                        button.style === 'destructive'
-                          ? theme.colors.primaryText
-                          : button.style === 'cancel'
-                            ? theme.colors.text
-                            : theme.colors.primaryText,
+                      marginTop: index > 0 || message ? 10 : 16,
+                      backgroundColor: isDestructive
+                        ? theme.colors.error + '18'
+                        : isCancel
+                          ? theme.colors.surface
+                          : theme.colors.primary,
+                      borderWidth: isDestructive || isCancel ? 1 : 0,
+                      borderColor: isDestructive
+                        ? theme.colors.error + '40'
+                        : theme.colors.border,
                     },
                   ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={button.text}
                 >
-                  {button.text}
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <Text
+                    style={[
+                      styles.buttonText,
+                      {
+                        color: isDestructive
+                          ? theme.colors.error
+                          : isCancel
+                            ? theme.colors.text
+                            : theme.colors.primaryText,
+                      },
+                    ]}
+                  >
+                    {button.text}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-        </Animated.View>
-      </View>
+        </ScrollView>
+      </Animated.View>
     </View>
   );
 };
@@ -206,36 +245,39 @@ const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
   },
-  centerWrap: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 28,
-  },
-  alertContainer: {
+  panel: {
+    position: 'absolute',
+    left: SIDE_INSET,
+    right: SIDE_INSET,
+    backgroundColor: 'transparent',
     borderRadius: 20,
-    padding: 24,
-    width: '100%',
-    maxWidth: 400,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    elevation: 12,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: '600',
-    fontFamily: 'Poppins',
-    marginBottom: 12,
-  },
-  messageScroll: {
-    maxHeight: 320,
-    marginBottom: 24,
-  },
-  messageScrollContent: {
+  fitScroll: {
     flexGrow: 0,
   },
-  message: {
-    fontSize: 16,
+  inner: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '600',
     fontFamily: 'Poppins',
-    lineHeight: 22,
+    marginBottom: 8,
+  },
+  message: {
+    fontSize: 14,
+    fontFamily: 'Poppins',
+    lineHeight: 21,
+    marginBottom: 6,
   },
   buttonContainer: {
     flexDirection: 'column',
@@ -246,12 +288,12 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingVertical: 14,
     paddingHorizontal: 20,
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   buttonText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     fontFamily: 'Poppins',
     textAlign: 'center',
@@ -302,7 +344,7 @@ export const CustomAlertProvider: React.FC<{ children: React.ReactNode }> = ({
     message: '',
     buttons: [],
     cancelable: true,
-    textAlign: 'center',
+    textAlign: 'left',
   });
 
   useEffect(() => {

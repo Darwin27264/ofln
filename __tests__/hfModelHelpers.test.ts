@@ -90,7 +90,7 @@ describe('filterMobileFriendlyGgufs', () => {
 describe('buildHfResolveUrl / resolveHfDownloadUrl', () => {
   it('builds resolve URLs with revision', () => {
     expect(buildHfResolveUrl('org/model', 'file.gguf', 'abc123')).toBe(
-      'https://huggingface.co/org/model/resolve/abc123/file.gguf',
+      'https://huggingface.co/org/model/resolve/abc123/file.gguf?download=true',
     );
   });
 
@@ -100,7 +100,7 @@ describe('buildHfResolveUrl / resolveHfDownloadUrl', () => {
       data: { sha: 'deadbeef' },
     } as any);
     await expect(resolveHfDownloadUrl('org/model', 'file.gguf')).resolves.toBe(
-      'https://huggingface.co/org/model/resolve/deadbeef/file.gguf',
+      'https://huggingface.co/org/model/resolve/deadbeef/file.gguf?download=true',
     );
   });
 
@@ -110,7 +110,7 @@ describe('buildHfResolveUrl / resolveHfDownloadUrl', () => {
       data: {},
     } as any);
     await expect(resolveHfDownloadUrl('org/model', 'file.gguf')).resolves.toBe(
-      'https://huggingface.co/org/model/resolve/main/file.gguf',
+      'https://huggingface.co/org/model/resolve/main/file.gguf?download=true',
     );
   });
 });

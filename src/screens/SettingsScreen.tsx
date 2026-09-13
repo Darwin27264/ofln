@@ -5,6 +5,7 @@ import {
   Text,
   TouchableOpacity,
   Animated,
+  ScrollView,
   StyleProp,
   ViewStyle,
   TextStyle,
@@ -19,10 +20,11 @@ import {
   FloatingBackButton,
   FloatingIconButton,
 } from "../components/FloatingBackButton";
-import { useFloatingBackBottom } from "../utils/layoutInsets";
+import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import { EASING } from "../utils/animationConfig";
 import { getPersonas } from "../services/personaService";
 import { getPerspectivePresets } from "../services/perspectiveService";
+import { countEnabledTasks } from "../services/taskService";
 import {
   loadUsageRecords,
   computeUsageAverages,
@@ -51,6 +53,7 @@ interface Props {
   onOpenStats: () => void;
   onGoToPersonas: () => void;
   onGoToPerspectives: () => void;
+  onGoToTasks: () => void;
   onGoToInfo: () => void;
   onGoToDiagnostics: () => void;
   onGoToStorage: () => void;
@@ -165,6 +168,7 @@ export default function SettingsScreen({
   onOpenStats,
   onGoToPersonas,
   onGoToPerspectives,
+  onGoToTasks,
   onGoToInfo,
   onGoToDiagnostics,
   onGoToStorage,
@@ -172,12 +176,16 @@ export default function SettingsScreen({
   const { theme, toggleTheme, isDark, isTransitioning } = useTheme();
   const styles = createStyles(theme.colors);
   const backBottom = useFloatingBackBottom();
+  const scrollPadBottom = useScrollPadForFloatingBack();
+  /** Quick-settings chip sits above Back; clear both when scrolling. */
+  const contentPadBottom = Math.max(scrollPadBottom, 92 + 32 + 16);
   const [chatModeInfoOpen, setChatModeInfoOpen] = useState(false);
   const [quickSettingsOpen, setQuickSettingsOpen] = useState(false);
 
   const [perfLevel, setPerfLevel] = useState<PerformanceLevel | null>(null);
   const [personaCount, setPersonaCount] = useState<number | null>(null);
   const [perspectiveCount, setPerspectiveCount] = useState<number | null>(null);
+  const [tasksActiveCount, setTasksActiveCount] = useState<number | null>(null);
   const [storageUsedLabel, setStorageUsedLabel] = useState<string | null>(null);
   const [storageChatCount, setStorageChatCount] = useState<number | null>(null);
 
@@ -202,6 +210,13 @@ export default function SettingsScreen({
       setPerspectiveCount(presets.length);
     } catch {
       setPerspectiveCount(null);
+    }
+
+    try {
+      const n = await countEnabledTasks();
+      setTasksActiveCount(n);
+    } catch {
+      setTasksActiveCount(null);
     }
 
     try {
@@ -288,6 +303,10 @@ export default function SettingsScreen({
     perspectiveCount != null && perspectiveCount > 0
       ? String(perspectiveCount)
       : null;
+  const tasksStat =
+    tasksActiveCount != null && tasksActiveCount > 0
+      ? String(tasksActiveCount)
+      : null;
 
   const perfStatColor =
     perfLevel === "High"
@@ -318,176 +337,184 @@ export default function SettingsScreen({
         },
       ]}
     >
-      <Text style={styles.settingsTitle}>Settings</Text>
-      <View style={{ marginBottom: 0 }}>
-        <View
-          style={{
-            flexDirection: "row",
-            marginBottom: SETTINGS_TILE_GAP,
-            height: SETTINGS_TILE_HEIGHT,
-          }}
-        >
-          <SettingsTile
-            styles={styles}
-            touchStyle={{ flex: 1, marginRight: SETTINGS_TILE_GUTTER }}
-            icon="speedometer-outline"
-            label="Performance"
-            stat={perfLevel}
-            onPress={onOpenStats}
-            iconColor={theme.colors.text}
-            iconCircleBg={iconCircleDefault}
-            badgeBg={perfBadgeBg}
-            badgeTextColor={perfStatColor}
-          />
-          <SettingsTile
-            styles={styles}
-            touchStyle={{ flex: 1, marginLeft: SETTINGS_TILE_GUTTER }}
-            icon="cube-outline"
-            label="Models"
-            stat={modelsStat}
-            onPress={onGoToModelSelection}
-            iconColor={theme.colors.text}
-            iconCircleBg={iconCircleDefault}
-            badgeBg={mutedBadgeBg}
-            badgeTextColor={mutedBadgeText}
-          />
-        </View>
-        <View style={{ flexDirection: "row", height: SETTINGS_TILE_HEIGHT }}>
-          <SettingsTile
-            styles={styles}
-            touchStyle={{ flex: 1, marginRight: SETTINGS_TILE_GUTTER }}
-            icon="pulse-outline"
-            label="Diagnostics"
-            onPress={onGoToDiagnostics}
-            iconColor={theme.colors.text}
-            iconCircleBg={iconCircleDefault}
-            badgeBg={mutedBadgeBg}
-            badgeTextColor={mutedBadgeText}
-          />
-          <SettingsTile
-            styles={styles}
-            touchStyle={{ flex: 1, marginLeft: SETTINGS_TILE_GUTTER }}
-            icon="person-circle-outline"
-            label="Personas"
-            stat={personasStat}
-            onPress={onGoToPersonas}
-            iconColor={theme.colors.text}
-            iconCircleBg={iconCircleDefault}
-            badgeBg={mutedBadgeBg}
-            badgeTextColor={mutedBadgeText}
-          />
-        </View>
-        <View
-          style={{
-            flexDirection: "row",
-            height: SETTINGS_TILE_HEIGHT,
-            marginTop: SETTINGS_TILE_GAP,
-          }}
-        >
-          <SettingsTile
-            styles={styles}
-            touchStyle={{ flex: 1, marginRight: SETTINGS_TILE_GUTTER }}
-            icon="checkbox-outline"
-            label="Tasks"
-            onPress={() => {}}
-            iconColor={theme.colors.text}
-            iconCircleBg={iconCircleDefault}
-            badgeBg={mutedBadgeBg}
-            badgeTextColor={mutedBadgeText}
-          />
-          <SettingsTile
-            styles={styles}
-            touchStyle={{ flex: 1, marginLeft: SETTINGS_TILE_GUTTER }}
-            icon="git-compare-outline"
-            label="Perspective"
-            stat={perspectivesStat}
-            onPress={onGoToPerspectives}
-            iconColor={theme.colors.text}
-            iconCircleBg={iconCircleDefault}
-            badgeBg={mutedBadgeBg}
-            badgeTextColor={mutedBadgeText}
-          />
-        </View>
-        <View style={{ height: SETTINGS_TILE_HEIGHT, marginTop: SETTINGS_TILE_GAP }}>
-          <TouchableOpacity
-            style={{ flex: 1 }}
-            onPress={onGoToStorage}
-            activeOpacity={0.85}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: contentPadBottom }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.settingsTitle}>Settings</Text>
+        <View style={{ marginBottom: 0 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              marginBottom: SETTINGS_TILE_GAP,
+              height: SETTINGS_TILE_HEIGHT,
+            }}
           >
-            <View style={styles.settingsBlock}>
-              <FrostedGlass
-                style={StyleSheet.absoluteFillObject}
-                blurAmount={SETTINGS_BLOCK.blurAmount}
-                tintOpacity={isDark ? SETTINGS_BLOCK.tintDark : SETTINGS_BLOCK.tintLight}
-              />
-              <View
-                style={[
-                  styles.blockIconCircle,
-                  { backgroundColor: iconCircleDefault },
-                ]}
-              >
-                <Ionicons
-                  name="folder-outline"
-                  size={18}
-                  color={theme.colors.text}
+            <SettingsTile
+              styles={styles}
+              touchStyle={{ flex: 1, marginRight: SETTINGS_TILE_GUTTER }}
+              icon="speedometer-outline"
+              label="Performance"
+              stat={perfLevel}
+              onPress={onOpenStats}
+              iconColor={theme.colors.text}
+              iconCircleBg={iconCircleDefault}
+              badgeBg={perfBadgeBg}
+              badgeTextColor={perfStatColor}
+            />
+            <SettingsTile
+              styles={styles}
+              touchStyle={{ flex: 1, marginLeft: SETTINGS_TILE_GUTTER }}
+              icon="cube-outline"
+              label="Models"
+              stat={modelsStat}
+              onPress={onGoToModelSelection}
+              iconColor={theme.colors.text}
+              iconCircleBg={iconCircleDefault}
+              badgeBg={mutedBadgeBg}
+              badgeTextColor={mutedBadgeText}
+            />
+          </View>
+          <View style={{ flexDirection: "row", height: SETTINGS_TILE_HEIGHT }}>
+            <SettingsTile
+              styles={styles}
+              touchStyle={{ flex: 1, marginRight: SETTINGS_TILE_GUTTER }}
+              icon="pulse-outline"
+              label="Diagnostics"
+              onPress={onGoToDiagnostics}
+              iconColor={theme.colors.text}
+              iconCircleBg={iconCircleDefault}
+              badgeBg={mutedBadgeBg}
+              badgeTextColor={mutedBadgeText}
+            />
+            <SettingsTile
+              styles={styles}
+              touchStyle={{ flex: 1, marginLeft: SETTINGS_TILE_GUTTER }}
+              icon="person-circle-outline"
+              label="Personas"
+              stat={personasStat}
+              onPress={onGoToPersonas}
+              iconColor={theme.colors.text}
+              iconCircleBg={iconCircleDefault}
+              badgeBg={mutedBadgeBg}
+              badgeTextColor={mutedBadgeText}
+            />
+          </View>
+          <View
+            style={{
+              flexDirection: "row",
+              height: SETTINGS_TILE_HEIGHT,
+              marginTop: SETTINGS_TILE_GAP,
+            }}
+          >
+            <SettingsTile
+              styles={styles}
+              touchStyle={{ flex: 1, marginRight: SETTINGS_TILE_GUTTER }}
+              icon="alarm-outline"
+              label="Tasks"
+              stat={tasksStat}
+              onPress={onGoToTasks}
+              iconColor={theme.colors.text}
+              iconCircleBg={iconCircleDefault}
+              badgeBg={mutedBadgeBg}
+              badgeTextColor={mutedBadgeText}
+            />
+            <SettingsTile
+              styles={styles}
+              touchStyle={{ flex: 1, marginLeft: SETTINGS_TILE_GUTTER }}
+              icon="git-compare-outline"
+              label="Perspective"
+              stat={perspectivesStat}
+              onPress={onGoToPerspectives}
+              iconColor={theme.colors.text}
+              iconCircleBg={iconCircleDefault}
+              badgeBg={mutedBadgeBg}
+              badgeTextColor={mutedBadgeText}
+            />
+          </View>
+          <View style={{ height: SETTINGS_TILE_HEIGHT, marginTop: SETTINGS_TILE_GAP }}>
+            <TouchableOpacity
+              style={{ flex: 1 }}
+              onPress={onGoToStorage}
+              activeOpacity={0.85}
+            >
+              <View style={styles.settingsBlock}>
+                <FrostedGlass
+                  style={StyleSheet.absoluteFillObject}
+                  blurAmount={SETTINGS_BLOCK.blurAmount}
+                  tintOpacity={isDark ? SETTINGS_BLOCK.tintDark : SETTINGS_BLOCK.tintLight}
                 />
-              </View>
-              <View
-                style={{
-                  position: "absolute",
-                  top: 14,
-                  right: 14,
-                  alignItems: "flex-end",
-                  gap: 6,
-                }}
-              >
-                {storageUsedLabel ? (
-                  <View
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 5,
-                      borderRadius: 20,
-                      backgroundColor: mutedBadgeBg,
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.blockStatText,
-                        { color: mutedBadgeText },
-                      ]}
+                <View
+                  style={[
+                    styles.blockIconCircle,
+                    { backgroundColor: iconCircleDefault },
+                  ]}
+                >
+                  <Ionicons
+                    name="folder-outline"
+                    size={18}
+                    color={theme.colors.text}
+                  />
+                </View>
+                <View
+                  style={{
+                    position: "absolute",
+                    top: 14,
+                    right: 14,
+                    alignItems: "flex-end",
+                    gap: 6,
+                  }}
+                >
+                  {storageUsedLabel ? (
+                    <View
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        borderRadius: 20,
+                        backgroundColor: mutedBadgeBg,
+                      }}
                     >
-                      {storageUsedLabel} used
-                    </Text>
-                  </View>
-                ) : null}
-                {storageChatCount != null ? (
-                  <View
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 5,
-                      borderRadius: 20,
-                      backgroundColor: mutedBadgeBg,
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.blockStatText,
-                        { color: mutedBadgeText },
-                      ]}
+                      <Text
+                        style={[
+                          styles.blockStatText,
+                          { color: mutedBadgeText },
+                        ]}
+                      >
+                        {storageUsedLabel} used
+                      </Text>
+                    </View>
+                  ) : null}
+                  {storageChatCount != null ? (
+                    <View
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        borderRadius: 20,
+                        backgroundColor: mutedBadgeBg,
+                      }}
                     >
-                      {storageChatCount} conversation
-                      {storageChatCount === 1 ? "" : "s"}
-                    </Text>
-                  </View>
-                ) : null}
+                      <Text
+                        style={[
+                          styles.blockStatText,
+                          { color: mutedBadgeText },
+                        ]}
+                      >
+                        {storageChatCount} conversation
+                        {storageChatCount === 1 ? "" : "s"}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+                <View style={styles.blockTextContainer}>
+                  <Text style={styles.blockText}>Storage</Text>
+                </View>
               </View>
-              <View style={styles.blockTextContainer}>
-                <Text style={styles.blockText}>Storage</Text>
-              </View>
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </ScrollView>
 
       <View
         pointerEvents="box-none"

@@ -35,9 +35,9 @@ beforeAll(() => {
 });
 
 describe('isHuggingFaceUrl', () => {
-  it('allows huggingface.co and subdomains only', () => {
+  it('allows huggingface.co only (not CDN subdomains)', () => {
     expect(isHuggingFaceUrl('https://huggingface.co/foo/bar')).toBe(true);
-    expect(isHuggingFaceUrl('https://cdn-lfs.huggingface.co/x')).toBe(true);
+    expect(isHuggingFaceUrl('https://cdn-lfs.huggingface.co/x')).toBe(false);
     expect(isHuggingFaceUrl('https://evil.com/huggingface.co')).toBe(false);
     expect(isHuggingFaceUrl('https://example.com')).toBe(false);
   });

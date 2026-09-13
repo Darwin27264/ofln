@@ -134,7 +134,8 @@ export function buildHfResolveUrl(
   const rev = (revision && revision.trim()) || 'main';
   // Don't encode path separators in fileName (nested repo paths are rare for GGUF).
   const encodedRev = encodeURIComponent(rev);
-  return `https://huggingface.co/${repoId}/resolve/${encodedRev}/${fileName}`;
+  // download=true prefers a direct file response (helps some HF CDN / LFS paths).
+  return `https://huggingface.co/${repoId}/resolve/${encodedRev}/${fileName}?download=true`;
 }
 
 /**

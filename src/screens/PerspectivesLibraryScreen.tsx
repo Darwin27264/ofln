@@ -17,6 +17,10 @@ import { showAlert } from '../components/CustomAlert';
 import { FloatingBackButton } from '../components/FloatingBackButton';
 import { BottomSheet } from '../components/BottomSheet';
 import {
+  LibraryCardEnter,
+  useLibraryCardEnter,
+} from '../components/LibraryCardEnter';
+import {
   useFloatingBackBottom,
   useScrollPadForFloatingBack,
 } from '../utils/layoutInsets';
@@ -46,6 +50,7 @@ export default function PerspectivesLibraryScreen({
   const [loading, setLoading] = useState(true);
   const [infoOpen, setInfoOpen] = useState(false);
   const [expandedPresetId, setExpandedPresetId] = useState<string | null>(null);
+  const { animatedIds } = useLibraryCardEnter();
 
   const reload = useCallback(async () => {
     try {
@@ -186,11 +191,16 @@ export default function PerspectivesLibraryScreen({
             </TouchableOpacity>
           </View>
         ) : (
-          presets.map((preset) => {
+          presets.map((preset, index) => {
             const isExpanded = expandedPresetId === preset.id;
             return (
-            <View
+            <LibraryCardEnter
               key={preset.id}
+              itemId={preset.id}
+              index={index}
+              animatedIds={animatedIds}
+            >
+            <View
               style={{
                 backgroundColor: theme.colors.card,
                 borderRadius: 16,
@@ -356,6 +366,7 @@ export default function PerspectivesLibraryScreen({
               </View>
               ) : null}
             </View>
+            </LibraryCardEnter>
             );
           })
         )}

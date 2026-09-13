@@ -75,6 +75,11 @@ yarn-error.log
 **/Pods/
 /vendor/bundle/
 
+# Env / secrets (app uses Keychain for HF tokens; never commit real .env)
+.env
+.env.*
+!.env.example
+
 # Temporary files created by Metro to check the health of the file watcher
 .metro-health-check*
 

@@ -33,6 +33,7 @@ import {
   isThinkingMetaLoop,
   type PromptHeuristicMode,
 } from './inference';
+import { maybeYieldForThermal, maybeYieldForThermalSync } from './thermalService';
 
 import type {
   ChatMessage,
@@ -250,6 +251,8 @@ async function _runStream(
 
     for await (const delta of textStream) {
       if (signal.aborted) break;
+
+      await maybeYieldForThermal();
 
       // Think block parsing
       if (supportsThinkTags) {
@@ -489,6 +492,8 @@ export async function nativeCompletion(
       },
       (data: TokenData) => {
         if (signal?.aborted) return;
+
+        maybeYieldForThermalSync();
 
         if (data.reasoning_content && data.reasoning_content !== currentThought) {
           currentThought = data.reasoning_content;

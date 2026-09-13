@@ -4,6 +4,7 @@ import {
   isDownloadCancelled,
   sanitizeErrorText,
   toUserFacingDownloadError,
+  toUserFacingDownloadOrLoadError,
   toUserFacingLoadError,
   userFacingHttpError,
 } from '../src/utils/userFacingErrors';
@@ -25,12 +26,19 @@ describe('classifyLoadError', () => {
     expect(
       classifyLoadError(null, 'Model is too large for the Android emulator (1800 MB)'),
     ).toBe('oom');
+    expect(
+      classifyLoadError(
+        null,
+        'Not enough free RAM to load this model safely (need ~4.2 GB, have ~2.1 GB).',
+      ),
+    ).toBe('oom');
   });
 
   it('maps corrupt / formatting failures', () => {
     expect(classifyLoadError(new Error('chat formatting failed after load'))).toBe(
       'corrupt',
     );
+    expect(classifyLoadError(new Error('Unknown error'))).toBe('corrupt');
   });
 
   it('maps missing files', () => {
@@ -57,6 +65,14 @@ describe('classifyDownloadError', () => {
     );
     expect(classifyDownloadError(new Error('network timeout'))).toBe('network');
     expect(
+      classifyDownloadError(new Error('Failed to download model: Download interrupted.')),
+    ).toBe('network');
+    expect(
+      classifyDownloadError(
+        new Error('Download interrupted. Progress was saved — tap download again to resume.'),
+      ),
+    ).toBe('network');
+    expect(
       classifyDownloadError(
         new Error('Download size mismatch: expected ~1000 bytes, got 500'),
       ),
@@ -72,6 +88,18 @@ describe('user-facing builders', () => {
     );
     expect(uf.title).toBe('Not enough memory');
     expect(uf.message).not.toMatch(/com\.facebook|at /);
+  });
+
+  it('does not label post-download load failures as connection problems', () => {
+    const uf = toUserFacingDownloadOrLoadError(
+      Object.assign(new Error("Couldn't load model: Something went wrong while loading."), {
+        oflnPhase: 'load',
+      }),
+      'Not enough free RAM to load this model safely (need ~4 GB, have ~2 GB).',
+    );
+    expect(uf?.kind).toBe('oom');
+    expect(uf?.title).toBe('Not enough memory');
+    expect(uf?.title).not.toBe('Download failed');
   });
 
   it('maps http statuses', () => {

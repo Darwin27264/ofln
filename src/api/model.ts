@@ -1,8 +1,12 @@
 /**
  * Model download API.
- * Resumable downloads via react-native-blob-util → `.gguf.partial` + AsyncStorage meta.
+ * Resumable downloads via RNFS → `.gguf.partial` + AsyncStorage meta.
  * Verifies on-disk size before rename/activate.
- * Feature flag: USE_RESUMABLE_DOWNLOADS (legacy RNFS path when false).
+ * Feature flag: USE_RESUMABLE_DOWNLOADS (one-shot path when false).
+ *
+ * Note: react-native-blob-util 0.24.10 truncates Android FileStorage downloads
+ * (~8 KB) and throws "Download interrupted" — GGUFs use RNFS instead
+ * (see patches/react-native-blob-util+0.24.10.patch for other callers).
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,18 +14,27 @@ import RNFS from 'react-native-fs';
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import { hfAuthHeaders } from '../services/hfTokenService';
 import {
+  activateGeneratingKeepAwake,
+  deactivateGeneratingKeepAwake,
+} from '../services/keepAwakeService';
+import {
   buildDownloadProgressInfo,
   pushDownloadSample,
   type DownloadProgressInfo,
   type DownloadProgressSample,
 } from '../utils/downloadProgressFormat';
 
-/** Flip false to force legacy RNFS one-shot download (no resume). */
+/** Flip false to force one-shot download (no resume). */
 export const USE_RESUMABLE_DOWNLOADS = true;
+
+/** Likely truncated partial from the blob-util 0.24.10 bug (one Okio segment). */
+const TRUNCATED_PARTIAL_MAX_BYTES = 64 * 1024;
 
 const META_KEY_PREFIX = '@download_meta_';
 /** Allow small Content-Length vs on-disk drift (headers / FS rounding). */
 const SIZE_TOLERANCE_BYTES = 64 * 1024; // 64 KB
+/** HF sibling sizes / display strings are often rounded — allow 5% relative drift. */
+const SIZE_TOLERANCE_RATIO = 0.05;
 
 export type CancelMode = 'pause' | 'discard';
 
@@ -65,6 +78,11 @@ type ActiveDownload = {
 const activeDownloads = new Map<string, ActiveDownload>();
 /** Serialize concurrent starts for the same model name. */
 const inFlightByModel = new Map<string, Promise<string>>();
+
+/** True while any resumable/legacy download task is in flight. */
+export function hasActiveDownloads(): boolean {
+  return activeDownloads.size > 0 || inFlightByModel.size > 0;
+}
 
 export function normalizeModelFileName(modelName: string): string {
   // Prevent path traversal if a malicious backup injects `../` into a model name.
@@ -191,7 +209,24 @@ export function sizesMatch(
   tolerance = SIZE_TOLERANCE_BYTES,
 ): boolean {
   if (expectedBytes == null || expectedBytes <= 0) return true;
-  return Math.abs(actualBytes - expectedBytes) <= tolerance;
+  if (!(actualBytes > 0)) return false;
+  const delta = Math.abs(actualBytes - expectedBytes);
+  if (delta <= tolerance) return true;
+  // Large GGUFs: catalog/API sizes are often slightly off from CDN bytes.
+  return delta <= expectedBytes * SIZE_TOLERANCE_RATIO;
+}
+
+/** GGUF files start with ASCII magic "GGUF". */
+async function assertLooksLikeGguf(filePath: string): Promise<void> {
+  try {
+    const magic = await RNFS.read(filePath, 4, 0, 'ascii');
+    if (magic === 'GGUF') return;
+  } catch {
+    /* fall through */
+  }
+  throw new Error(
+    'Download is not a valid GGUF (got an error page or incomplete file). Delete and try again.',
+  );
 }
 
 async function verifyAndActivate(
@@ -202,6 +237,7 @@ async function verifyAndActivate(
   assertNotPartialPath(destPath);
   const stat = await RNFS.stat(partialPath);
   const actual = Number(stat.size) || 0;
+  await assertLooksLikeGguf(partialPath);
   if (!sizesMatch(actual, expectedBytes)) {
     // Leave partial for retry; do not rename to .gguf.
     throw new Error(
@@ -259,9 +295,16 @@ export const downloadModel = async (
   const existing = inFlightByModel.get(name);
   if (existing) return existing;
 
-  const run = USE_RESUMABLE_DOWNLOADS
-    ? downloadModelResumable(name, modelUrl, options)
-    : downloadModelLegacy(name, modelUrl, options);
+  const run = (async () => {
+    activateGeneratingKeepAwake();
+    try {
+      return USE_RESUMABLE_DOWNLOADS
+        ? await downloadModelResumable(name, modelUrl, options)
+        : await downloadModelLegacy(name, modelUrl, options);
+    } finally {
+      deactivateGeneratingKeepAwake();
+    }
+  })();
 
   inFlightByModel.set(name, run);
   try {
@@ -314,6 +357,19 @@ async function downloadModelResumable(
         ? prevMeta.expectedBytes
         : null;
 
+  // Discard tiny partials left by the blob-util 0.24.10 truncate bug (~8 KB).
+  if (
+    existingBytes > 0 &&
+    existingBytes <= TRUNCATED_PARTIAL_MAX_BYTES &&
+    (expectedBytes == null || expectedBytes > TRUNCATED_PARTIAL_MAX_BYTES * 4)
+  ) {
+    console.warn(
+      `[download] Discarding truncated partial (${existingBytes} bytes) — starting fresh`,
+    );
+    await discardPartialDownload(modelName);
+    existingBytes = 0;
+  }
+
   await saveMeta({
     url: modelUrl,
     modelName,
@@ -324,17 +380,20 @@ async function downloadModelResumable(
 
   const headers: Record<string, string> = {
     'Cache-Control': 'no-store',
+    'Accept-Encoding': 'identity',
+    'User-Agent': 'ofln/0.1.1 (React Native)',
   };
   if (existingBytes > 0) {
     headers.Range = `bytes=${existingBytes}-`;
   }
 
-  // Bearer only for huggingface.co (never for other hosts).
+  // Bearer only for huggingface.co (never CDN hosts — see hfTokenService).
   Object.assign(headers, await hfAuthHeaders(modelUrl));
 
   // Fresh downloads write straight to .partial.
   // Resumes write to .chunk first so a 200 (Range ignored) cannot append-corrupt .partial.
   const writePath = existingBytes > 0 ? chunkPath : partialPath;
+  await safeUnlink(writePath);
 
   console.log(
     `Starting ${existingBytes > 0 ? 'resumable' : 'fresh'} download:`,
@@ -342,72 +401,90 @@ async function downloadModelResumable(
     existingBytes > 0 ? `(from byte ${existingBytes})` : '',
   );
 
-  const task = ReactNativeBlobUtil.config({
-    path: writePath,
-    fileCache: true,
-    overwrite: true,
-    timeout: 10 * 60 * 1000,
-  }).fetch('GET', modelUrl, headers);
+  let jobId: number | null = null;
+  const speedSamples: DownloadProgressSample[] = [];
+  if (existingBytes > 0) {
+    pushDownloadSample(speedSamples, existingBytes);
+  }
 
+  const downloadJob = RNFS.downloadFile({
+    fromUrl: modelUrl,
+    toFile: writePath,
+    headers,
+    progressDivider: 5,
+    begin: (res) => {
+      jobId = res.jobId;
+      activeDownloads.set(downloadKey, {
+        task: {
+          cancel: () => {
+            try {
+              if (jobId != null) RNFS.stopDownload?.(jobId);
+            } catch {
+              /* ignore */
+            }
+          },
+        },
+        destPath,
+        partialPath,
+        chunkPath: existingBytes > 0 ? chunkPath : null,
+        mode: null,
+      });
+      // Capture Content-Length from begin when available (full entity or remaining).
+      const cl = Number(res.contentLength) || 0;
+      if (cl > 0 && (!expectedBytes || expectedBytes <= 0)) {
+        expectedBytes = existingBytes > 0 ? existingBytes + cl : cl;
+      }
+    },
+    progress: ({ bytesWritten, contentLength }) => {
+      const info = activeDownloads.get(downloadKey);
+      if (info?.mode || cancellationToken?.isCancelled()) return;
+
+      const recv = Number(bytesWritten) || 0;
+      const tot = Number(contentLength) || 0;
+      const written = existingBytes + recv;
+      let overallTotal = expectedBytes;
+      if (!overallTotal || overallTotal <= 0) {
+        overallTotal = existingBytes > 0 && tot > 0 ? existingBytes + tot : tot;
+        if (overallTotal > 0) expectedBytes = overallTotal;
+      }
+      if (overallTotal > 0) {
+        emitProgress(onProgress, speedSamples, written, overallTotal);
+      }
+    },
+  });
+
+  // Register before await so cancel works even if begin hasn't fired yet.
   activeDownloads.set(downloadKey, {
-    task,
+    task: {
+      cancel: () => {
+        try {
+          if (jobId != null) {
+            RNFS.stopDownload?.(jobId);
+          } else if (downloadJob.jobId != null) {
+            RNFS.stopDownload?.(downloadJob.jobId);
+          }
+        } catch {
+          /* ignore */
+        }
+      },
+    },
     destPath,
     partialPath,
     chunkPath: existingBytes > 0 ? chunkPath : null,
     mode: null,
   });
 
-  const speedSamples: DownloadProgressSample[] = [];
-  if (existingBytes > 0) {
-    pushDownloadSample(speedSamples, existingBytes);
-  }
-
-  task.progress({ count: 20, interval: 250 }, (received, total) => {
-    const info = activeDownloads.get(downloadKey);
-    if (info?.mode || cancellationToken?.isCancelled()) return;
-
-    const recv = Number(received) || 0;
-    const tot = Number(total) || 0;
-    // When resuming, `received`/`total` are often for the remaining range only.
-    const written = existingBytes + recv;
-    let overallTotal = expectedBytes;
-    if (!overallTotal || overallTotal <= 0) {
-      overallTotal = existingBytes > 0 && tot > 0 ? existingBytes + tot : tot;
-      if (overallTotal > 0) expectedBytes = overallTotal;
-    }
-    if (overallTotal > 0) {
-      emitProgress(onProgress, speedSamples, written, overallTotal);
-    }
-  });
-
   try {
-    const res = await task;
-    const status = res.info()?.status ?? 0;
+    const result = await downloadJob.promise;
+    const status = result.statusCode ?? 0;
 
     if (cancellationToken?.isCancelled()) {
       throw pauseOrCancelError(cancellationToken);
     }
 
-    // Prefer Content-Length of full entity when available.
-    const headersOut = res.info()?.headers || {};
-    const contentRange =
-      headersOut['Content-Range'] ||
-      headersOut['content-range'] ||
-      headersOut['CONTENT-RANGE'];
-    if (typeof contentRange === 'string') {
-      const m = contentRange.match(/\/(\d+)\s*$/);
-      if (m) expectedBytes = Number(m[1]) || expectedBytes;
-    } else if (status === 200) {
-      const cl =
-        headersOut['Content-Length'] ||
-        headersOut['content-length'] ||
-        headersOut['CONTENT-LENGTH'];
-      if (cl) expectedBytes = Number(cl) || expectedBytes;
-    }
-
     if (existingBytes > 0) {
-      // Merge chunk into .partial only after a successful response.
       if (status === 206) {
+        // Stream-append range body onto existing partial (avoid loading into JS memory).
         await ReactNativeBlobUtil.fs.appendFile(partialPath, chunkPath, 'uri');
         await safeUnlink(chunkPath);
       } else if (status === 200) {
@@ -422,6 +499,16 @@ async function downloadModelResumable(
       throw new Error(`Download failed with status code: ${status}`);
     }
 
+    // Prefer on-disk size for expectedBytes when we still don't know it.
+    if (!expectedBytes || expectedBytes <= 0) {
+      try {
+        const st = await RNFS.stat(partialPath);
+        expectedBytes = Number(st.size) || null;
+      } catch {
+        /* ignore */
+      }
+    }
+
     const activated = await verifyAndActivate(partialPath, destPath, expectedBytes);
     await clearMeta(modelName);
     activeDownloads.delete(downloadKey);
@@ -432,7 +519,6 @@ async function downloadModelResumable(
       bytesPerSecond: null,
       etaSeconds: null,
     });
-    // Persist download URL so full-device backups can re-fetch on another phone.
     try {
       const { registerModelSource } = await import(
         '../services/modelCatalogService'
@@ -454,7 +540,6 @@ async function downloadModelResumable(
     await safeUnlink(chunkPath);
 
     if (mode === 'pause' || (cancellationToken?.isCancelled() && mode !== 'discard')) {
-      // Keep .partial + meta for resume.
       try {
         if (await RNFS.exists(partialPath)) {
           const st = await RNFS.stat(partialPath);
@@ -477,17 +562,26 @@ async function downloadModelResumable(
       throw new Error('Download was cancelled');
     }
 
-    // Network / other failure: keep partial for resume.
+    // Network / other failure: keep partial for resume (unless tiny truncate).
     try {
       if (await RNFS.exists(partialPath)) {
         const st = await RNFS.stat(partialPath);
-        await saveMeta({
-          url: modelUrl,
-          modelName,
-          expectedBytes,
-          bytesWritten: Number(st.size) || 0,
-          updatedAt: Date.now(),
-        });
+        const written = Number(st.size) || 0;
+        if (
+          written > 0 &&
+          written <= TRUNCATED_PARTIAL_MAX_BYTES &&
+          (expectedBytes == null || expectedBytes > TRUNCATED_PARTIAL_MAX_BYTES * 4)
+        ) {
+          await discardPartialDownload(modelName);
+        } else {
+          await saveMeta({
+            url: modelUrl,
+            modelName,
+            expectedBytes,
+            bytesWritten: written,
+            updatedAt: Date.now(),
+          });
+        }
       }
     } catch {
       /* ignore */
@@ -496,6 +590,11 @@ async function downloadModelResumable(
     if (error instanceof Error) {
       if (/size mismatch/i.test(error.message)) throw error;
       if (/paused/i.test(error.message)) throw error;
+      if (/download interrupted/i.test(error.message)) {
+        throw new Error(
+          'Download interrupted. Progress was saved — tap download again to resume.',
+        );
+      }
       throw new Error(`Failed to download model: ${error.message}`);
     }
     throw new Error('Failed to download model: Unknown error');
@@ -531,7 +630,12 @@ async function downloadModelLegacy(
   const downloadJob = RNFS.downloadFile({
     fromUrl: modelUrl,
     toFile: destPath,
-    headers: authHeaders,
+    headers: {
+      'Cache-Control': 'no-store',
+      'Accept-Encoding': 'identity',
+      'User-Agent': 'ofln/0.1.1 (React Native)',
+      ...authHeaders,
+    },
     progressDivider: 5,
     begin: (res) => {
       activeDownloads.set(downloadKey, {

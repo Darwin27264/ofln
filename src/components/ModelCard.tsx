@@ -40,6 +40,7 @@ import { isThinkingModel, getQuantRecommendLabel } from "../utils/modelUtils";
 import type { RamFitResult } from "../services/ramFitService";
 import { explainRamFit, RAM_FIT_LABELS } from "../services/ramFitService";
 import { BottomSheet } from "./BottomSheet";
+import { splitDownloadProgressLines } from "../utils/downloadProgressFormat";
 
 // Types
 export interface ModelInfo {
@@ -616,19 +617,51 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                   {progress}%
                 </Text>
                 {progressDetail ? (
-                  <Text
+                  <View
                     style={{
-                      fontSize: 9,
-                      color: theme.colors.textTertiary,
-                      fontFamily: "Poppins",
                       marginTop: 2,
-                      textAlign: "center",
-                      maxWidth: 88,
+                      alignItems: "center",
+                      // Reserve both rows so ETA appearing/changing cannot bump the card.
+                      minHeight: 24,
+                      width: 88,
                     }}
-                    numberOfLines={2}
                   >
-                    {progressDetail}
-                  </Text>
+                    {(() => {
+                      const { speed, eta } = splitDownloadProgressLines(progressDetail);
+                      return (
+                        <>
+                          <Text
+                            style={{
+                              fontSize: 9,
+                              lineHeight: 12,
+                              color: theme.colors.textTertiary,
+                              fontFamily: "Poppins",
+                              textAlign: "center",
+                              width: "100%",
+                            }}
+                            numberOfLines={1}
+                            ellipsizeMode="clip"
+                          >
+                            {speed || " "}
+                          </Text>
+                          <Text
+                            style={{
+                              fontSize: 9,
+                              lineHeight: 12,
+                              color: theme.colors.textTertiary,
+                              fontFamily: "Poppins",
+                              textAlign: "center",
+                              width: "100%",
+                            }}
+                            numberOfLines={1}
+                            ellipsizeMode="clip"
+                          >
+                            {eta || " "}
+                          </Text>
+                        </>
+                      );
+                    })()}
+                  </View>
                 ) : null}
               </View>
             ) : isPaused ? (

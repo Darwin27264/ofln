@@ -20,6 +20,7 @@ import {
   MAX_PDF_PARSE_BYTES,
   type NormalizedMedia,
 } from './mediaNormalizeService';
+import { withOcrRamHeadroom } from './ocrRamGuard';
 import {
   DOCUMENT_MESSAGES,
   documentInjectCharBudget,
@@ -293,10 +294,17 @@ export async function parseDocument(
       });
     }
 
-    return await parsePdf(media.path, uri, {
-      maxPages: options?.maxPages ?? 20,
-      maxChars,
-    });
+    // PDF extract can spike RAM — unload LLM first when free memory is tight.
+    const { result: pdfDoc, unloadedModel } = await withOcrRamHeadroom(() =>
+      parsePdf(media!.path, uri, {
+        maxPages: options?.maxPages ?? 20,
+        maxChars,
+      }),
+    );
+    if (unloadedModel) {
+      console.log('[documentParsing] LLM unloaded for PDF extract peak-RAM headroom');
+    }
+    return pdfDoc;
   } finally {
     // Always remove content:// copies; UI still holds the original URI for thumbs.
     await cleanupNormalizedMedia(media);

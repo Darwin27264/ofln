@@ -1,12 +1,16 @@
-# OFLN
+# ofln™
 
-Offline LLM chat for Android and iOS. Download a GGUF model once, then run inference on-device via [llama.cpp](https://github.com/ggerganov/llama.cpp) through [`llama.rn`](https://github.com/mybigday/llama.rn). No account and no cloud LLM for replies.
+Offline LLM chat for Android and iOS by **Evolvyn AI** (Darwin Chen). Download a GGUF model once, then run inference on-device via [llama.cpp](https://github.com/ggerganov/llama.cpp) through [`llama.rn`](https://github.com/mybigday/llama.rn). No account and no cloud LLM for replies.
 
 **In the app:** Settings → About for tips · Settings → Storage for backup.
 
-**Privacy:** [`docs/PRIVACY.md`](./docs/PRIVACY.md) — what stays local, when Hugging Face is contacted, tokens, and backups.
-
-**UI/UX:** [`styles.md`](./styles.md) (tokens & titles) · [`DESIGN.md`](./DESIGN.md) (full system) · **Device smoke (maintainers):** [`docs/DEVICE_SMOKE.md`](./docs/DEVICE_SMOKE.md)
+| Doc | Purpose |
+|-----|---------|
+| [`docs/PRIVACY.md`](./docs/PRIVACY.md) | What stays local, Hugging Face, tokens, backups |
+| [`docs/TECHNICAL.md`](./docs/TECHNICAL.md) | Architecture, build/release, CI, Android 16KB, inference notes |
+| [`DESIGN.md`](./DESIGN.md) · [`styles.md`](./styles.md) | UI system |
+| [`docs/DEVICE_SMOKE.md`](./docs/DEVICE_SMOKE.md) | Maintainer device smoke checklist |
+| [`TRADEMARK.md`](./TRADEMARK.md) | Brand / fork rebranding policy |
 
 ## Features
 
@@ -16,11 +20,13 @@ Offline LLM chat for Android and iOS. Download a GGUF model once, then run infer
 - Import local GGUF files; per-model settings (temperature, context, GPU layers)
 - Streaming chat with optional reasoning/`<think>` parsing; calm per-turn tok/s
 - Personas, temporary chats, pin/rename history
-- **Perspective** debates: multiple on-device speakers (personas and/or models) take turns on a topic
-- Image / PDF attachments (OCR / text extraction; multimodal when supported)
+- **Tasks** (Settings): scheduled **LLM prompts** or **Source Monitor** (fetch URL + analyze) — results stay local
+- **Perspective** debates: multiple on-device speakers take turns on a topic
+- Image / PDF attachments (on-device OCR / text extraction; multimodal when supported)
 - Light / dark theme
 - Performance (Stages) metrics from on-device usage logs — private, not a leaderboard
 - Backup & restore: chats JSON or full profile ZIP (models re-download via catalog; secrets never exported)
+- Safe Mode recovery if a previous launch crashed during model load
 
 ## Requirements
 
@@ -30,13 +36,14 @@ Offline LLM chat for Android and iOS. Download a GGUF model once, then run infer
 | JDK 17+ (prefer 21) | Android builds (Gradle 8.12). Prefer Android Studio’s bundled JBR and set `JAVA_HOME` |
 | Android Studio / SDK | Android |
 | Xcode + CocoaPods | iOS (macOS) |
-| New Architecture | Required by current `llama.rn`. Already enabled in `android/gradle.properties` and `ios/Podfile` |
+| New Architecture | Required by current `llama.rn` (enabled in project configs) |
 
 ## Setup
 
 ```bash
 git clone <repository-url>
 cd ofln
+cp android/gradle.properties.example android/gradle.properties
 npm install
 ```
 
@@ -59,52 +66,17 @@ npm run ios        # iOS simulator/device
 
 No cloud LLM API keys are required. Hugging Face tokens (optional) are stored in Keychain and used only for `huggingface.co` downloads. See [`docs/PRIVACY.md`](./docs/PRIVACY.md).
 
+Copy `.env.example` only if you add local tooling variables — the app runtime does not read a `.env` for inference.
+
 ## Privacy (short)
 
 | Leaves device? | What |
 |----------------|------|
 | Only when you download/browse models | Hugging Face |
-| Stays local | Chats, personas, Stages metrics |
+| Stays local | Chats, personas, Tasks results, Stages metrics |
 | Never in backups | HF tokens, GGUF files |
 
-Inference does not use an OFLN cloud API. There is no account system.
-
-## Architecture (short)
-
-```
-HF URL / local GGUF
-        │
-        ▼
-RNFS DocumentDirectoryPath/*.gguf
-        │
-        └─ Conversation / model select ──► llamaProvider.prepare
-                                                    │
-User message (+ optional OCR)                       ▼
-        │                              nativeContext.completion (stream)
-        ▼
-useAIChat.handleSubmit (useNativeCompletion: true)
-        │
-        ▼
-UI + chat history + usage_log.json
-```
-
-| Concern | Location |
-|---------|----------|
-| Product model load/unload | `src/providers/llamaProvider.ts` |
-| Chat / streaming | `src/hooks/useAIChat.ts` → `src/services/aiChatService.ts` |
-| File existence helpers | `src/services/llamaService.ts` (`checkFileExists`) |
-| Downloads | `src/api/model.ts` |
-| Curated starters | `src/services/starterModels.ts` |
-| Backup / restore | `src/services/backupService.ts`, `src/utils/backupSchema.ts` |
-| Design tokens / motion | `DESIGN.md`, `src/utils/animationConfig.ts` |
-
-Screens live under `src/screens/`; shared UI under `src/components/`; durable storage uses AsyncStorage / op-sqlite / DocumentDirectory as appropriate.
-
-### Inference notes
-
-- Default chat path: native `completion()` streaming (not the alternate Vercel `streamText` path)
-- Android acceleration (OpenCL / Hexagon) is gated by device capability and an allowlist of quants (`Q4_0`, `Q6_K`); emulators force CPU
-- Leaving conversation unloads via `releaseAllLlama()` + `llamaProvider.unloadModel()`
+Inference does not use an ofln cloud API. There is no account system.
 
 ## Backup & restore
 
@@ -116,75 +88,30 @@ Screens live under `src/screens/`; shared UI under `src/components/`; durable st
 | Export full backup | `ofln-backup-*.zip` |
 | Import | Merge or replace |
 
-Full backups include chats, personas, perspective presets, settings, and model catalog — not GGUF files or HF tokens. Models re-download on restore.
-
-Schema: `src/utils/backupSchema.ts` · tests in `__tests__/backupSchema.test.ts`
+Full backups include chats, personas, perspective presets, tasks / recent runs, settings, and model catalog — not GGUF files or HF tokens. Models re-download on restore.
 
 ## Development scripts
 
 | Script | Purpose |
 |--------|---------|
-| `npm start` | Metro bundler (`-- --reset-cache` if needed) |
+| `npm start` | Metro bundler |
 | `npm run android` / `npm run ios` | Build & run |
 | `npm test` | Jest |
 | `npm run lint` | ESLint |
-| `npm run android:clean` | `gradlew clean` |
+| `npm run typecheck` | `tsc --noEmit` |
 | `npm run android:build-release` | Release APK |
-| `npm run android:install-release` | Install release APK |
-| `npm run android:uninstall` | `adb uninstall com.ofln` |
-| `npm run android:clean-emulator` | Trim caches + uninstall (storage relief) |
-| `npm run android:check-storage` | `adb shell df -h` |
 
-**Release APK (Windows example):**
-
-```bash
-cd android
-.\gradlew.bat clean
-.\gradlew.bat assembleRelease
-cd ..
-powershell -ExecutionPolicy Bypass -File .\scripts\extract-release-apk.ps1
-```
-
-Gradle output: `android/app/build/outputs/apk/release/ofln-release.apk`.  
-The extract script copies it to `releaseAPK/ofln_{date}.apk` (same-day rebuilds get a time suffix so older builds are kept).
-
-**iOS:** `cd ios && bundle exec pod install` after native dependency changes.
+More build/release detail: [`docs/TECHNICAL.md`](./docs/TECHNICAL.md).
 
 ## Testing
 
 ```bash
+npm run typecheck
+npm run lintaA   
 npm test
-npm test -- --coverage
 ```
 
-Unit tests live under `__tests__/` (schema, inference helpers, storage helpers, speech, backup, etc.). Prefer pure helpers that do not require native modules.
-
-### Manual smoke checklist
-
-Quick pass (also see [`docs/DEVICE_SMOKE.md`](./docs/DEVICE_SMOKE.md) after native rebuilds):
-
-- [ ] Stages: swipe model pill; Settings theme + Thinking toggles persist
-- [ ] Download / pause / resume / discard a model (note speed/ETA when shown)
-- [ ] Load model, send a chat turn, stop generation; tok/s appears calmly on assistant row
-- [ ] History persist across restart; pin / rename
-- [ ] Local GGUF import
-- [ ] Backup export → import (merge) on a clean data path
-- [ ] Temporary mode; attachments (image/PDF) on a small model
-- [ ] After native rebuild: Keychain HF token, TTS Speak, STT mic
-
-## Troubleshooting
-
-**Metro:** `npm start -- --reset-cache`; reinstall `node_modules` if needed.
-
-**Android build:** `cd android && ./gradlew clean`; confirm `JAVA_HOME` points at JDK 17+/JBR 21. IDE warnings about old Gradle wrappers under `node_modules` are unrelated — the app build uses the root Android Gradle 8.12 project (see `.vscode/settings.json`).
-
-**INSTALL_FAILED_INSUFFICIENT_STORAGE:** `npm run android:clean-emulator`, or wipe/increase AVD internal storage (16GB recommended).
-
-**iOS build:** `pod install`, clean build folder in Xcode, verify deployment target.
-
-**Model won’t load:** Confirm final `*.gguf` (not `.partial`), free RAM, try lower `n_ctx` / `n_gpu_layers`, check Diagnostics / logs.
-
-**Downloads fail:** Network, free disk, optional HF token for gated repos.
+Unit tests live under `__tests__/`. Prefer pure helpers that do not require native modules. Manual smoke: [`docs/DEVICE_SMOKE.md`](./docs/DEVICE_SMOKE.md).
 
 ## Contributing
 
@@ -195,4 +122,16 @@ Quick pass (also see [`docs/DEVICE_SMOKE.md`](./docs/DEVICE_SMOKE.md) after nati
 
 ## License
 
-MIT — see [`LICENSE`](./LICENSE).
+GNU General Public License v3.0 — see [`LICENSE`](./LICENSE).
+
+Copyright © 2026 Darwin Chen / Evolvyn AI.
+
+Third-party libraries (including llama.cpp / llama.rn) retain their upstream licenses; GPLv3 applies to this project’s combined distribution terms.
+
+## Trademark
+
+**ofln™** and related branding are trademarks of Evolvyn AI. The GPLv3 license does **not** grant trademark rights. Forks that redistribute modified binaries must rebrand. See [`TRADEMARK.md`](./TRADEMARK.md).
+
+## Security note for public release
+
+If this repository was previously private with upload-keystore passwords in git history, **rotate those passwords** before opening the repo. Local `android/gradle.properties` stays gitignored — use `android/gradle.properties.example` as the template.

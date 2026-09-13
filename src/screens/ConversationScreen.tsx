@@ -109,6 +109,9 @@ import {
 import { useAIChat } from "../hooks/useAIChat";
 import { llamaProvider } from "../providers/llamaProvider";
 import {
+  isModelAutoloadSuppressed,
+} from "../services/safeBootService";
+import {
   getPerspectivePresets,
   setPerspectiveChatMeta,
   attachPerspectiveMetaToChats,
@@ -567,6 +570,13 @@ export default function ConversationScreen({
 
     (async () => {
       try {
+        if (await isModelAutoloadSuppressed()) {
+          console.warn(
+            "[SafeBoot] Model autoload suppressed (Safe Mode) — select a model manually",
+          );
+          return;
+        }
+
         setIsLoadingModel(true);
         setLoadingModelFile(selectedGGUF);
 

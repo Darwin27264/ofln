@@ -1,3 +1,30 @@
+# Project-wide Gradle settings template.
+# Copy to android/gradle.properties (gitignored) and fill signing placeholders locally.
+# Never commit real keystore passwords. Rotate any passwords that appeared in git history
+# before a public release.
+
+# JVM
+org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m
+
+# AndroidX
+android.useAndroidX=true
+
+# Architectures (override via -PreactNativeArchitectures=...)
+reactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64
+
+# React Native New Architecture (required by llama.rn)
+newArchEnabled=true
+
+# Prefer llama.rn PREBUILT jniLibs (fast). Do NOT set rnllamaBuildFromSource=true
+# unless you intentionally want a full llama.cpp native rebuild.
+
+# Hermes
+hermesEnabled=true
+
+# Uncompressed native libs (16KB page-size friendly packaging with AGP 8+)
+android.bundle.enableUncompressedNativeLibs=true
+
+# Release signing — replace **** with local values only
 MYAPP_UPLOAD_STORE_FILE=****
 MYAPP_UPLOAD_KEY_ALIAS=****
 MYAPP_UPLOAD_STORE_PASSWORD=****

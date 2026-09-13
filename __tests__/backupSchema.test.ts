@@ -22,6 +22,7 @@ import {
   isSafeRestoreDownloadUrl,
 } from '../src/utils/backupSchema';
 import type { ChatConversation } from '../src/services/chatHistoryService';
+import { buildNewSourceMonitorTask } from '../src/services/taskService';
 
 describe('zipStore', () => {
   it('round-trips STORE zip with CRC and multiple entries', () => {
@@ -83,6 +84,38 @@ describe('backupSchema', () => {
     expect(r.payload.chats![0].messages[0].attachments).toBeUndefined();
     expect(r.payload.chats![0].messages[0].content).toBe('Hi');
     expect(r.payload.chats![0].messages[1].personaName).toBe('Ada');
+  });
+
+  it('accepts optional tasks and taskRuns on full backup', () => {
+    const task = buildNewSourceMonitorTask({
+      name: 'Blog',
+      sourceUrl: 'https://example.com',
+    });
+    const raw = {
+      format: BACKUP_FORMAT,
+      schemaVersion: BACKUP_SCHEMA_VERSION,
+      kind: 'full',
+      exportedAt: 1,
+      appVersion: '0.1.1',
+      chats: [],
+      tasks: [task],
+      taskRuns: [
+        {
+          id: 'run_1',
+          taskId: task.id,
+          taskName: task.name,
+          startedAt: 1,
+          status: 'success',
+          sourceUrl: task.sourceUrl,
+          resultText: 'ok',
+        },
+      ],
+    };
+    const r = parseBackupPayload(raw);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.payload.tasks).toHaveLength(1);
+    expect(r.payload.taskRuns).toHaveLength(1);
   });
 
   it('rejects foreign format and future schema', () => {

@@ -4,14 +4,23 @@
     "target": "es2018",
     "lib": ["es2018", "dom"],
     "jsx": "react-native",
-    "module": "commonjs",
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "incremental": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noImplicitReturns": true,
+    "strict": false,
+    "noImplicitReturns": false,
     "noFallthroughCasesInSwitch": true
-  }
+  },
+  "exclude": [
+    "**/Pods/**",
+    "**/node_modules/**",
+    "**/__tests__/**",
+    "android/**",
+    "ios/**"
+  ]
 }

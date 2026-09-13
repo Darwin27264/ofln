@@ -15,7 +15,7 @@
 
 import { Platform } from 'react-native';
 import { llama, downloadModel, isModelDownloaded, getModelPath } from '@react-native-ai/llama';
-import type { LanguageModelV1 } from 'ai';
+import type { LanguageModel } from 'ai';
 import RNFS from 'react-native-fs';
 
 import { getModelSettings, DEFAULT_SETTINGS } from '../services/modelSettingsService';
@@ -30,12 +30,23 @@ import { getInferencePerfParams, formatLoadError } from '../services/inferencePe
 import { ensureGgufSafeForAndroidLoad } from '../services/ggufSanitizeService';
 import { resolveModelPolicy } from '../services/inference/modelPolicy';
 import { formatAccelLogDisplay } from '../utils/accelChipDisplay';
+import {
+  formatRamGb,
+  getTotalMemoryBytes,
+  preflightLoadRam,
+  suggestNCtxForRam,
+} from '../services/ramFitService';
+import {
+  clearModelLoadInProgress,
+  markModelLoadInProgress,
+  setSuppressModelAutoload,
+} from '../services/safeBootService';
 import { logError } from '../utils/errorLogger';
-import type { LlamaProviderConfig, ModelReadyState, ModelStatus } from '../types/ai';
+import type { LlamaProviderConfig, ModelStatus } from '../types/ai';
 type StatusListener = (status: ModelStatus) => void;
 
 class LlamaProviderService {
-  private languageModel: LanguageModelV1 | null = null;
+  private languageModel: LanguageModel | null = null;
   private modelInstance: any = null; // @react-native-ai/llama model instance
   private status: ModelStatus = {
     state: 'idle',
@@ -97,11 +108,12 @@ class LlamaProviderService {
     let n_gpu_layers = userConfig?.n_gpu_layers ?? settings.n_gpu_layers;
     let use_mlock = userConfig?.use_mlock ?? true;
     let devices = userConfig?.devices;
+    const totalMemoryBytes = await getTotalMemoryBytes();
+    const isEmulator = isAndroidEmulator();
 
     if (Platform.OS === 'android') {
       use_mlock = false;
 
-      const isEmulator = isAndroidEmulator();
       const modelUri = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
       const info = await getModelInfo(modelUri);
 
@@ -125,17 +137,13 @@ class LlamaProviderService {
         }
       }
 
-      // Conservative n_ctx for Android devices
-      if (n_ctx > 2048) {
-        n_ctx = Math.min(2048, n_ctx);
-      }
-
+      // Final n_ctx is RAM-clamped in loadModelInternal after model size is known.
       return {
         n_ctx,
         n_gpu_layers,
         use_mlock,
         devices,
-        ...getInferencePerfParams(n_gpu_layers, { isEmulator }),
+        ...getInferencePerfParams(n_gpu_layers, { isEmulator, totalMemoryBytes }),
       };
     }
 
@@ -144,7 +152,7 @@ class LlamaProviderService {
       n_gpu_layers,
       use_mlock,
       devices,
-      ...getInferencePerfParams(n_gpu_layers),
+      ...getInferencePerfParams(n_gpu_layers, { totalMemoryBytes }),
     };
   }
 
@@ -155,7 +163,7 @@ class LlamaProviderService {
    * `@react-native-ai/llama`, expose native context via getNativeContext().
    */
   async loadModel(config: LlamaProviderConfig): Promise<boolean> {
-    const { modelPath, projectorPath, projectorUseGpu = true, contextParams } = config;
+    const { modelPath } = config;
 
     // Already ready for this exact path with a live native context — skip reload.
     if (
@@ -236,8 +244,71 @@ class LlamaProviderService {
       // Resolve platform-specific parameters
       const resolved = await this.resolveContextParams(modelPath, contextParams);
 
-      if (__DEV__) {
-        console.log('[LlamaProvider] Resolved context params:', resolved);
+      console.log('[LlamaProvider] Resolved context params:', {
+        n_ctx: resolved.n_ctx,
+        n_gpu_layers: resolved.n_gpu_layers,
+        use_mlock: resolved.use_mlock,
+        cache_type_k: resolved.cache_type_k,
+        cache_type_v: resolved.cache_type_v,
+        flash_attn_type: resolved.flash_attn_type,
+        n_batch: resolved.n_batch,
+        devices: resolved.devices,
+      });
+
+      // Pre-flight RAM: clamp n_ctx from available memory, then gate load.
+      let modelBytes = 0;
+      try {
+        const stat = await RNFS.stat(modelPath);
+        modelBytes = Number(stat.size) || 0;
+      } catch {
+        /* size unknown — still attempt available-RAM check with 0 model bytes */
+      }
+
+      const cacheType =
+        resolved.cache_type_k === 'q4_0' || resolved.cache_type_v === 'q4_0'
+          ? 'q4_0'
+          : 'q8_0';
+      const requestedNCtx = resolved.n_ctx;
+      const suggestedNCtx = await suggestNCtxForRam({
+        modelBytes,
+        requestedNCtx,
+        cacheType,
+      });
+      if (suggestedNCtx < requestedNCtx) {
+        console.warn(
+          `[LlamaProvider] n_ctx clamped ${requestedNCtx} → ${suggestedNCtx} for available RAM`,
+        );
+        resolved.n_ctx = suggestedNCtx;
+      }
+
+      const ramGate = await preflightLoadRam({
+        modelBytes,
+        nCtx: resolved.n_ctx,
+        cacheType,
+      });
+      console.log('[LlamaProvider] RAM preflight', {
+        ok: ramGate.ok,
+        available: ramGate.availableBytes != null ? formatRamGb(ramGate.availableBytes) : 'unknown',
+        model: formatRamGb(ramGate.modelBytes),
+        expectedKv: formatRamGb(ramGate.expectedKvBytes),
+        headroom: formatRamGb(ramGate.headroomBytes),
+        required: formatRamGb(ramGate.requiredBytes),
+        n_ctx: resolved.n_ctx,
+        cacheType,
+        reason: ramGate.reason,
+      });
+      if (!ramGate.ok) {
+        const msg =
+          `Not enough free RAM to load this model safely ` +
+          `(need ~${formatRamGb(ramGate.requiredBytes)}, ` +
+          `have ~${formatRamGb(ramGate.availableBytes ?? 0)}). ` +
+          `Try a smaller quant or lower context.`;
+        this.setStatus({ state: 'error', error: msg });
+        await logError('LlamaProvider', msg, new Error(ramGate.reason || 'insufficient_ram'), {
+          modelPath: modelFileName,
+          ...ramGate,
+        });
+        return false;
       }
 
       // Create language model via the AI SDK provider.
@@ -272,38 +343,39 @@ class LlamaProviderService {
         await this.modelInstance.prepare();
       };
 
-      try {
-        await prepareOnce(false);
-      } catch (primaryError) {
-        if (__DEV__) {
-          console.warn(
-            '[LlamaProvider] Primary prepare failed, retrying bare params:',
-            primaryError instanceof Error ? primaryError.message : primaryError,
-          );
-        }
+      const prepareWithBareFallback = async (label: string) => {
         try {
-          await this.unloadModel();
-        } catch {
-          /* ignore */
+          await prepareOnce(false);
+        } catch (primaryError) {
+          console.warn(
+            `[LlamaProvider] ${label} prepare failed, retrying bare params:`,
+            formatLoadError(primaryError),
+          );
+          try {
+            await this.unloadModel();
+          } catch {
+            /* ignore */
+          }
+          await prepareOnce(true);
         }
-        await prepareOnce(true);
-      }
+      };
 
-      // Repair incomplete model details, then probe chat formatting before
-      // marking ready — prevents "loaded but every send crashes" on device.
-      this.ensureContextModelDetails();
-      let probe = await this.probeChatFormatting();
-
-      if (!probe.ok) {
-        await logError(
-          'LlamaProvider',
-          `Chat format probe failed after load: ${probe.error}`,
-          probe.error ? new Error(probe.error) : undefined,
-          { modelPath: modelPath.split('/').pop() },
-          'WARN',
-        );
-
-        if (Platform.OS === 'android') {
+      // Persist across process death: if native OOM kills us mid-prepare, next
+      // launch sees this flag and suppresses autoload (Safe Mode).
+      await markModelLoadInProgress();
+      try {
+        try {
+          await prepareWithBareFallback('Primary');
+        } catch (prepareError) {
+          // Android: llama.rn often throws opaque "Unknown error" when chat_template
+          // overflows the native 16KB buffer or Minja chokes — force-pad and retry.
+          if (Platform.OS !== 'android') {
+            throw prepareError;
+          }
+          console.warn(
+            '[LlamaProvider] Prepare failed — force-sanitizing chat_template and retrying:',
+            formatLoadError(prepareError),
+          );
           try {
             await this.unloadModel();
           } catch {
@@ -319,51 +391,112 @@ class LlamaProviderService {
             projectorPath: projectorPath ?? null,
             error: null,
           });
-          try {
-            await prepareOnce(false);
-          } catch {
-            await prepareOnce(true);
+          await prepareWithBareFallback('Post-sanitize');
+        }
+
+        // Repair incomplete model details, then probe chat formatting before
+        // marking ready — prevents "loaded but every send crashes" on device.
+        this.ensureContextModelDetails();
+        let probe = await this.probeChatFormatting();
+
+        if (!probe.ok) {
+          await logError(
+            'LlamaProvider',
+            `Chat format probe failed after load: ${probe.error}`,
+            probe.error ? new Error(probe.error) : undefined,
+            { modelPath: modelPath.split('/').pop() },
+            'WARN',
+          );
+
+          if (Platform.OS === 'android') {
+            try {
+              await this.unloadModel();
+            } catch {
+              /* ignore */
+            }
+            await ensureGgufSafeForAndroidLoad(modelPath, {
+              force: true,
+              modelName: modelFileName,
+            });
+            this.setStatus({
+              state: 'preparing',
+              modelPath,
+              projectorPath: projectorPath ?? null,
+              error: null,
+            });
+            try {
+              await prepareWithBareFallback('Post-probe sanitize');
+            } catch (e) {
+              throw e;
+            }
+            this.ensureContextModelDetails();
+            probe = await this.probeChatFormatting();
           }
-          this.ensureContextModelDetails();
-          probe = await this.probeChatFormatting();
         }
-      }
 
-      if (!probe.ok) {
-        const msg =
-          `Model loaded but chat formatting failed (${probe.error}). ` +
-          `Try a different GGUF or reinstall the model.`;
-        try {
-          await this.unloadModel();
-        } catch {
-          /* ignore */
+        if (!probe.ok) {
+          const msg =
+            `Model loaded but chat formatting failed (${probe.error}). ` +
+            `Try a different GGUF or reinstall the model.`;
+          try {
+            await this.unloadModel();
+          } catch {
+            /* ignore */
+          }
+          this.setStatus({ state: 'error', error: msg });
+          await logError('LlamaProvider', msg, new Error(probe.error || msg), {
+            modelPath: modelPath.split('/').pop(),
+          });
+          return false;
         }
-        this.setStatus({ state: 'error', error: msg });
-        await logError('LlamaProvider', msg, new Error(probe.error || msg), {
-          modelPath: modelPath.split('/').pop(),
+
+        this.captureRuntimeAcceleration(
+          modelPath.split('/').pop() || modelPath,
+          resolved.n_gpu_layers,
+        );
+
+        this.languageModel = this.modelInstance as LanguageModel;
+
+        this.setStatus({
+          state: 'ready',
+          modelPath,
+          projectorPath: projectorPath ?? null,
+          error: null,
         });
-        return false;
-      }
 
-      this.captureRuntimeAcceleration(
-        modelPath.split('/').pop() || modelPath,
-        resolved.n_gpu_layers,
-      );
+        // Successful intentional load ends Safe Mode autoload suppress.
+        void setSuppressModelAutoload(false);
 
-      this.languageModel = this.modelInstance as LanguageModelV1;
-
-      this.setStatus({
-        state: 'ready',
-        modelPath,
-        projectorPath: projectorPath ?? null,
-        error: null,
-      });
-
-      if (__DEV__) {
         console.log('[LlamaProvider] Model ready:', modelPath.split('/').pop());
-      }
 
-      return true;
+        return true;
+      } catch (error) {
+        const errorMsg = formatLoadError(error);
+        const enriched =
+          /unknown error/i.test(errorMsg) && Platform.OS === 'android'
+            ? `${errorMsg} — often a GGUF chat_template / native init failure on Android. Delete the model and re-download, or try another GGUF.`
+            : errorMsg;
+        this.setStatus({ state: 'error', error: enriched });
+        await logError(
+          'LlamaProvider',
+          `Failed to load model: ${enriched}`,
+          error instanceof Error ? error : new Error(enriched),
+          {
+            modelPath,
+            raw: formatLoadError(error),
+            keys:
+              error && typeof error === 'object'
+                ? Object.getOwnPropertyNames(error as object)
+                : [],
+          },
+          // Avoid red LogBox for handled load failures — Diagnostics still has the file log.
+          'WARN',
+        );
+        return false;
+      } finally {
+        // JS failure/success clears the flag. Process death skips finally → next boot Safe Mode.
+        await clearModelLoadInProgress();
+      }
     } catch (error) {
       const errorMsg = formatLoadError(error);
       this.setStatus({ state: 'error', error: errorMsg });
@@ -372,6 +505,7 @@ class LlamaProviderService {
         `Failed to load model: ${errorMsg}`,
         error instanceof Error ? error : new Error(errorMsg),
         { modelPath },
+        'WARN',
       );
       return false;
     }
@@ -405,7 +539,7 @@ class LlamaProviderService {
    * Get the AI SDK LanguageModel for use with `streamText()` / `generateText()`.
    * Returns null if no model is loaded.
    */
-  getLanguageModel(): LanguageModelV1 | null {
+  getLanguageModel(): LanguageModel | null {
     return this.languageModel;
   }
 

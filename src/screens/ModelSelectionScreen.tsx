@@ -61,6 +61,7 @@ import {
 import {
   isDownloadCancelled,
   toUserFacingDownloadError,
+  toUserFacingDownloadOrLoadError,
   toUserFacingLoadError,
   userFacingHttpError,
 } from "../utils/userFacingErrors";
@@ -1298,9 +1299,12 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           [fileNameToDownload]: cancellationToken,
         }));
 
+        const quantSize =
+          model.availableQuants?.find((q) => q.fileName === fileNameToDownload)?.size ?? 0;
+        // Prefer exact sibling byte size; avoid rounded display strings ("2.1 GB") which
+        // fail strict post-download checks.
         const expectedBytes =
-          model.availableQuants?.find((q) => q.fileName === fileNameToDownload)?.size ??
-          parseSizeToBytes(model.size);
+          quantSize > 0 ? quantSize : parseSizeToBytes(model.size);
         setPausedDownloads((prev) => {
           const next = { ...prev };
           delete next[fileNameToDownload];
@@ -1427,8 +1431,10 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
             setPausedDownloads((prev) => ({ ...prev, [fileNameToDownload]: pausedPct }));
           }
           const uf =
-            toUserFacingDownloadError(error) ??
-            toUserFacingLoadError(error, llamaProvider.getStatus().error);
+            toUserFacingDownloadOrLoadError(
+              error,
+              llamaProvider.getStatus().error,
+            ) ?? toUserFacingLoadError(error, llamaProvider.getStatus().error);
           if (uf.kind === 'auth') {
             showAlert(uf.title, uf.message, [
               { text: 'OK', style: 'cancel' },

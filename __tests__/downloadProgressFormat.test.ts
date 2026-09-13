@@ -48,24 +48,25 @@ describe('formatters', () => {
   });
 
   it('formats calm ETAs', () => {
-    expect(formatEtaSeconds(3)).toBe('~a few seconds');
+    expect(formatEtaSeconds(3)).toBe('~5s');
     expect(formatEtaSeconds(42)).toBe('~40s');
     expect(formatEtaSeconds(125)).toBe('~2m');
+    expect(formatEtaSeconds(3700)).toBe('~1h');
   });
 
-  it('builds a secondary progress line', () => {
+  it('builds a secondary progress line with ETA under speed', () => {
     expect(
       formatDownloadProgressLine({
         bytesPerSecond: 1_500_000,
         etaSeconds: 120,
       }),
-    ).toMatch(/MB\/s/);
+    ).toBe('1.4 MB/s\n~2m');
     expect(
       formatDownloadProgressLine({
         bytesPerSecond: 1_500_000,
-        etaSeconds: 120,
+        etaSeconds: 10,
       }),
-    ).toContain('~2m');
+    ).toBe('1.4 MB/s\n~10s');
     expect(
       formatDownloadProgressLine({
         bytesPerSecond: null,
