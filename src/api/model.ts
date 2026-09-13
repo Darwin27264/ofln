@@ -400,7 +400,7 @@ async function downloadModelResumable(
   const headers: Record<string, string> = {
     'Cache-Control': 'no-store',
     'Accept-Encoding': 'identity',
-    'User-Agent': 'ofln/0.1.1 (React Native)',
+    'User-Agent': 'ofln/1.1 (React Native)',
   };
   if (existingBytes > 0) {
     headers.Range = `bytes=${existingBytes}-`;
@@ -666,7 +666,7 @@ async function downloadModelLegacy(
     headers: {
       'Cache-Control': 'no-store',
       'Accept-Encoding': 'identity',
-      'User-Agent': 'ofln/0.1.1 (React Native)',
+      'User-Agent': 'ofln/1.1 (React Native)',
       ...authHeaders,
     },
     progressDivider: 5,

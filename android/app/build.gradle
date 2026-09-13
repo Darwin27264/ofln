@@ -90,7 +90,7 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 2
-        versionName "0.1.1"
+        versionName "1.1"
         // Android 15+ 16KB page-size: packaging keeps .so uncompressed/aligned;
         // ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES enables NDK 16KB-aware builds.
         // Do NOT put -Wl,* in cppFlags (compile) — fails under -Werror.

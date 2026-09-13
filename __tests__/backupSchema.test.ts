@@ -74,7 +74,7 @@ describe('backupSchema', () => {
       schemaVersion: BACKUP_SCHEMA_VERSION,
       kind: 'chats',
       exportedAt: 1,
-      appVersion: '0.1.1',
+      appVersion: '1.1',
       chats: [sampleChat],
     };
     const r = parseBackupPayload(raw);
@@ -96,7 +96,7 @@ describe('backupSchema', () => {
       schemaVersion: BACKUP_SCHEMA_VERSION,
       kind: 'full',
       exportedAt: 1,
-      appVersion: '0.1.1',
+      appVersion: '1.1',
       chats: [],
       tasks: [task],
       taskRuns: [
@@ -210,7 +210,7 @@ describe('backupSchema', () => {
       schemaVersion: 1,
       kind: 'full',
       exportedAt: 1,
-      appVersion: '0.1.1',
+      appVersion: '1.1',
       models: [
         {
           fileName: '../evil.gguf',

@@ -29,7 +29,7 @@ function libraryVersionsFromDeps(): Array<{ name: string; version: string }> {
   };
 
   // Static requires only — Metro cannot resolve `require(\`${name}/package.json\`)`.
-  let llamaRn = pin("llama.rn", "0.12.6");
+  let llamaRn = pin("llama.rn", "0.13.0-rc.3");
   let rnAiLlama = pin("@react-native-ai/llama", "0.12.0");
   let aiSdk = pin("ai", "6.0.225");
   let mlKitOcr = pin("@react-native-ml-kit/text-recognition", "2.0.0");
@@ -279,7 +279,7 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
   const scrollPadBottom = useScrollPadForFloatingBack();
 
   const appName = packageJson.name || "ofln";
-  const appVersion = packageJson.version || "0.1.1";
+  const appVersion = packageJson.version || "1.1";
 
   const libraryVersions = libraryVersionsFromDeps();
 

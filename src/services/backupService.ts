@@ -92,7 +92,7 @@ import { ONBOARDING_COMPLETE_KEY } from './onboardingService';
 import { THEME_STORAGE_KEY } from '../context/ThemeContext';
 import { logError } from '../utils/errorLogger';
 
-const APP_VERSION = '0.1.1';
+const APP_VERSION = '1.1';
 
 export type ExportBackupResult = {
   kind: BackupKind;
