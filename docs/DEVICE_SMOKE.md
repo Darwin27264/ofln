@@ -23,9 +23,13 @@ Minimum from the improvement plan is also mirrored in [`README.md`](../README.md
 
 - [ ] Cold launch → lands on conversation or onboarding as expected
 - [ ] **Start here** shelf visible; download a starter → progress shows % and (when measurable) speed/ETA
-- [ ] Pause download → partial kept → Resume → completes → size verify → loads (not `.partial`)
+- [ ] Download starter model → SHA-256 integrity check passes before activation from `.partial` to `.gguf`
+- [ ] Pause download → partial kept → Resume → completes → size & SHA-256 verify → loads (not `.partial`)
 - [ ] Discard paused download → partial gone
 - [ ] Send message → stream tokens → **Stop** cancels cleanly
+- [ ] Thinking model (e.g. Qwen3.5) → thought stream batches smoothly via `requestAnimationFrame` without UI lag
+- [ ] Low-RAM device (≤6GB total RAM) → verify KV cache selects `q4_0` in log/Stages (`q8_0` on >6GB; omitted on emulator)
+- [ ] Dynamic `n_ctx` clamping → model loads with clamped ladder value (512..8192) when RAM headroom is tight
 - [ ] Edit user message → regenerate; Copy / Speak (TTS) on assistant row
 - [ ] Mic (STT) → text into composer; stops on Send / Stop / Speak
 - [ ] Unload / switch model → second model loads; first does not leave a stuck context
@@ -47,15 +51,16 @@ Minimum from the improvement plan is also mirrored in [`README.md`](../README.md
 
 - [ ] Storage: list/delete model; clear chats (confirm)
 - [ ] Backup export chats JSON → import merge on a clean or second path
-- [ ] Full ZIP backup → restore; models re-download from catalog; **HF token not** in ZIP
+- [ ] Full ZIP backup → restore; models re-download from catalog (with SHA-256 when known); **HF token not** in ZIP
 - [ ] Attach image (OCR) and PDF on a small model; honest refusal if over caps
 
 ---
 
 ## Native / trust surfaces (post-rebuild)
 
+- [ ] Safe Mode recovery: kill during model load → next cold launch presents Safe Mode dialog to clear active model selection
+- [ ] Diagnostics: acceleration check runs; smoke test re-initializes context with low-RAM perf params and safe boot markers; logs viewable
 - [ ] HF token screen: save / clear token in Keychain; gated download behaves with/without token
-- [ ] Diagnostics: acceleration check runs; logs viewable
 - [ ] Keep-awake: screen stays awake while generating, releases after
 - [ ] Temporary chat mode works; does not pollute durable history unexpectedly
 

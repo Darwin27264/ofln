@@ -59,6 +59,15 @@ Separately, `@ofln/model_load_in_progress` is set immediately before native `pre
 
 Image/PDF text extraction runs via on-device ML Kit **before** prompting text-only models. When available RAM is tight and a model is loaded, the LLM is unloaded for OCR, then restored.
 
+### Model integrity & download verification
+
+- Downloads write to a `.partial` file first (`${name}.partial`) and resume interrupted HTTP range requests.
+- Before activating (`.partial` → final `.gguf`), `verifyAndActivate` verifies:
+  1. The file starts with the GGUF ASCII magic header (`GGUF`).
+  2. The byte size matches expected size within tolerance.
+  3. If an expected SHA-256 digest is specified (populated from Hugging Face Git LFS for all curated starter models), native streaming hash verification (`ReactNativeBlobUtil.fs.hash(path, 'sha256')`) is performed.
+  4. On any mismatch, verification fails closed (leaving `.partial` intact for resume/inspection, refusing to rename to `.gguf`).
+
 ## Android 16KB page size
 
 Configured in `android/app/build.gradle`:

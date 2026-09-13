@@ -349,6 +349,9 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
       if (!pending) return;
 
       const updated = patchLastAssistant(messagesRef.current, pending);
+      if (pending.thought !== undefined) {
+        setCurrentThought(pending.thought);
+      }
       if (!updated) return;
       messagesRef.current = updated;
       if (opts?.urgent) {
@@ -470,7 +473,6 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
       };
       const onThought = (thought: string) => {
         if (generationId !== generationIdRef.current) return;
-        setCurrentThought(thought);
         scheduleAssistantPatch({ thought }, generationId);
       };
 
@@ -963,7 +965,6 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
           };
           const onThought = (thought: string) => {
             if (generationId !== generationIdRef.current) return;
-            setCurrentThought(thought);
             scheduleAssistantPatch({ thought }, generationId);
           };
 

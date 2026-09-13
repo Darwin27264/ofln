@@ -2,7 +2,7 @@
 <resources>
     <!-- Status + nav share the shell fill so top/bottom chrome match.
          API 35 ignores bar colors; window background seals both edges. -->
-    <color name="app_status_bar">#FFFFFF</color>
-    <color name="app_nav_bar">#FFFFFF</color>
-    <color name="app_window_background">#FFFFFF</color>
+    <color name="app_status_bar">#0A0A0A</color>
+    <color name="app_nav_bar">#0A0A0A</color>
+    <color name="app_window_background">#0A0A0A</color>
 </resources>

@@ -54,6 +54,7 @@ export type DownloadProgressCallback = (
 
 export type DownloadModelOptions = {
   expectedBytes?: number | null;
+  expectedSha256?: string | null;
   onProgress?: DownloadProgressCallback;
   cancellationToken?: DownloadCancellationToken;
 };
@@ -229,16 +230,29 @@ async function assertLooksLikeGguf(filePath: string): Promise<void> {
   );
 }
 
-async function verifyAndActivate(
+export async function verifyAndActivate(
   partialPath: string,
   destPath: string,
   expectedBytes: number | null,
+  expectedSha256?: string | null,
 ): Promise<string> {
   assertNotPartialPath(destPath);
   const stat = await RNFS.stat(partialPath);
   const actual = Number(stat.size) || 0;
   await assertLooksLikeGguf(partialPath);
-  if (!sizesMatch(actual, expectedBytes)) {
+  if (expectedSha256 && expectedSha256.trim()) {
+    const target = expectedSha256.trim().toLowerCase();
+    const computed = (
+      await ReactNativeBlobUtil.fs.hash(partialPath, 'sha256')
+    ).toLowerCase();
+    if (computed !== target) {
+      // Fail closed: leave partial for retry/inspection; do not rename to .gguf.
+      throw new Error(
+        `Download integrity check failed: SHA-256 mismatch (expected ${target}, got ${computed})`,
+      );
+    }
+  } else if (!sizesMatch(actual, expectedBytes)) {
+    // When SHA-256 is not available, verify on-disk size against expected bytes.
     // Leave partial for retry; do not rename to .gguf.
     throw new Error(
       `Download size mismatch: expected ~${expectedBytes} bytes, got ${actual}`,
@@ -321,7 +335,12 @@ async function downloadModelResumable(
   modelUrl: string,
   options: DownloadModelOptions,
 ): Promise<string> {
-  const { onProgress, cancellationToken, expectedBytes: expectedHint } = options;
+  const {
+    onProgress,
+    cancellationToken,
+    expectedBytes: expectedHint,
+    expectedSha256,
+  } = options;
   const destPath = getModelDestPath(modelName);
   const partialPath = getPartialPath(destPath);
   const chunkPath = `${partialPath}.chunk`;
@@ -431,8 +450,11 @@ async function downloadModelResumable(
       });
       // Capture Content-Length from begin when available (full entity or remaining).
       const cl = Number(res.contentLength) || 0;
-      if (cl > 0 && (!expectedBytes || expectedBytes <= 0)) {
-        expectedBytes = existingBytes > 0 ? existingBytes + cl : cl;
+      if (cl > 0) {
+        const serverTotal = existingBytes > 0 && res.statusCode === 206 ? existingBytes + cl : cl;
+        if (!expectedBytes || expectedBytes <= 0) {
+          expectedBytes = serverTotal;
+        }
       }
     },
     progress: ({ bytesWritten, contentLength }) => {
@@ -509,7 +531,12 @@ async function downloadModelResumable(
       }
     }
 
-    const activated = await verifyAndActivate(partialPath, destPath, expectedBytes);
+    const activated = await verifyAndActivate(
+      partialPath,
+      destPath,
+      expectedBytes,
+      expectedSha256,
+    );
     await clearMeta(modelName);
     activeDownloads.delete(downloadKey);
     onProgress?.(100, {
@@ -527,6 +554,7 @@ async function downloadModelResumable(
         fileName: modelName,
         downloadUrl: modelUrl,
         expectedBytes,
+        sha256: expectedSha256 ?? null,
       });
     } catch {
       /* catalog is best-effort */
@@ -613,7 +641,12 @@ async function downloadModelLegacy(
   modelUrl: string,
   options: DownloadModelOptions,
 ): Promise<string> {
-  const { onProgress, cancellationToken, expectedBytes } = options;
+  const {
+    onProgress,
+    cancellationToken,
+    expectedBytes,
+    expectedSha256,
+  } = options;
   const destPath = getModelDestPath(modelName);
   const downloadKey = modelName;
 
@@ -677,7 +710,19 @@ async function downloadModelLegacy(
       throw new Error(`Download failed with status code: ${result.statusCode}`);
     }
     const st = await RNFS.stat(destPath);
-    if (!sizesMatch(Number(st.size) || 0, expectedBytes ?? null)) {
+    const actual = Number(st.size) || 0;
+    if (expectedSha256 && expectedSha256.trim()) {
+      const target = expectedSha256.trim().toLowerCase();
+      const computed = (
+        await ReactNativeBlobUtil.fs.hash(destPath, 'sha256')
+      ).toLowerCase();
+      if (computed !== target) {
+        await RNFS.unlink(destPath);
+        throw new Error(
+          `Download integrity check failed: SHA-256 mismatch (expected ${target}, got ${computed})`,
+        );
+      }
+    } else if (!sizesMatch(actual, expectedBytes ?? null)) {
       await RNFS.unlink(destPath);
       throw new Error(
         `Download size mismatch: expected ~${expectedBytes} bytes, got ${st.size}`,
@@ -699,6 +744,7 @@ async function downloadModelLegacy(
         fileName: modelName,
         downloadUrl: modelUrl,
         expectedBytes: expectedBytes ?? null,
+        sha256: expectedSha256 ?? null,
       });
     } catch {
       /* catalog is best-effort */

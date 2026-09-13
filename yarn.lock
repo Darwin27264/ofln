@@ -5259,10 +5259,10 @@ linkify-it@^2.0.0:
   dependencies:
     uc.micro "^1.0.1"
 
-llama.rn@0.12.6:
-  version "0.12.6"
-  resolved "https://registry.npmjs.org/llama.rn/-/llama.rn-0.12.6.tgz"
-  integrity sha512-qh8ysRykn0IQqN6kO7xirKhuZnZYzuI3fQWs9cFoQHpQeYfCfkhqgRuhzTw1Bh/A1H8Z2PPu5PFS45R2jfszTA==
+llama.rn@0.13.0-rc.3:
+  version "0.13.0-rc.3"
+  resolved "https://registry.npmjs.org/llama.rn/-/llama.rn-0.13.0-rc.3.tgz"
+  integrity sha512-pf3ckONVjPGo4wwbjZrYqrX89ZaW1b4Ul1SrZkq1yU/Y4ZOaPHKMv7qGXax+F0uHNJvxNh8jz0hicrmIJ07PBg==
 
 locate-path@^3.0.0:
   version "3.0.0"

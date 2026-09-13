@@ -107,6 +107,7 @@ interface ModelSelectionScreenProps {
     cancellationToken?: import("../api/model").DownloadCancellationToken,
     expectedBytes?: number | null,
     revision?: string | null,
+    expectedSha256?: string | null,
   ) => Promise<void>;
   setContext: (context: any) => void;
   setCurrentPage: (page: "modelSelection" | "conversation" | "settings" | "stages" | "modelSettings" | "hfToken") => void;
@@ -1301,10 +1302,17 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
 
         const quantSize =
           model.availableQuants?.find((q) => q.fileName === fileNameToDownload)?.size ?? 0;
-        // Prefer exact sibling byte size; avoid rounded display strings ("2.1 GB") which
-        // fail strict post-download checks.
+        const starter = findStarterByFileName(fileNameToDownload);
+        // Prefer exact sibling or curated starter byte size; do not pass rounded display strings
+        // ("0.51 GB", "2.1 GB") as exact byte requirements, as display strings cause false mismatch errors.
         const expectedBytes =
-          quantSize > 0 ? quantSize : parseSizeToBytes(model.size);
+          quantSize > 0
+            ? quantSize
+            : starter?.sizeBytes && starter.sizeBytes > 0
+              ? starter.sizeBytes
+              : null;
+        const expectedSha256 = starter?.sha256 ?? model.sha256 ?? null;
+
         setPausedDownloads((prev) => {
           const next = { ...prev };
           delete next[fileNameToDownload];
@@ -1331,6 +1339,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           cancellationToken,
           expectedBytes,
           model.revision,
+          expectedSha256,
         );
 
         if (!cancellationToken.isCancelled()) {

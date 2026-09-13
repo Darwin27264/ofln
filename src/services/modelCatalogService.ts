@@ -18,6 +18,7 @@ export type ModelCatalogEntry = {
   downloadUrl: string;
   repoId?: string | null;
   expectedBytes?: number | null;
+  sha256?: string | null;
   updatedAt: number;
 };
 
@@ -84,6 +85,7 @@ export async function registerModelSource(opts: {
   downloadUrl: string;
   expectedBytes?: number | null;
   repoId?: string | null;
+  sha256?: string | null;
 }): Promise<void> {
   if (!isHttpDownloadUrl(opts.downloadUrl)) return;
   // Prefer https for new catalog rows; allow already-valid session downloads.
@@ -104,6 +106,9 @@ export async function registerModelSource(opts: {
       typeof opts.expectedBytes === 'number' && opts.expectedBytes > 0
         ? opts.expectedBytes
         : map[fileName]?.expectedBytes ?? null,
+    sha256: opts.sha256
+      ? opts.sha256.trim().toLowerCase()
+      : map[fileName]?.sha256 ?? null,
     updatedAt: Date.now(),
   };
   await writeMap(map);

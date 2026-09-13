@@ -35,6 +35,12 @@ import {
   thermalLevelToGraphValue,
   type ThermalLevel,
 } from "../services/thermalService";
+import { getInferencePerfParams } from "../services/inferencePerfParams";
+import { getTotalMemoryBytes } from "../services/ramFitService";
+import {
+  markModelLoadInProgress,
+  clearModelLoadInProgress,
+} from "../services/safeBootService";
 import { EASING, OVERLAY_MOTION } from "../utils/animationConfig";
 
 interface Props {
@@ -330,14 +336,25 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
 
       const nCtx = 512;
       const nGpuLayers = 0;
+      const totalRam = await getTotalMemoryBytes();
+      const perfParams = getInferencePerfParams(nGpuLayers, {
+        totalMemoryBytes: totalRam,
+      });
 
       appendTestLog("Initializing context...");
-      let ctx = await initLlama({
-        model: modelPath,
-        use_mlock: false,
-        n_ctx: nCtx,
-        n_gpu_layers: nGpuLayers,
-      });
+      await markModelLoadInProgress();
+      let ctx: any;
+      try {
+        ctx = await initLlama({
+          model: modelPath,
+          use_mlock: false,
+          n_ctx: nCtx,
+          n_gpu_layers: nGpuLayers,
+          ...perfParams,
+        });
+      } finally {
+        await clearModelLoadInProgress();
+      }
       appendTestLog("Context created.");
 
       const meta = (ctx as any)?.model?.metadata;
@@ -407,12 +424,18 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
       appendTestLog("Context released.");
 
       appendTestLog("Re-initializing context...");
-      ctx = await initLlama({
-        model: modelPath,
-        use_mlock: false,
-        n_ctx: nCtx,
-        n_gpu_layers: nGpuLayers,
-      });
+      await markModelLoadInProgress();
+      try {
+        ctx = await initLlama({
+          model: modelPath,
+          use_mlock: false,
+          n_ctx: nCtx,
+          n_gpu_layers: nGpuLayers,
+          ...perfParams,
+        });
+      } finally {
+        await clearModelLoadInProgress();
+      }
       appendTestLog("Running third completion...");
       await ctx.completion({
         messages: [{ role: "user", content: "Reply with exactly one word: Done." }],

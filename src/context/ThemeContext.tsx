@@ -121,10 +121,10 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export const THEME_STORAGE_KEY = '@app_theme_mode';
 
 export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [themeMode, setThemeMode] = useState<ThemeMode>('light');
+  const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
   const [isInitialized, setIsInitialized] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const previousThemeMode = useRef<ThemeMode>('light');
+  const previousThemeMode = useRef<ThemeMode>('dark');
   // Fade overlay sits *above* the tree — never wraps children — so Modals /
   // absolute overlays under screens are not put inside a native opacity layer.
   const fadeOverlay = useRef(new Animated.Value(0)).current;
@@ -136,6 +136,9 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (savedTheme === 'dark' || savedTheme === 'light') {
           setThemeMode(savedTheme);
           previousThemeMode.current = savedTheme;
+        } else {
+          setThemeMode('dark');
+          previousThemeMode.current = 'dark';
         }
       } catch (error) {
         console.error('Error loading theme:', error);

@@ -36,7 +36,7 @@
     "@types/uuid": "^10.0.0",
     "ai": "^6.0.225",
     "axios": "^1.18.1",
-    "llama.rn": "0.12.6",
+    "llama.rn": "0.13.0-rc.3",
     "react": "19.0.0",
     "react-native": "0.78.1",
     "react-native-background-actions": "^4.1.0",

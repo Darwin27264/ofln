@@ -65,6 +65,8 @@ export interface ModelInfo {
   revision?: string;
   /** Gated HF repo — needs token before files can be listed/downloaded. */
   needsAuth?: boolean;
+  /** Optional SHA-256 digest for download integrity verification. */
+  sha256?: string;
 }
 
 interface ModelCardProps {

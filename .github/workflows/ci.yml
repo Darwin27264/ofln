@@ -45,6 +45,9 @@ jobs:
           # Strip signing placeholders so debug assemble does not look for a keystore
           sed -i '/^MYAPP_UPLOAD_/d' android/gradle.properties
       - run: npm ci
+      - name: Make gradlew executable
+        working-directory: android
+        run: chmod +x gradlew
       - name: Assemble debug
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon

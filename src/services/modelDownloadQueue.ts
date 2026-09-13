@@ -26,6 +26,7 @@ export type QueuedModelDownload = {
   fileName: string;
   downloadUrl: string;
   expectedBytes?: number | null;
+  expectedSha256?: string | null;
 };
 
 export type ModelQueueProgress = {
@@ -57,6 +58,7 @@ export function toQueuedDownloads(
         fileName: normalizeModelFileName(fileName),
         downloadUrl,
         expectedBytes: m.expectedBytes ?? m.sizeBytes ?? null,
+        expectedSha256: m.sha256 ?? null,
       };
     })
     .filter((m): m is QueuedModelDownload => m != null);
@@ -144,6 +146,7 @@ export async function runModelDownloadQueue(
 
         await downloadModel(name, item.downloadUrl, {
           expectedBytes: item.expectedBytes,
+          expectedSha256: item.expectedSha256,
           onProgress: (pct) => {
             opts?.onProgress?.({
               fileName: name,
@@ -159,6 +162,7 @@ export async function runModelDownloadQueue(
           fileName: name,
           downloadUrl: item.downloadUrl,
           expectedBytes: item.expectedBytes,
+          sha256: item.expectedSha256,
         });
 
         completed.push(name);

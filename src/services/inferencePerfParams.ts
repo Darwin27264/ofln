@@ -114,8 +114,10 @@ export function formatLoadError(err: unknown): string {
       if (own.length > 0) {
         const dumped: Record<string, unknown> = {};
         for (const k of own) {
-          if (k === 'stack') continue;
-          dumped[k] = (err as Record<string, unknown>)[k];
+          if (k === 'stack') {
+            continue;
+          }
+          dumped[k] = (err as unknown as Record<string, unknown>)[k];
         }
         const s = JSON.stringify(dumped);
         if (s && s !== '{}' && s !== '{"message":"Unknown error"}') {

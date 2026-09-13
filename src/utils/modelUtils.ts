@@ -37,6 +37,7 @@ export interface ModelInfo {
   shelfHint?: string;
   revision?: string;
   needsAuth?: boolean;
+  sha256?: string;
 }
 
 /**

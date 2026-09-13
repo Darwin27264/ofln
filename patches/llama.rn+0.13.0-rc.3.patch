@@ -1,39 +1,5 @@
-diff --git a/node_modules/llama.rn/android/.gradle/9.2.0/checksums/checksums.lock b/node_modules/llama.rn/android/.gradle/9.2.0/checksums/checksums.lock
-new file mode 100644
-index 0000000..7de20b4
-Binary files /dev/null and b/node_modules/llama.rn/android/.gradle/9.2.0/checksums/checksums.lock differ
-diff --git a/node_modules/llama.rn/android/.gradle/9.2.0/fileChanges/last-build.bin b/node_modules/llama.rn/android/.gradle/9.2.0/fileChanges/last-build.bin
-new file mode 100644
-index 0000000..f76dd23
-Binary files /dev/null and b/node_modules/llama.rn/android/.gradle/9.2.0/fileChanges/last-build.bin differ
-diff --git a/node_modules/llama.rn/android/.gradle/9.2.0/fileHashes/fileHashes.bin b/node_modules/llama.rn/android/.gradle/9.2.0/fileHashes/fileHashes.bin
-new file mode 100644
-index 0000000..0aad9d5
-Binary files /dev/null and b/node_modules/llama.rn/android/.gradle/9.2.0/fileHashes/fileHashes.bin differ
-diff --git a/node_modules/llama.rn/android/.gradle/9.2.0/fileHashes/fileHashes.lock b/node_modules/llama.rn/android/.gradle/9.2.0/fileHashes/fileHashes.lock
-new file mode 100644
-index 0000000..502fa2f
-Binary files /dev/null and b/node_modules/llama.rn/android/.gradle/9.2.0/fileHashes/fileHashes.lock differ
-diff --git a/node_modules/llama.rn/android/.gradle/9.2.0/gc.properties b/node_modules/llama.rn/android/.gradle/9.2.0/gc.properties
-new file mode 100644
-index 0000000..e69de29
-diff --git a/node_modules/llama.rn/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock b/node_modules/llama.rn/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock
-new file mode 100644
-index 0000000..7e2b218
-Binary files /dev/null and b/node_modules/llama.rn/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock differ
-diff --git a/node_modules/llama.rn/android/.gradle/buildOutputCleanup/cache.properties b/node_modules/llama.rn/android/.gradle/buildOutputCleanup/cache.properties
-new file mode 100644
-index 0000000..01d3591
---- /dev/null
-+++ b/node_modules/llama.rn/android/.gradle/buildOutputCleanup/cache.properties
-@@ -0,0 +1,2 @@
-+#Wed Jul 15 14:37:00 EDT 2026
-+gradle.version=9.2.0
-diff --git a/node_modules/llama.rn/android/.gradle/vcs-1/gc.properties b/node_modules/llama.rn/android/.gradle/vcs-1/gc.properties
-new file mode 100644
-index 0000000..e69de29
 diff --git a/node_modules/llama.rn/android/build.gradle b/node_modules/llama.rn/android/build.gradle
-index 10d8fd3..caa8880 100644
+index 7ac9615..20cf7b1 100644
 --- a/node_modules/llama.rn/android/build.gradle
 +++ b/node_modules/llama.rn/android/build.gradle
 @@ -150,6 +150,25 @@ android {
@@ -59,14 +25,14 @@ index 10d8fd3..caa8880 100644
 +      println("llama.rn: WARNING Python3 not resolved")
 +    }
 +
-     if (hexagonPresent) {
-       println("✅ Hexagon SDK detected — enabling DSP build")
-       cmakeArgs += [
+     // Narrows the CPU-feature variants built for each ABI. Each variant is a full
+     // copy of the source tree, so CI uses this to keep build times sane.
+     def rnllamaVariants = project.findProperty("rnllamaVariants")?.toString()?.trim()
 diff --git a/node_modules/llama.rn/android/src/main/rnllama/CMakeLists.txt b/node_modules/llama.rn/android/src/main/rnllama/CMakeLists.txt
-index a0843c6..44ff9e4 100644
+index a5bf9a0..b0be26f 100644
 --- a/node_modules/llama.rn/android/src/main/rnllama/CMakeLists.txt
 +++ b/node_modules/llama.rn/android/src/main/rnllama/CMakeLists.txt
-@@ -5,6 +5,10 @@ project(rnllama)
+@@ -7,6 +7,10 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/rnllama-build-options.cmake)
  option(HEXAGON_SDK_ROOT "Hexagon SDK root directory" OFF)
  option(HEXAGON_TOOLS_ROOT "Hexagon SDK toolchain directory" OFF)
  
@@ -78,10 +44,10 @@ index a0843c6..44ff9e4 100644
  set(CMAKE_CXX_STANDARD 17)
  # Use CMAKE_CURRENT_SOURCE_DIR to work correctly both standalone and as subdirectory
 diff --git a/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp b/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp
-index abd3f10..38cdac2 100644
+index a4ac06e..bf2e9be 100644
 --- a/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp
 +++ b/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp
-@@ -273,35 +273,87 @@ namespace rnllama_jsi {
+@@ -278,35 +278,87 @@ namespace rnllama_jsi {
          model.setProperty(runtime, "is_recurrent", llama_model_is_recurrent(ctx->model));
          model.setProperty(runtime, "is_hybrid", llama_model_is_hybrid(ctx->model));
  
@@ -183,7 +149,7 @@ index abd3f10..38cdac2 100644
              defaultCaps.setProperty(runtime, "tools", false);
              defaultCaps.setProperty(runtime, "toolCalls", false);
              defaultCaps.setProperty(runtime, "parallelToolCalls", false);
-@@ -309,16 +361,24 @@ namespace rnllama_jsi {
+@@ -314,16 +366,24 @@ namespace rnllama_jsi {
          }
          jinja.setProperty(runtime, "defaultCaps", defaultCaps);
  
@@ -217,7 +183,7 @@ index abd3f10..38cdac2 100644
          }
  
          chatTemplates.setProperty(runtime, "jinja", jinja);
-@@ -628,12 +688,31 @@ namespace rnllama_jsi {
+@@ -659,12 +719,31 @@ namespace rnllama_jsi {
                               result.setProperty(rt, "reasonNoGPU", jsi::String::createFromUtf8(rt, reasonNoGPU));
                               result.setProperty(rt, "systemInfo", jsi::String::createFromUtf8(rt, system_info));
  
@@ -256,10 +222,10 @@ index abd3f10..38cdac2 100644
                               // Maintain shape expected by TypeScript
                               result.setProperty(rt, "devices", toJsStringArray(rt, usedDevices));
 diff --git a/node_modules/llama.rn/lib/commonjs/index.js b/node_modules/llama.rn/lib/commonjs/index.js
-index 123f501..00571cb 100644
+index 83bad5b..d1a604d 100644
 --- a/node_modules/llama.rn/lib/commonjs/index.js
 +++ b/node_modules/llama.rn/lib/commonjs/index.js
-@@ -328,7 +328,7 @@ class LlamaContext {
+@@ -373,7 +373,7 @@ class LlamaContext {
    isJinjaSupported() {
      const {
        jinja
@@ -268,7 +234,7 @@ index 123f501..00571cb 100644
      return !!jinja?.toolUse || !!jinja?.default;
    }
    async getFormattedChat(messages, template, params) {
-@@ -378,7 +378,10 @@ class LlamaContext {
+@@ -423,7 +423,10 @@ class LlamaContext {
      const forcePureContent = params?.force_pure_content ?? false;
      // When force_pure_content is set, accept any model that has a chat_template
      // string in its metadata without requiring template validation to pass.
@@ -281,10 +247,10 @@ index 123f501..00571cb 100644
      let tmpl;
      if (template) tmpl = template;
 diff --git a/node_modules/llama.rn/lib/module/index.js b/node_modules/llama.rn/lib/module/index.js
-index 1c9eecd..b951f2c 100644
+index b333540..6bc7a86 100644
 --- a/node_modules/llama.rn/lib/module/index.js
 +++ b/node_modules/llama.rn/lib/module/index.js
-@@ -314,7 +314,7 @@ export class LlamaContext {
+@@ -340,7 +340,7 @@ export class LlamaContext {
    isJinjaSupported() {
      const {
        jinja
@@ -293,7 +259,7 @@ index 1c9eecd..b951f2c 100644
      return !!jinja?.toolUse || !!jinja?.default;
    }
    async getFormattedChat(messages, template, params) {
-@@ -364,7 +364,10 @@ export class LlamaContext {
+@@ -390,7 +390,10 @@ export class LlamaContext {
      const forcePureContent = params?.force_pure_content ?? false;
      // When force_pure_content is set, accept any model that has a chat_template
      // string in its metadata without requiring template validation to pass.
@@ -306,10 +272,10 @@ index 1c9eecd..b951f2c 100644
      let tmpl;
      if (template) tmpl = template;
 diff --git a/node_modules/llama.rn/src/index.ts b/node_modules/llama.rn/src/index.ts
-index 220d289..ee7dfef 100644
+index 3c39f81..342025e 100644
 --- a/node_modules/llama.rn/src/index.ts
 +++ b/node_modules/llama.rn/src/index.ts
-@@ -659,7 +659,7 @@ export class LlamaContext {
+@@ -713,7 +713,7 @@ export class LlamaContext {
    }
  
    isJinjaSupported(): boolean {
@@ -318,7 +284,7 @@ index 220d289..ee7dfef 100644
      return !!jinja?.toolUse || !!jinja?.default
    }
  
-@@ -725,9 +725,10 @@ export class LlamaContext {
+@@ -779,9 +779,10 @@ export class LlamaContext {
      const forcePureContent = params?.force_pure_content ?? false
      // When force_pure_content is set, accept any model that has a chat_template
      // string in its metadata without requiring template validation to pass.

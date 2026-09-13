@@ -39,6 +39,8 @@ export type BackupModelEntry = {
   expectedBytes?: number | null;
   /** Size of file on source device at export (for sort / preflight). */
   sizeBytes?: number | null;
+  /** Optional SHA-256 digest for verified download integrity. */
+  sha256?: string | null;
 };
 
 export type BackupManifestV1 = {

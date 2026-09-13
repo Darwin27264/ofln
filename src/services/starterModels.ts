@@ -9,6 +9,8 @@ export type StarterModelInfo = {
   repoId: string;
   fileName: string;
   size: string;
+  /** Exact size in bytes from Hugging Face Git LFS for verified download integrity. */
+  sizeBytes?: number;
   description: string;
   author: string;
   tags: string[];
@@ -17,6 +19,8 @@ export type StarterModelInfo = {
    * Not marketing — hardware honesty.
    */
   shelfHint: string;
+  /** Optional SHA-256 digest from Hugging Face Git LFS for verified download integrity. */
+  sha256?: string;
 };
 
 /**
@@ -33,10 +37,12 @@ export const STARTER_MODELS: StarterModelInfo[] = [
     repoId: 'unsloth/Qwen3.5-0.8B-GGUF',
     fileName: 'Qwen3.5-0.8B-Q4_0.gguf',
     size: '0.51 GB',
+    sizeBytes: 507154688,
     description: 'Ultra-light footprint for constrained devices.',
     author: 'unsloth',
     tags: ['low-ram', 'q4_0', 'instruct', 'thinking'],
     shelfHint: 'Low RAM',
+    sha256: '444406ddd926550c724ec18d5120a9d40ded44908a063b0e66e9a7e5464c652c',
   },
   {
     id: 'gemma3-1b-q40',
@@ -44,10 +50,12 @@ export const STARTER_MODELS: StarterModelInfo[] = [
     repoId: 'unsloth/gemma-3-1b-it-GGUF',
     fileName: 'gemma-3-1b-it-Q4_0.gguf',
     size: '0.67 GB',
+    sizeBytes: 721918496,
     description: 'Tiny Google model built for on-device chat.',
     author: 'unsloth',
     tags: ['instruct', 'gemma3', 'small', 'q4_0'],
     shelfHint: 'On-device chat',
+    sha256: '27ee88e03be02e9ba73def9a819d570d8ad73716e50769e87f374ae394b0276e',
   },
   {
     id: 'llama32-1b-q40',
@@ -55,10 +63,12 @@ export const STARTER_MODELS: StarterModelInfo[] = [
     repoId: 'unsloth/Llama-3.2-1B-Instruct-GGUF',
     fileName: 'Llama-3.2-1B-Instruct-Q4_0.gguf',
     size: '0.72 GB',
+    sizeBytes: 773025824,
     description: "Meta's compact instruct model for phones.",
     author: 'unsloth',
     tags: ['instruct', 'llama', 'small', 'q4_0'],
     shelfHint: 'Fast & light',
+    sha256: '66bfbb2d48bdb77cd56bd03ef820deff3c4a74b1a09de3b917ae13e72c1a70c2',
   },
   {
     id: 'qwen35-2b-q40',
@@ -66,10 +76,12 @@ export const STARTER_MODELS: StarterModelInfo[] = [
     repoId: 'unsloth/Qwen3.5-2B-GGUF',
     fileName: 'Qwen3.5-2B-Q4_0.gguf',
     size: '1.13 GB',
+    sizeBytes: 1214873856,
     description: 'Balanced capability for everyday use.',
     author: 'unsloth',
     tags: ['instruct', 'thinking', 'small', 'q4_0'],
     shelfHint: 'Fits most phones',
+    sha256: 'cd70221bebaee0503e0f6717e174250cd7825aa88438b3aabec9ad55731d9bb1',
   },
   {
     id: 'smollm3-3b-q40',
@@ -77,10 +89,12 @@ export const STARTER_MODELS: StarterModelInfo[] = [
     repoId: 'unsloth/SmolLM3-3B-GGUF',
     fileName: 'SmolLM3-3B-Q4_0.gguf',
     size: '1.82 GB',
+    sizeBytes: 1811456544,
     description: 'Daily driver with long context.',
     author: 'unsloth',
     tags: ['instruct', 'thinking', 'multilingual', 'q4_0'],
     shelfHint: 'Daily driver',
+    sha256: '7077558daebcbb2b598aef526e420f82517d766084aff0e03950c56b86429622',
   },
   {
     id: 'phi4-mini-q40',
@@ -88,10 +102,12 @@ export const STARTER_MODELS: StarterModelInfo[] = [
     repoId: 'bartowski/microsoft_Phi-4-mini-instruct-GGUF',
     fileName: 'microsoft_Phi-4-mini-instruct-Q4_0.gguf',
     size: '2.33 GB',
+    sizeBytes: 2331442560,
     description: 'Strong at math and logic.',
     author: 'bartowski',
     tags: ['instruct', 'reasoning', 'math', 'tools', 'q4_0'],
     shelfHint: 'Math / logic',
+    sha256: '2124412a2d3410dd05c5d01796457283812210633165a2a86c909f815971518e',
   },
   {
     id: 'qwen35-4b-q40',
@@ -99,10 +115,12 @@ export const STARTER_MODELS: StarterModelInfo[] = [
     repoId: 'unsloth/Qwen3.5-4B-GGUF',
     fileName: 'Qwen3.5-4B-Q4_0.gguf',
     size: '2.41 GB',
+    sizeBytes: 2583221408,
     description: 'Higher reasoning capacity; prefers more memory.',
     author: 'unsloth',
     tags: ['instruct', 'thinking', 'code', 'q4_0'],
     shelfHint: 'More capable · needs RAM',
+    sha256: '298fcb5fe7a77ccc79745ae24751560c5ac56874caff4bb39b1f2055bd72b8bb',
   },
   {
     id: 'gemma4-e2b-q40',
@@ -110,10 +128,12 @@ export const STARTER_MODELS: StarterModelInfo[] = [
     repoId: 'unsloth/gemma-4-E2B-it-GGUF',
     fileName: 'gemma-4-E2B-it-Q4_0.gguf',
     size: '3.04 GB',
+    sizeBytes: 3041378400,
     description: 'Efficient flagship. Text-only.',
     author: 'unsloth',
     tags: ['instruct', 'gemma4', 'q4_0'],
     shelfHint: 'Flagship general',
+    sha256: '31d3a3c630d4e71a7416498c42660dd3805066948acaec76a47e1ffac7010132',
   },
 ];
 
@@ -163,10 +183,12 @@ export const PERSONA_ROLEPLAY_MODELS: StarterModelInfo[] = [
     repoId: 'bartowski/Dolphin3.0-Qwen2.5-1.5B-GGUF',
     fileName: 'Dolphin3.0-Qwen2.5-1.5B-Q4_0.gguf',
     size: '0.94 GB',
+    sizeBytes: 937538624,
     description: 'Uncensored instruct — stays in character on most phones.',
     author: 'bartowski',
     tags: ['uncensored', 'roleplay', 'dolphin', 'q4_0', 'small'],
     shelfHint: 'Best for personas · low RAM',
+    sha256: '3d9dc778f039abe533706081a11373c4f3eda3a5cb86f7b579eb3e37726ccc50',
   },
   {
     id: 'qwen25-15b-abliterated-q4ks',
@@ -174,10 +196,12 @@ export const PERSONA_ROLEPLAY_MODELS: StarterModelInfo[] = [
     repoId: 'mradermacher/Qwen2.5-1.5B-Instruct-abliterated-GGUF',
     fileName: 'Qwen2.5-1.5B-Instruct-abliterated.Q4_K_S.gguf',
     size: '0.94 GB',
+    sizeBytes: 940313152,
     description: 'Abliterated instruct — fewer refusals, strong roleplay.',
     author: 'mradermacher',
     tags: ['abliterated', 'roleplay', 'qwen', 'small'],
     shelfHint: 'Less refusal',
+    sha256: 'b2fef9592916c7e0d12f24fc5cc03a978beb33661c40e9e99efe839cda46e144',
   },
   {
     id: 'dolphin3-qwen25-3b-q40',
@@ -185,10 +209,12 @@ export const PERSONA_ROLEPLAY_MODELS: StarterModelInfo[] = [
     repoId: 'bartowski/Dolphin3.0-Qwen2.5-3B-GGUF',
     fileName: 'Dolphin3.0-Qwen2.5-3b-Q4_0.gguf',
     size: '1.83 GB',
+    sizeBytes: 1828489184,
     description: 'Stronger uncensored pick when you have more RAM.',
     author: 'bartowski',
     tags: ['uncensored', 'roleplay', 'dolphin', 'q4_0'],
     shelfHint: 'Stronger · needs more RAM',
+    sha256: '2043eae883d6b1624d815ee0087aab1cc4bc03f549bd224c2224729a6fc0a7f7',
   },
 ];
 
@@ -203,10 +229,12 @@ export const CODING_STARTER_MODELS: StarterModelInfo[] = [
     repoId: 'bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF',
     fileName: 'Qwen2.5-Coder-1.5B-Instruct-Q4_0.gguf',
     size: '0.94 GB',
+    sizeBytes: 937535776,
     description: 'Lightweight code model for quick fixes on most phones.',
     author: 'bartowski',
     tags: ['coder', 'code', 'qwen', 'q4_0', 'small'],
     shelfHint: 'Code · low RAM',
+    sha256: '1165e56fbe4751906354a065e0d1d84e7db0352750929d6fe508fd0565f650a4',
   },
   {
     id: 'qwen25-coder-3b-q40',
@@ -214,10 +242,12 @@ export const CODING_STARTER_MODELS: StarterModelInfo[] = [
     repoId: 'bartowski/Qwen2.5-Coder-3B-Instruct-GGUF',
     fileName: 'Qwen2.5-Coder-3B-Instruct-Q4_0.gguf',
     size: '1.70 GB',
+    sizeBytes: 1828486400,
     description: 'Stronger completions and refactors; needs more RAM.',
     author: 'bartowski',
     tags: ['coder', 'code', 'qwen', 'q4_0'],
     shelfHint: 'Stronger code · mid RAM',
+    sha256: '4a1bb431ec1095cc3c9c9741f1a9473841d9631adabf1839ef690376d4653938',
   },
   {
     id: 'qwen25-coder-7b-q40',
@@ -225,10 +255,12 @@ export const CODING_STARTER_MODELS: StarterModelInfo[] = [
     repoId: 'bartowski/Qwen2.5-Coder-7B-Instruct-GGUF',
     fileName: 'Qwen2.5-Coder-7B-Instruct-Q4_0.gguf',
     size: '4.14 GB',
+    sizeBytes: 4444121888,
     description: 'Best code quality in this shelf; flagship RAM only.',
     author: 'bartowski',
     tags: ['coder', 'code', 'qwen', 'q4_0'],
     shelfHint: 'Flagship code · high RAM',
+    sha256: '01f98a604944c259f33704faa5828bf2be9ada568a6c0d44fc7aef2463c2ec6a',
   },
 ];
 

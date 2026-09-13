@@ -616,6 +616,7 @@ function AppContent(): React.JSX.Element {
     cancellationToken?: DownloadCancellationToken,
     expectedBytes?: number | null,
     revision?: string | null,
+    expectedSha256?: string | null,
   ) => {
     const downloadUrl = await resolveHfDownloadUrl(repoId, file, revision);
     const destPath = `${RNFS.DocumentDirectoryPath}/${file}`;
@@ -656,6 +657,7 @@ function AppContent(): React.JSX.Element {
         onProgress,
         cancellationToken,
         expectedBytes,
+        expectedSha256,
       });
       
       // Check if cancelled/paused after download

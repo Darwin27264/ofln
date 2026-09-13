@@ -1,3 +1,30 @@
+# Compatibility fix for cocoapods-core with json gem >= 2.8.0 where quirks_mode was removed.
+# cocoapods-core still passes :quirks_mode => true when loading podspec JSON files.
+require 'json'
+module JSON
+  class << self
+    unless method_defined?(:_original_parse)
+      alias_method :_original_parse, :parse
+      def parse(source, *args, **kwargs, &block)
+        kwargs = kwargs.dup
+        kwargs.delete(:quirks_mode)
+        kwargs.delete('quirks_mode')
+        if args.last.is_a?(Hash)
+          opts = args.pop.dup
+          opts.delete(:quirks_mode)
+          opts.delete('quirks_mode')
+          args << opts
+        end
+        if kwargs.empty?
+          _original_parse(source, *args, &block)
+        else
+          _original_parse(source, *args, **kwargs, &block)
+        end
+      end
+    end
+  end
+end
+
 # Resolve react_native_pods.rb with node to allow for hoisting
 require Pod::Executable.execute_command('node', ['-p',
   'require.resolve(

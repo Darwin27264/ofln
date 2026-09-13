@@ -196,6 +196,7 @@ async function collectModelEntries(): Promise<BackupModelEntry[]> {
       downloadUrl: c.downloadUrl,
       repoId: c.repoId,
       expectedBytes: c.expectedBytes,
+      sha256: c.sha256,
     });
   }
 
@@ -207,6 +208,7 @@ async function collectModelEntries(): Promise<BackupModelEntry[]> {
       repoId: prev?.repoId ?? null,
       expectedBytes: prev?.expectedBytes ?? s.sizeBytes,
       sizeBytes: s.sizeBytes,
+      sha256: prev?.sha256 ?? null,
     });
   }
 

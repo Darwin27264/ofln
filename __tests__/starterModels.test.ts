@@ -80,4 +80,29 @@ describe('starterModels shelf', () => {
       CODING_STARTER_MODELS[0].id,
     );
   });
+
+  it('all starter models define valid 64-char hex SHA-256 digests', () => {
+    const all = [
+      ...STARTER_MODELS,
+      ...PERSONA_ROLEPLAY_MODELS,
+      ...CODING_STARTER_MODELS,
+    ];
+    for (const model of all) {
+      expect(model.sha256).toBeDefined();
+      expect(model.sha256).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
+
+  it('all starter models define exact positive byte counts (sizeBytes)', () => {
+    const all = [
+      ...STARTER_MODELS,
+      ...PERSONA_ROLEPLAY_MODELS,
+      ...CODING_STARTER_MODELS,
+    ];
+    for (const model of all) {
+      expect(typeof model.sizeBytes).toBe('number');
+      expect(model.sizeBytes).toBeGreaterThan(100_000_000);
+      expect(Number.isInteger(model.sizeBytes)).toBe(true);
+    }
+  });
 });

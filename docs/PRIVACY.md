@@ -70,4 +70,4 @@ Network access is for **model discovery and download**, **user-configured Source
 
 - Feature overview and backup table: [`README.md`](../README.md)
 - Maintainer device smoke after native rebuild: [`DEVICE_SMOKE.md`](./DEVICE_SMOKE.md)
-- Product direction: [`IMPROVEMENT_PLAN.md`](./IMPROVEMENT_PLAN.md)
+- Architecture and technical notes: [`TECHNICAL.md`](./TECHNICAL.md)

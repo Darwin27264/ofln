@@ -15,7 +15,7 @@ Offline LLM chat for Android and iOS by **Evolvyn AI** (Darwin Chen). Download a
 ## Features
 
 - Browse / download GGUF models from Hugging Face (optional token for gated repos)
-- Curated **Start here** shelf (Q4_0 phone-friendly picks) plus full HF browse / local import
+- Curated **Start here** shelf (Q4_0 phone-friendly picks) with SHA-256 integrity verification plus full HF browse / local import
 - Download progress with percent and speed/ETA when measurable; resumable pause/resume
 - Import local GGUF files; per-model settings (temperature, context, GPU layers)
 - Streaming chat with optional reasoning/`<think>` parsing; calm per-turn tok/s
@@ -96,9 +96,10 @@ Full backups include chats, personas, perspective presets, tasks / recent runs, 
 |--------|---------|
 | `npm start` | Metro bundler |
 | `npm run android` / `npm run ios` | Build & run |
-| `npm test` | Jest |
-| `npm run lint` | ESLint |
-| `npm run typecheck` | `tsc --noEmit` |
+| `npm test` | Jest unit test suite |
+| `npm run lint:ci` | ESLint (launch-critical paths) |
+| `npm run typecheck` | Launch-critical path typecheck |
+| `npm run typecheck:full` | Full-project `tsc --noEmit` |
 | `npm run android:build-release` | Release APK |
 
 More build/release detail: [`docs/TECHNICAL.md`](./docs/TECHNICAL.md).
@@ -107,7 +108,7 @@ More build/release detail: [`docs/TECHNICAL.md`](./docs/TECHNICAL.md).
 
 ```bash
 npm run typecheck
-npm run lintaA   
+npm run lint:ci
 npm test
 ```
 
