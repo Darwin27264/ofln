@@ -91,6 +91,7 @@ export interface ModelStatus {
   modelPath: string | null;
   projectorPath: string | null;
   error: string | null;
+  warning?: string | null;
 }
 
 // ── Chat Service Types ─────────────────────────────────────────────────────────

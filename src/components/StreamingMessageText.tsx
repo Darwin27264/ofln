@@ -39,12 +39,12 @@ const StreamingCaret = React.memo(({
         Animated.timing(opacity, {
           toValue: 0.12,
           duration: 400,
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
         Animated.timing(opacity, {
           toValue: 1,
           duration: 400,
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
       ]),
     );

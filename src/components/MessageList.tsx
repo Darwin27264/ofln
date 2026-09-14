@@ -21,7 +21,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import { MessageMarkdown } from './MessageMarkdown';
 import { StreamingMessageText } from './StreamingMessageText';
-import { Diamond } from './loading-ui/Diamond';
+import { HueLoadingIndicator, type HueMode } from './loading-ui/HueLoadingIndicator';
 import { TextBlink } from './loading-ui/TextBlink';
 import { lineHeightForChatFont, bubbleMetricsForChatFont } from '../utils/chatFontSize';
 import { FrostedGlass } from './FrostedGlass';
@@ -71,17 +71,32 @@ export type MessageListItem = {
   attachments?: MessageListAttachment[];
 } & MessagePersonaFields;
 
-/** Waiting for first tokens — loading-ui Diamond. */
-const ChatLoadingIndicator: React.FC<{ color: string }> = React.memo(({ color }) => (
+/** Waiting for first tokens — customized ambient hue moving & breathing animation. */
+const ChatLoadingIndicator: React.FC<{
+  mode?: HueMode;
+  color?: string;
+}> = React.memo(({ mode, color }) => (
   <View style={{ paddingVertical: 4, paddingHorizontal: 2, justifyContent: 'center' }}>
-    <Diamond size={18} color={color} />
+    <HueLoadingIndicator mode={mode} color={color} />
   </View>
 ));
 ChatLoadingIndicator.displayName = 'ChatLoadingIndicator';
 
-/** Model is in a thinking / CoT phase — loading-ui TextBlink. */
-const ThinkingIndicator: React.FC<{ color: string }> = React.memo(({ color }) => (
-  <View style={{ paddingVertical: 4, paddingHorizontal: 2, justifyContent: 'center' }}>
+/** Model is in a thinking / CoT phase — subtle hue pulse beside TextBlink. */
+const ThinkingIndicator: React.FC<{
+  color: string;
+  mode?: HueMode;
+}> = React.memo(({ color, mode }) => (
+  <View
+    style={{
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 4,
+      paddingHorizontal: 2,
+    }}
+  >
+    <HueLoadingIndicator mode={mode} width={36} height={20} />
     <TextBlink
       accessibilityLabel="Thinking"
       style={{ fontSize: 14, color }}
@@ -381,6 +396,11 @@ export function MessageList({
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
   const visible = conversation.slice(1);
+  const ambientHueMode: HueMode = isTemporaryMode
+    ? 'temporary'
+    : isPerspectiveMode
+    ? 'perspective'
+    : 'default';
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [personaSheetOpen, setPersonaSheetOpen] = useState(false);
   const [personaSheetPersona, setPersonaSheetPersona] = useState<Persona | null>(null);
@@ -839,9 +859,12 @@ export function MessageList({
                   isGenerating &&
                   isLastVisible ? (
                     msg.thought !== undefined ? (
-                      <ThinkingIndicator color={theme.colors.textSecondary} />
+                      <ThinkingIndicator
+                        color={theme.colors.textSecondary}
+                        mode={ambientHueMode}
+                      />
                     ) : (
-                      <ChatLoadingIndicator color={theme.colors.textSecondary} />
+                      <ChatLoadingIndicator mode={ambientHueMode} />
                     )
                   ) : msg.role === 'assistant' &&
                     (!msg.content || msg.content.trim().length === 0) &&

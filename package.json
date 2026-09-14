@@ -20,7 +20,8 @@
     "android:install": "cd android && ./gradlew installDebug",
     "android:build-release": "cd android && ./gradlew assembleRelease",
     "android:install-release": "adb install -r android/app/build/outputs/apk/release/ofln-release.apk",
-    "android:test-release": "npm run android:build-release && npm run android:install-release"
+    "android:test-release": "npm run android:build-release && npm run android:install-release",
+    "android:extract-release": "powershell -ExecutionPolicy Bypass -File .\\scripts\\extract-release-apk.ps1"
   },
   "dependencies": {
     "@dev-amirzubair/react-native-voice": "^1.0.4",

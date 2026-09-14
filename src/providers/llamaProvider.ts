@@ -48,11 +48,13 @@ type StatusListener = (status: ModelStatus) => void;
 class LlamaProviderService {
   private languageModel: LanguageModel | null = null;
   private modelInstance: any = null; // @react-native-ai/llama model instance
+  private lastWarning: string | null = null;
   private status: ModelStatus = {
     state: 'idle',
     modelPath: null,
     projectorPath: null,
     error: null,
+    warning: null,
   };
   private listeners: Set<StatusListener> = new Set();
   /** Dedup concurrent loadModel calls (UI effects previously thrashed this). */
@@ -63,6 +65,10 @@ class LlamaProviderService {
 
   getStatus(): ModelStatus {
     return { ...this.status };
+  }
+
+  getLastWarning(): string | null {
+    return this.lastWarning;
   }
 
   subscribe(listener: StatusListener): () => void {
@@ -205,21 +211,28 @@ class LlamaProviderService {
         return false;
       }
 
+      this.lastWarning = null;
       if (isAndroidEmulator()) {
         try {
           const stat = await RNFS.stat(modelPath);
           const sizeMB = Math.round((Number(stat.size) || 0) / (1024 * 1024));
           if (sizeMB >= 1600) {
             const msg =
-              `Model is too large for the Android emulator (${sizeMB} MB). ` +
-              `Use Qwen3.5 0.8B / 2B Q4_0, or raise AVD RAM to 6GB+.`;
-            this.setStatus({ state: 'error', error: msg });
-            await logError('LlamaProvider', msg, new Error(msg), {
-              modelPath,
-              sizeMB,
-              isEmulator: true,
-            });
-            return false;
+              `Model is large for the Android emulator (${sizeMB} MB). ` +
+              `Use Qwen3.5 0.8B / 2B Q4_0, or raise AVD RAM to 6GB+ if load fails.`;
+            this.lastWarning = msg;
+            console.warn(`[LlamaProvider] ${msg}`);
+            await logError(
+              'LlamaProvider',
+              msg,
+              undefined,
+              {
+                modelPath,
+                sizeMB,
+                isEmulator: true,
+              },
+              'WARN',
+            );
           }
         } catch {
           /* continue — size check is best-effort */
@@ -239,6 +252,7 @@ class LlamaProviderService {
         modelPath,
         projectorPath: projectorPath ?? null,
         error: null,
+        warning: this.lastWarning,
       });
 
       // Resolve platform-specific parameters
@@ -299,16 +313,22 @@ class LlamaProviderService {
       });
       if (!ramGate.ok) {
         const msg =
-          `Not enough free RAM to load this model safely ` +
+          `Available RAM may be tight for this model ` +
           `(need ~${formatRamGb(ramGate.requiredBytes)}, ` +
           `have ~${formatRamGb(ramGate.availableBytes ?? 0)}). ` +
-          `Try a smaller quant or lower context.`;
-        this.setStatus({ state: 'error', error: msg });
-        await logError('LlamaProvider', msg, new Error(ramGate.reason || 'insufficient_ram'), {
-          modelPath: modelFileName,
-          ...ramGate,
-        });
-        return false;
+          `Attempting load anyway; lower context size or pick a smaller quant if load fails.`;
+        this.lastWarning = msg;
+        console.warn(`[LlamaProvider] ${msg}`);
+        await logError(
+          'LlamaProvider',
+          msg,
+          undefined,
+          {
+            modelPath: modelFileName,
+            ...ramGate,
+          },
+          'WARN',
+        );
       }
 
       // Create language model via the AI SDK provider.
@@ -462,6 +482,7 @@ class LlamaProviderService {
           modelPath,
           projectorPath: projectorPath ?? null,
           error: null,
+          warning: this.lastWarning,
         });
 
         // Successful intentional load ends Safe Mode autoload suppress.
@@ -476,7 +497,7 @@ class LlamaProviderService {
           /unknown error/i.test(errorMsg) && Platform.OS === 'android'
             ? `${errorMsg} — often a GGUF chat_template / native init failure on Android. Delete the model and re-download, or try another GGUF.`
             : errorMsg;
-        this.setStatus({ state: 'error', error: enriched });
+        this.setStatus({ state: 'error', error: enriched, warning: null });
         await logError(
           'LlamaProvider',
           `Failed to load model: ${enriched}`,
@@ -525,12 +546,14 @@ class LlamaProviderService {
       }
       this.modelInstance = null;
       this.languageModel = null;
+      this.lastWarning = null;
       setRuntimeAccelerationState(null);
       this.setStatus({
         state: 'unloaded',
         modelPath: null,
         projectorPath: null,
         error: null,
+        warning: null,
       });
     }
   }

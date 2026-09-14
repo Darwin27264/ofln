@@ -23,6 +23,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect, Path } from 'react-native-svg';
 
 import { FrostedGlass } from './FrostedGlass';
+import { InputListeningGlow } from './InputListeningGlow';
 import { useTheme } from '../context/ThemeContext';
 import { createStyles, INPUT_FADE_HEIGHT } from '../styles/styles';
 
@@ -470,8 +471,13 @@ export function ChatComposer({
             </View>
             <View style={[styles.inputBar, styles.inputBarInRow]}>
               <FrostedGlass style={StyleSheet.absoluteFillObject} />
+              <InputListeningGlow active={isListening} />
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  isListening && localStyles.inputListening,
+                  isListening && { color: theme.colors.text },
+                ]}
                 placeholder={
                   isGenerating
                     ? 'Agents are responding…'
@@ -479,7 +485,11 @@ export function ChatComposer({
                       ? 'Listening…'
                       : 'Message...'
                 }
-                placeholderTextColor={theme.colors.textTertiary}
+                placeholderTextColor={
+                  isListening
+                    ? theme.colors.text
+                    : theme.colors.textTertiary
+                }
                 value={userInput}
                 onChangeText={onChangeText}
                 multiline
@@ -589,3 +599,9 @@ export function ChatComposer({
     </>
   );
 }
+
+const localStyles = StyleSheet.create({
+  inputListening: {
+    fontWeight: '600',
+  },
+});

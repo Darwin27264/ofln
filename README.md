@@ -100,7 +100,17 @@ Full backups include chats, personas, perspective presets, tasks / recent runs, 
 | `npm run lint:ci` | ESLint (launch-critical paths) |
 | `npm run typecheck` | Launch-critical path typecheck |
 | `npm run typecheck:full` | Full-project `tsc --noEmit` |
-| `npm run android:build-release` | Release APK |
+| `npm run android:build-release` | Build release APK (`assembleRelease`) |
+| `npm run android:extract-release` | Copy release APK into `releaseAPK/ofln_{date}.apk` |
+
+Direct Windows build & extract commands:
+```powershell
+# Build release APK:
+cd android; .\gradlew.bat assembleRelease; cd ..
+
+# Extract to releaseAPK/:
+powershell -ExecutionPolicy Bypass -File .\scripts\extract-release-apk.ps1
+```
 
 More build/release detail: [`docs/TECHNICAL.md`](./docs/TECHNICAL.md).
 

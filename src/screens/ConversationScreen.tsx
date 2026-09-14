@@ -2407,7 +2407,12 @@ export default function ConversationScreen({
           lastAutoLoadedRef.current = modelPath;
           setSelectedGGUF(modelFile);
           setContext(llamaProvider.getNativeContext());
-          showToast("Model loaded");
+          const warn = llamaProvider.getLastWarning();
+          if (warn) {
+            showToast("Model loaded (RAM is tight)");
+          } else {
+            showToast("Model loaded");
+          }
           await checkDownloadedModels();
         } else {
           const uf = toUserFacingLoadError(null, llamaProvider.getStatus().error);

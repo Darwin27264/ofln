@@ -359,7 +359,7 @@ function AppContent(): React.JSX.Element {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 
   const [assistantDisplayMode, setAssistantDisplayModeState] = useState<"bubble" | "direct">(
-    "bubble"
+    "direct"
   );
   const [chatFontSize, setChatFontSizeState] = useState<ChatFontSize>(DEFAULT_CHAT_FONT_SIZE);
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
