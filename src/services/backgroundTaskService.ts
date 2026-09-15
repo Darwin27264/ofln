@@ -20,9 +20,10 @@ let appStateSub: { remove: () => void } | null = null;
 async function onBackgroundEvent(taskId: string): Promise<void> {
   try {
     await processDueTasks({
-      // Headless / BG: allow FGS on Android inside runner
+      // Headless / BG: runner safely checks whether FGS can run
       skipForegroundService: false,
       forceAnalysis: Platform.OS === 'android',
+      trigger: 'background_fetch',
     });
   } catch (e) {
     console.warn('[backgroundTask] processDueTasks failed', e);

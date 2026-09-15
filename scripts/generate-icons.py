@@ -72,6 +72,12 @@ def main():
 
         print(f"Generated Android {folder}: ic={ic_size}x{ic_size}, round={ic_size}x{ic_size}, fg={fg_size}x{fg_size}")
 
+    # Google Play Store icon (512x512)
+    playstore_path = os.path.join('android', 'app', 'src', 'main', 'ic_launcher-playstore.png')
+    playstore_img = source.resize((512, 512), Image.Resampling.LANCZOS).convert('RGBA')
+    playstore_img.save(playstore_path, format='PNG', optimize=True)
+    print(f"Generated Android Play Store icon (512x512): {playstore_path}")
+
     # iOS AppIcon configurations
     ios_icons = [
         ('icon-20@1x.png', 20),

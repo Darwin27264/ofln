@@ -85,7 +85,7 @@ import { AmbientHue } from "../components/AmbientHue";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { floatingBackBottom } from "../utils/layoutInsets";
 import { useKeyboardPadding } from "../hooks/useKeyboardPadding";
-import { Persona, getPersonas, updatePersonaLastUsed } from "../services/personaService";
+import { Persona, getPersonasEnsured, updatePersonaLastUsed } from "../services/personaService";
 import { PersonaAvatar } from "../components/PersonaAvatar";
 import { ANIMATION_CONFIG, EASING, ANIMATION_DURATIONS, OVERLAY_MOTION } from "../utils/animationConfig";
 import { extractTextFromImage } from "../services/ocrService";
@@ -482,7 +482,7 @@ export default function ConversationScreen({
   }, []);
 
   useEffect(() => {
-    void getPersonas()
+    void getPersonasEnsured()
       .then(setAvailablePersonas)
       .catch((error) => {
         console.error("Error loading personas:", error);
@@ -1962,7 +1962,7 @@ export default function ConversationScreen({
     setIsModelSelectorVisible(true);
     setIsModelSelectorChromeOpen(true);
     try {
-      const personas = await getPersonas();
+      const personas = await getPersonasEnsured();
       setAvailablePersonas(personas);
     } catch (error) {
       console.error("Error loading personas:", error);

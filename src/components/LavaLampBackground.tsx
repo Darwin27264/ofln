@@ -19,6 +19,7 @@ import Svg, {
 } from 'react-native-svg';
 import { useTheme } from '../context/ThemeContext';
 import { EASING } from '../utils/animationConfig';
+import { AMBIENT_GOLD } from './AmbientHue';
 
 const { width: W, height: H } = Dimensions.get('window');
 
@@ -275,9 +276,9 @@ type Props = {
 export function LavaLampBackground({ pulseKey = 0 }: Props) {
   const { theme, isDark } = useTheme();
 
-  const goldDeep = isDark ? '#E8C547' : '#C9A227';
-  const goldSoft = isDark ? '#F0D78C' : '#E2C86A';
-  const fadeYellow = isDark ? '#F5E6A3' : '#F0E4B0';
+  const goldDeep = isDark ? AMBIENT_GOLD.deepDark : AMBIENT_GOLD.deepLight;
+  const goldSoft = isDark ? AMBIENT_GOLD.softDark : AMBIENT_GOLD.softLight;
+  const fadeYellow = isDark ? AMBIENT_GOLD.fadeDark : AMBIENT_GOLD.fadeLight;
 
   const glows: GlowBase[] = useMemo(
     () => [

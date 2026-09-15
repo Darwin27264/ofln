@@ -11,6 +11,11 @@ import {
   normalizeSchedule,
   type TaskSchedule,
 } from '../utils/taskScheduleHelpers';
+import type { TaskRunLogEntry } from './taskLogger';
+import {
+  scheduleNativeTask,
+  cancelNativeTask,
+} from './nativeTaskScheduler';
 
 const TASKS_KEY = '@ofln_tasks';
 const TASK_RUNS_KEY = '@ofln_task_runs';
@@ -57,6 +62,13 @@ export interface ScheduledTask {
 /** @deprecated Prefer ScheduledTask — kept for existing imports. */
 export type SourceMonitorTask = ScheduledTask;
 
+export type TaskTriggerType =
+  | 'manual'
+  | 'scheduled_native'
+  | 'background_fetch'
+  | 'catch_up'
+  | 'boot_completed';
+
 export interface TaskRun {
   id: string;
   taskId: string;
@@ -69,6 +81,8 @@ export interface TaskRun {
   resultText?: string | null;
   sourceUrl: string;
   modelFileName?: string | null;
+  logs?: TaskRunLogEntry[];
+  trigger?: TaskTriggerType;
 }
 
 export function generateTaskId(): string {
@@ -201,10 +215,16 @@ export async function saveTask(task: ScheduledTask): Promise<ScheduledTask> {
     tasks.push(normalized);
   }
   await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
+  if (normalized.enabled) {
+    void scheduleNativeTask(normalized.id, normalized.nextRunAt);
+  } else {
+    void cancelNativeTask(normalized.id);
+  }
   return normalized;
 }
 
 export async function removeTask(id: string): Promise<void> {
+  void cancelNativeTask(id);
   const tasks = (await getTasks()).filter((t) => t.id !== id);
   await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
   const runs = (await getAllTaskRuns()).filter((r) => r.taskId !== id);
@@ -235,6 +255,11 @@ export async function setTaskEnabled(
     tasks.push(next);
   }
   await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
+  if (enabled) {
+    void scheduleNativeTask(next.id, next.nextRunAt);
+  } else {
+    void cancelNativeTask(next.id);
+  }
   return next;
 }
 
@@ -294,6 +319,7 @@ export async function saveTaskRun(run: TaskRun): Promise<TaskRun> {
     sourceUrl: run.sourceUrl || '',
     fetchedText: truncateStored(run.fetchedText, TASK_FETCH_STORE_MAX_CHARS),
     resultText: truncateStored(run.resultText, TASK_RESULT_MAX_CHARS),
+    logs: Array.isArray(run.logs) ? run.logs.slice(-100) : run.logs,
   };
   const all = await getAllTaskRuns();
   const idx = all.findIndex((r) => r.id === normalized.id);

@@ -28,14 +28,15 @@ const { width: W, height: H } = Dimensions.get('window');
 
 const MODE_CROSSFADE_MS = 480;
 
-/** Shared gold / fade-yellow family (matches onboarding lava). */
+/** Shared gold / fade-yellow family (logo sun-amber; matches onboarding lava). */
 export const AMBIENT_GOLD = {
-  deepDark: '#E8C547',
-  softDark: '#F0D78C',
-  fadeDark: '#F5E6A3',
-  deepLight: '#C9A227',
-  softLight: '#E2C86A',
-  fadeLight: '#F0E4B0',
+  // Logo solar flare: burnt amber → saturated gold → pale sun highlight
+  deepDark: '#F5A623',
+  softDark: '#FFC845',
+  fadeDark: '#FFF0B8',
+  deepLight: '#D48E2F',
+  softLight: '#E8B040',
+  fadeLight: '#F5D78A',
 } as const;
 
 /** Cool violet — ephemeral / temporary mode. */

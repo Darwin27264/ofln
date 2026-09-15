@@ -33,7 +33,7 @@ import {
   type PerspectivePreset,
   type PerspectiveSeat,
 } from '../services/perspectiveService';
-import { getPersonas, type Persona } from '../services/personaService';
+import { getPersonasEnsured, type Persona } from '../services/personaService';
 import { PersonaAvatar } from '../components/PersonaAvatar';
 import { SETTING_RANGES } from '../services/modelSettingsService';
 import { prettifyModelName } from '../utils/modelUtils';
@@ -74,7 +74,7 @@ export default function PerspectiveEditorScreen({
   const [seatPicker, setSeatPicker] = useState<SeatPickerTarget>(null);
 
   useEffect(() => {
-    void getPersonas()
+    void getPersonasEnsured()
       .then(setPersonas)
       .catch(() => setPersonas([]));
   }, []);

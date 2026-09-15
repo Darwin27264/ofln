@@ -22,6 +22,7 @@ class MainApplication : Application(), ReactApplication {
               // add(MyReactNativePackage())
               add(SystemBarsPackage())
               add(ThermalStatusPackage())
+              add(com.ofln.tasks.TaskPackage())
             }
 
         override fun getJSMainModuleName(): String = "index"

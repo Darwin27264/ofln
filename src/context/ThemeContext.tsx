@@ -64,7 +64,7 @@ const lightTheme: Theme = {
     primaryText: '#FFFFFF',
     secondary: '#F0F0F0',
     // Matches AmbientHue / lava deepLight + onboarding Next
-    accent: '#C9A227',
+    accent: '#D48E2F',
     accentText: '#FFFFFF',
 
     success: '#34C759',
@@ -95,7 +95,7 @@ const darkTheme: Theme = {
     primaryText: '#000000',
     secondary: '#2A2A2A',
     // Matches AmbientHue / lava softDark + onboarding Next
-    accent: '#F0D78C',
+    accent: '#FFC845',
     accentText: '#1A1608',
 
     success: '#34C759',

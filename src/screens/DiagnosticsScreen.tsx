@@ -32,11 +32,18 @@ import {
   formatThermalHint,
   formatThermalLabel,
   getThermalLevel,
+  thermalLevelColor,
   thermalLevelToGraphValue,
+  THERMAL_GRAPH_BANDS,
+  THERMAL_YIELD_THRESHOLD,
   type ThermalLevel,
 } from "../services/thermalService";
 import { getInferencePerfParams } from "../services/inferencePerfParams";
-import { getTotalMemoryBytes } from "../services/ramFitService";
+import {
+  formatRamGb,
+  getTotalMemoryBytes,
+  getUsedMemoryBytes,
+} from "../services/ramFitService";
 import {
   markModelLoadInProgress,
   clearModelLoadInProgress,
@@ -54,12 +61,140 @@ interface Props {
 /** Match Settings tile height for the 2-up action blocks. */
 const SETTINGS_TILE_HEIGHT_DIAG = 130;
 /** Full content width — same as Acceleration + Smoke row. */
-const THERMAL_CARD_WIDTH = Dimensions.get("window").width - 40;
-const THERMAL_Y_LABEL_W = 34;
-const THERMAL_CHART_WIDTH = THERMAL_CARD_WIDTH - THERMAL_Y_LABEL_W;
-const THERMAL_CHART_HEIGHT = 72;
-const THERMAL_CHART_SHIFT = 14;
-const THERMAL_HISTORY_LEN = 24;
+const HEALTH_CARD_WIDTH = Dimensions.get("window").width - 40;
+const HEALTH_Y_LABEL_W = 36;
+const HEALTH_CHART_WIDTH = HEALTH_CARD_WIDTH - HEALTH_Y_LABEL_W;
+const HEALTH_CHART_HEIGHT = 96;
+const HEALTH_CHART_SHIFT = 16;
+const HEALTH_HISTORY_LEN = 36;
+const HEALTH_POLL_MS = 2500;
+/** Soft blue for memory chart when pressure is unknown. */
+const MEMORY_LINE_COLOR = "#5AC8FA";
+
+function memoryPressureColor(pct: number): string {
+  if (pct >= 85) {
+    return "#FF453A";
+  }
+  if (pct >= 70) {
+    return "#FF9F0A";
+  }
+  return "#34C759";
+}
+
+function pushHistory(prev: number[], value: number, maxLen: number): number[] {
+  const next = [...prev, value];
+  return next.length > maxLen ? next.slice(next.length - maxLen) : next;
+}
+
+function seriesOrFlat(history: number[], fallback: number): number[] {
+  if (history.length >= 2) {
+    return history;
+  }
+  if (history.length === 1) {
+    return [history[0], history[0]];
+  }
+  return [fallback, fallback];
+}
+
+/** Human window covered by the rolling sample buffer (X axis). */
+function healthWindowAgoLabel(sampleCount: number): string {
+  const spanSec = Math.max(sampleCount - 1, 0) * (HEALTH_POLL_MS / 1000);
+  if (spanSec < 5) {
+    return "just now";
+  }
+  if (spanSec < 60) {
+    return `${Math.round(spanSec)}s ago`;
+  }
+  const mins = spanSec / 60;
+  return `${mins >= 10 ? Math.round(mins) : mins.toFixed(1).replace(/\.0$/, "")}m ago`;
+}
+
+function ChartTimeAxis({
+  sampleCount,
+  color,
+}: {
+  sampleCount: number;
+  color: string;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "space-between",
+        paddingLeft: HEALTH_Y_LABEL_W,
+        paddingRight: SETTINGS_BLOCK.padding,
+        marginTop: 2,
+      }}
+    >
+      <Text style={{ fontSize: 9, color, fontFamily: "Poppins" }}>
+        {healthWindowAgoLabel(sampleCount)}
+      </Text>
+      <Text style={{ fontSize: 9, color, fontFamily: "Poppins" }}>now</Text>
+    </View>
+  );
+}
+
+/** Neutral dotted guide — not a data series (cross-platform; borderStyle:dashed is flaky). */
+function DottedGuideLine({
+  color,
+  topPct,
+}: {
+  color: string;
+  /** 0 = top of plot, 100 = bottom */
+  topPct: number;
+}) {
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 6,
+        top: `${topPct}%`,
+        flexDirection: "row",
+        alignItems: "center",
+        overflow: "hidden",
+        zIndex: 2,
+      }}
+    >
+      {Array.from({ length: 48 }, (_, i) => (
+        <View
+          key={i}
+          style={{
+            width: 3,
+            height: 1.5,
+            borderRadius: 1,
+            backgroundColor: color,
+            opacity: 0.45,
+            marginRight: 4,
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+
+const GRAPH_INFO = {
+  thermal: {
+    title: "Thermal",
+    explanation:
+      "Shows the phone’s OS heat band over time (not degrees Celsius).\n\n" +
+      "Color matches the band: Cool (green), Warm (amber), Hot (orange), Crit (red). " +
+      "A flat green line means the device has stayed Cool.\n\n" +
+      "Left → right is time (a sample every 2.5s). The dotted line marks Hot — " +
+      "above it, ofln yields briefly between tokens so the phone can cool.\n\n" +
+      "Tap the card to refresh and log the current reading.",
+  },
+  memory: {
+    title: "Memory",
+    explanation:
+      "Shows used RAM as a percent of total over the same time window as thermal.\n\n" +
+      "Green is comfortable, amber is elevated, red is high pressure. " +
+      "Expect this to rise during smoke tests and model loads.\n\n" +
+      "Left → right is time. The dotted line marks ~85% used.\n\n" +
+      "Tap the card to refresh and log the current reading.",
+  },
+} as const;
 
 function SectionLabel({ label, color }: { label: string; color: string }) {
   return (
@@ -81,7 +216,7 @@ function SectionLabel({ label, color }: { label: string; color: string }) {
 }
 
 export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: Props) {
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
   const styles = createStyles(theme.colors);
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
@@ -95,11 +230,21 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
   const [logPathSheetOpen, setLogPathSheetOpen] = useState(false);
   const [noModelSheetOpen, setNoModelSheetOpen] = useState(false);
   const [androidOnlySheetOpen, setAndroidOnlySheetOpen] = useState(false);
+  const [graphInfoOpen, setGraphInfoOpen] = useState(false);
+  const [graphInfo, setGraphInfo] = useState<{
+    title: string;
+    explanation: string;
+  } | null>(null);
   const [thermalLevel, setThermalLevel] = useState<ThermalLevel>("unknown");
   const [thermalHistory, setThermalHistory] = useState<number[]>([]);
   const [thermalRefreshing, setThermalRefreshing] = useState(false);
-  const thermalChartAnim = useRef(new Animated.Value(THERMAL_CHART_WIDTH)).current;
+  const [memoryPct, setMemoryPct] = useState<number | null>(null);
+  const [memoryUsedLabel, setMemoryUsedLabel] = useState<string | null>(null);
+  const [memoryHistory, setMemoryHistory] = useState<number[]>([]);
+  const thermalChartAnim = useRef(new Animated.Value(HEALTH_CHART_WIDTH)).current;
+  const memoryChartAnim = useRef(new Animated.Value(HEALTH_CHART_WIDTH)).current;
   const thermalAnimatedOnce = useRef(false);
+  const memoryAnimatedOnce = useRef(false);
   const testScrollRef = useRef<ScrollView>(null);
   /** Full-screen logs page: fade only (no scale) — scale on opaque fill looks glitchy. */
   const logOverlayOpacity = useRef(new Animated.Value(0)).current;
@@ -153,30 +298,54 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
     };
   }, [errorLogVisible, logOverlayMounted, logOverlayOpacity]);
 
-  const graphLineColor = isDark ? "#FFFFFF" : "#6B7280";
+  const thermalStroke = thermalLevelColor(thermalLevel);
+  const memoryStroke =
+    memoryPct != null ? memoryPressureColor(memoryPct) : MEMORY_LINE_COLOR;
 
-  const thermalChartConfig = useMemo(() => {
-    const hexToRgba = (hex: string, alpha: number) => {
-      const r = parseInt(hex.slice(1, 3), 16);
-      const g = parseInt(hex.slice(3, 5), 16);
-      const b = parseInt(hex.slice(5, 7), 16);
-      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-    };
-    return {
+  const hexToRgba = (hex: string, alpha: number) => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
+  const thermalChartConfig = useMemo(
+    () => ({
       backgroundColor: "transparent",
       backgroundGradientFrom: "transparent",
       backgroundGradientTo: "transparent",
       backgroundGradientFromOpacity: 0,
       backgroundGradientToOpacity: 0,
-      color: (o = 1) => hexToRgba(graphLineColor, o),
+      color: (o = 1) => hexToRgba(thermalStroke, o),
       labelColor: () => "transparent",
-      strokeWidth: 2,
+      strokeWidth: 2.5,
       decimalPlaces: 0,
       propsForDots: { r: "0" },
-      fillShadowGradient: graphLineColor,
-      fillShadowGradientOpacity: 0.25,
-    };
-  }, [graphLineColor]);
+      fillShadowGradient: thermalStroke,
+      // Keep Cool fill subtle so a stable phone doesn’t look like a solid green bar
+      fillShadowGradientOpacity:
+        thermalLevel === "nominal" || thermalLevel === "unknown" ? 0.06 : 0.2,
+    }),
+    [thermalStroke, thermalLevel],
+  );
+
+  const memoryChartConfig = useMemo(
+    () => ({
+      backgroundColor: "transparent",
+      backgroundGradientFrom: "transparent",
+      backgroundGradientTo: "transparent",
+      backgroundGradientFromOpacity: 0,
+      backgroundGradientToOpacity: 0,
+      color: (o = 1) => hexToRgba(memoryStroke, o),
+      labelColor: () => "transparent",
+      strokeWidth: 2.5,
+      decimalPlaces: 0,
+      propsForDots: { r: "0" },
+      fillShadowGradient: memoryStroke,
+      fillShadowGradientOpacity: 0.2,
+    }),
+    [memoryStroke],
+  );
 
   const appendTestLog = (msg: string) => {
     if (__DEV__) {
@@ -191,15 +360,32 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
       const level = await getThermalLevel({ force: true });
       setThermalLevel(level);
       const y = thermalLevelToGraphValue(level);
-      setThermalHistory((prev) => {
-        const next = [...prev, y];
-        return next.length > THERMAL_HISTORY_LEN
-          ? next.slice(next.length - THERMAL_HISTORY_LEN)
-          : next;
-      });
+      setThermalHistory((prev) => pushHistory(prev, y, HEALTH_HISTORY_LEN));
+
+      const [totalRam, usedRam] = await Promise.all([
+        getTotalMemoryBytes(),
+        getUsedMemoryBytes(),
+      ]);
+      if (totalRam != null && totalRam > 0 && usedRam != null && usedRam >= 0) {
+        const pct = Math.max(
+          0,
+          Math.min(100, Math.round((usedRam / totalRam) * 100)),
+        );
+        setMemoryPct(pct);
+        setMemoryUsedLabel(
+          `${formatRamGb(usedRam)} / ${formatRamGb(totalRam)}`,
+        );
+        setMemoryHistory((prev) => pushHistory(prev, pct, HEALTH_HISTORY_LEN));
+      }
+
       if (opts?.log) {
+        const pctNow =
+          totalRam != null && totalRam > 0 && usedRam != null && usedRam >= 0
+            ? Math.round((usedRam / totalRam) * 100)
+            : null;
+        const memNote = pctNow != null ? ` · RAM ${pctNow}%` : "";
         appendTestLog(
-          `Thermal: ${formatThermalLabel(level)} — ${formatThermalHint(level)}`,
+          `Thermal: ${formatThermalLabel(level)} — ${formatThermalHint(level)}${memNote}`,
         );
       }
     } catch {
@@ -216,7 +402,7 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
     void refreshThermal();
     const id = setInterval(() => {
       void refreshThermal();
-    }, 2500);
+    }, HEALTH_POLL_MS);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount poll only
   }, []);
@@ -228,18 +414,30 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
     thermalAnimatedOnce.current = true;
     thermalChartAnim.setValue(0);
     Animated.timing(thermalChartAnim, {
-      toValue: THERMAL_CHART_WIDTH,
+      toValue: HEALTH_CHART_WIDTH,
       duration: 700,
       useNativeDriver: false,
     }).start();
   }, [thermalHistory.length, thermalChartAnim]);
 
-  const thermalSeries =
-    thermalHistory.length >= 2
-      ? thermalHistory
-      : thermalHistory.length === 1
-        ? [thermalHistory[0], thermalHistory[0]]
-        : [1, 1];
+  useEffect(() => {
+    if (memoryHistory.length < 2 || memoryAnimatedOnce.current) {
+      return;
+    }
+    memoryAnimatedOnce.current = true;
+    memoryChartAnim.setValue(0);
+    Animated.timing(memoryChartAnim, {
+      toValue: HEALTH_CHART_WIDTH,
+      duration: 700,
+      useNativeDriver: false,
+    }).start();
+  }, [memoryHistory.length, memoryChartAnim]);
+
+  const thermalSeries = seriesOrFlat(thermalHistory, 1);
+  const memorySeries = seriesOrFlat(memoryHistory, 0);
+  // Cool=1 … Crit=4 → Hot/Serious throttle sits 1/3 down from the top of the plot
+  const thermalThrottleTopPct =
+    ((4 - THERMAL_YIELD_THRESHOLD) / 3) * 100;
 
   const refreshLogContent = async () => {
     setLogsLoading(true);
@@ -732,148 +930,6 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
           </TouchableOpacity>
         </View>
 
-        {/* Device thermal — Stages-style line chart (Cool / Warm / Hot) */}
-        <TouchableOpacity
-          onPress={() => void refreshThermal({ log: true })}
-          activeOpacity={0.85}
-          style={{ marginBottom: 20 }}
-          accessibilityLabel={`Device thermal ${formatThermalLabel(thermalLevel)}`}
-        >
-          <FrostedPanel
-            style={{
-              width: THERMAL_CARD_WIDTH,
-              height: SETTINGS_TILE_HEIGHT_DIAG,
-              overflow: "hidden",
-              paddingTop: 10,
-            }}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "baseline",
-                paddingHorizontal: SETTINGS_BLOCK.padding,
-                zIndex: 2,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 22,
-                  fontWeight: "600",
-                  color:
-                    thermalLevel === "critical"
-                      ? theme.colors.error
-                      : thermalLevel === "serious"
-                        ? theme.colors.warning
-                        : theme.colors.text,
-                  fontFamily: "Poppins",
-                  marginRight: 8,
-                }}
-              >
-                {thermalRefreshing && thermalHistory.length === 0
-                  ? "…"
-                  : formatThermalLabel(thermalLevel)}
-              </Text>
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: theme.colors.textSecondary,
-                  fontFamily: "Poppins",
-                  flex: 1,
-                }}
-              >
-                thermal
-              </Text>
-              {thermalRefreshing ? (
-                <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-              ) : null}
-            </View>
-
-            <View
-              style={{
-                flex: 1,
-                flexDirection: "row",
-                marginTop: 2,
-              }}
-            >
-              <View
-                style={{
-                  width: THERMAL_Y_LABEL_W,
-                  justifyContent: "space-between",
-                  paddingVertical: 6,
-                  paddingLeft: 8,
-                }}
-              >
-                {(["Hot", "Warm", "Cool"] as const).map((band) => (
-                  <Text
-                    key={band}
-                    style={{
-                      fontSize: 9,
-                      color: theme.colors.textSecondary,
-                      fontFamily: "Poppins",
-                      fontWeight: "600",
-                    }}
-                  >
-                    {band}
-                  </Text>
-                ))}
-              </View>
-
-              <View
-                style={{
-                  flex: 1,
-                  height: THERMAL_CHART_HEIGHT + THERMAL_CHART_SHIFT,
-                  overflow: "hidden",
-                }}
-              >
-                <Animated.View
-                  style={{
-                    width: thermalChartAnim,
-                    height: THERMAL_CHART_HEIGHT + THERMAL_CHART_SHIFT,
-                    position: "absolute",
-                    bottom: -THERMAL_CHART_SHIFT,
-                    left: 0,
-                    overflow: "hidden",
-                  }}
-                >
-                  <LineChart
-                    data={{
-                      labels: thermalSeries.map(() => ""),
-                      datasets: [
-                        {
-                          data: thermalSeries,
-                        },
-                        {
-                          // Invisible anchors so chart-kit keeps Cool→Hot scale
-                          data: [1, 3],
-                          color: () => "transparent",
-                          strokeWidth: 0,
-                          withDots: false,
-                        },
-                      ],
-                    }}
-                    width={THERMAL_CHART_WIDTH}
-                    height={THERMAL_CHART_HEIGHT + THERMAL_CHART_SHIFT}
-                    chartConfig={thermalChartConfig}
-                    bezier
-                    withDots={false}
-                    withInnerLines={false}
-                    withVerticalLabels={false}
-                    withHorizontalLabels={false}
-                    withVerticalLines={false}
-                    withHorizontalLines={false}
-                    style={{
-                      backgroundColor: "transparent",
-                      paddingLeft: 0,
-                      paddingRight: 0,
-                      marginLeft: -8,
-                    }}
-                  />
-                </Animated.View>
-              </View>
-            </View>
-          </FrostedPanel>
-        </TouchableOpacity>
-
         {/* 3. Live test output */}
         <SectionLabel label="Test output" color={theme.colors.textSecondary} />
 
@@ -882,6 +938,7 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
             padding: SETTINGS_BLOCK.padding,
             minHeight: 140,
             maxHeight: 280,
+            marginBottom: 8,
           }}
         >
           <ScrollView
@@ -906,6 +963,353 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
             ))}
           </ScrollView>
         </FrostedPanel>
+
+        {/* 4. Device health graphs — after actionable diagnostics content */}
+        <SectionLabel label="Device health" color={theme.colors.textSecondary} />
+
+        <TouchableOpacity
+          onPress={() => void refreshThermal({ log: true })}
+          activeOpacity={0.85}
+          style={{ marginBottom: SETTINGS_BLOCK.gap }}
+          accessibilityLabel={`Device thermal ${formatThermalLabel(thermalLevel)}. ${formatThermalHint(thermalLevel)}`}
+        >
+          <FrostedPanel
+            style={{
+              width: HEALTH_CARD_WIDTH,
+              paddingTop: 12,
+              paddingBottom: 8,
+              overflow: "hidden",
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                paddingHorizontal: SETTINGS_BLOCK.padding,
+                marginBottom: 8,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 22,
+                  fontWeight: "600",
+                  color: thermalStroke,
+                  fontFamily: "Poppins",
+                  marginRight: 8,
+                }}
+              >
+                {thermalRefreshing && thermalHistory.length === 0
+                  ? "…"
+                  : formatThermalLabel(thermalLevel)}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: theme.colors.textSecondary,
+                  fontFamily: "Poppins",
+                  flex: 1,
+                }}
+              >
+                thermal
+              </Text>
+              {thermalRefreshing ? (
+                <ActivityIndicator
+                  size="small"
+                  color={theme.colors.textSecondary}
+                  style={{ marginRight: 6 }}
+                />
+              ) : null}
+              <TouchableOpacity
+                onPress={() => {
+                  setGraphInfo({
+                    title: GRAPH_INFO.thermal.title,
+                    explanation:
+                      GRAPH_INFO.thermal.explanation +
+                      `\n\nNow: ${formatThermalLabel(thermalLevel)} — ${formatThermalHint(thermalLevel)}.`,
+                  });
+                  setGraphInfoOpen(true);
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Thermal graph info"
+              >
+                <Ionicons
+                  name="information-circle-outline"
+                  size={20}
+                  color={theme.colors.textSecondary}
+                />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ flexDirection: "row", height: HEALTH_CHART_HEIGHT + HEALTH_CHART_SHIFT }}>
+              <View
+                style={{
+                  width: HEALTH_Y_LABEL_W,
+                  justifyContent: "space-between",
+                  paddingVertical: 4,
+                  paddingLeft: 8,
+                }}
+              >
+                {THERMAL_GRAPH_BANDS.map((band, i) => {
+                  const bandLevel =
+                    i === 0
+                      ? ("critical" as const)
+                      : i === 1
+                        ? ("serious" as const)
+                        : i === 2
+                          ? ("fair" as const)
+                          : ("nominal" as const);
+                  return (
+                    <Text
+                      key={band}
+                      style={{
+                        fontSize: 9,
+                        color: thermalLevelColor(bandLevel),
+                        fontFamily: "Poppins",
+                        fontWeight: "700",
+                      }}
+                    >
+                      {band}
+                    </Text>
+                  );
+                })}
+              </View>
+
+              <View
+                style={{
+                  flex: 1,
+                  height: HEALTH_CHART_HEIGHT + HEALTH_CHART_SHIFT,
+                  overflow: "hidden",
+                }}
+              >
+                <DottedGuideLine
+                  color={theme.colors.textTertiary}
+                  topPct={thermalThrottleTopPct}
+                />
+                <Animated.View
+                  style={{
+                    width: thermalChartAnim,
+                    height: HEALTH_CHART_HEIGHT + HEALTH_CHART_SHIFT,
+                    position: "absolute",
+                    bottom: -HEALTH_CHART_SHIFT,
+                    left: 0,
+                    overflow: "hidden",
+                  }}
+                >
+                  <LineChart
+                    data={{
+                      labels: thermalSeries.map(() => ""),
+                      datasets: [
+                        {
+                          data: thermalSeries,
+                          color: (o = 1) => hexToRgba(thermalStroke, o),
+                          strokeWidth: 2.5,
+                        },
+                        {
+                          // Invisible anchors so chart-kit keeps Cool→Crit scale
+                          data: [1, 4],
+                          color: () => "transparent",
+                          strokeWidth: 0,
+                          withDots: false,
+                        },
+                      ],
+                    }}
+                    width={HEALTH_CHART_WIDTH}
+                    height={HEALTH_CHART_HEIGHT + HEALTH_CHART_SHIFT}
+                    chartConfig={thermalChartConfig}
+                    bezier
+                    withDots={false}
+                    withInnerLines={false}
+                    withVerticalLabels={false}
+                    withHorizontalLabels={false}
+                    withVerticalLines={false}
+                    withHorizontalLines={false}
+                    style={{
+                      backgroundColor: "transparent",
+                      paddingLeft: 0,
+                      paddingRight: 0,
+                      marginLeft: -8,
+                    }}
+                  />
+                </Animated.View>
+              </View>
+            </View>
+            <ChartTimeAxis
+              sampleCount={Math.max(thermalHistory.length, 2)}
+              color={theme.colors.textTertiary}
+            />
+          </FrostedPanel>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => void refreshThermal({ log: true })}
+          activeOpacity={0.85}
+          style={{ marginBottom: 12 }}
+          accessibilityLabel={
+            memoryPct != null
+              ? `Memory pressure ${memoryPct} percent`
+              : "Memory pressure unavailable"
+          }
+        >
+          <FrostedPanel
+            style={{
+              width: HEALTH_CARD_WIDTH,
+              paddingTop: 12,
+              paddingBottom: 8,
+              overflow: "hidden",
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                paddingHorizontal: SETTINGS_BLOCK.padding,
+                marginBottom: 8,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 22,
+                  fontWeight: "600",
+                  color: memoryStroke,
+                  fontFamily: "Poppins",
+                  marginRight: 8,
+                }}
+              >
+                {memoryPct != null ? `${memoryPct}%` : "—"}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: theme.colors.textSecondary,
+                  fontFamily: "Poppins",
+                  flex: 1,
+                }}
+              >
+                memory
+              </Text>
+              {thermalRefreshing ? (
+                <ActivityIndicator
+                  size="small"
+                  color={theme.colors.textSecondary}
+                  style={{ marginRight: 6 }}
+                />
+              ) : null}
+              <TouchableOpacity
+                onPress={() => {
+                  const nowLine =
+                    memoryPct != null
+                      ? `\n\nNow: ${memoryPct}%${
+                          memoryUsedLabel ? ` (${memoryUsedLabel})` : ""
+                        }.`
+                      : "\n\nUsed RAM is unavailable on this build.";
+                  setGraphInfo({
+                    title: GRAPH_INFO.memory.title,
+                    explanation: GRAPH_INFO.memory.explanation + nowLine,
+                  });
+                  setGraphInfoOpen(true);
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Memory graph info"
+              >
+                <Ionicons
+                  name="information-circle-outline"
+                  size={20}
+                  color={theme.colors.textSecondary}
+                />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ flexDirection: "row", height: HEALTH_CHART_HEIGHT + HEALTH_CHART_SHIFT }}>
+              <View
+                style={{
+                  width: HEALTH_Y_LABEL_W,
+                  justifyContent: "space-between",
+                  paddingVertical: 4,
+                  paddingLeft: 8,
+                }}
+              >
+                {(["100", "70", "40", "0"] as const).map((label) => (
+                  <Text
+                    key={label}
+                    style={{
+                      fontSize: 9,
+                      color:
+                        label === "100"
+                          ? memoryPressureColor(90)
+                          : label === "70"
+                            ? memoryPressureColor(75)
+                            : theme.colors.textTertiary,
+                      fontFamily: "Poppins",
+                      fontWeight: "700",
+                    }}
+                  >
+                    {label}
+                  </Text>
+                ))}
+              </View>
+
+              <View
+                style={{
+                  flex: 1,
+                  height: HEALTH_CHART_HEIGHT + HEALTH_CHART_SHIFT,
+                  overflow: "hidden",
+                }}
+              >
+                {/* 85% used-RAM guide */}
+                <DottedGuideLine color={theme.colors.textTertiary} topPct={15} />
+                <Animated.View
+                  style={{
+                    width: memoryChartAnim,
+                    height: HEALTH_CHART_HEIGHT + HEALTH_CHART_SHIFT,
+                    position: "absolute",
+                    bottom: -HEALTH_CHART_SHIFT,
+                    left: 0,
+                    overflow: "hidden",
+                  }}
+                >
+                  <LineChart
+                    data={{
+                      labels: memorySeries.map(() => ""),
+                      datasets: [
+                        {
+                          data: memorySeries,
+                          color: (o = 1) => hexToRgba(memoryStroke, o),
+                          strokeWidth: 2.5,
+                        },
+                        {
+                          data: [0, 100],
+                          color: () => "transparent",
+                          strokeWidth: 0,
+                          withDots: false,
+                        },
+                      ],
+                    }}
+                    width={HEALTH_CHART_WIDTH}
+                    height={HEALTH_CHART_HEIGHT + HEALTH_CHART_SHIFT}
+                    chartConfig={memoryChartConfig}
+                    bezier
+                    withDots={false}
+                    withInnerLines={false}
+                    withVerticalLabels={false}
+                    withHorizontalLabels={false}
+                    withVerticalLines={false}
+                    withHorizontalLines={false}
+                    style={{
+                      backgroundColor: "transparent",
+                      paddingLeft: 0,
+                      paddingRight: 0,
+                      marginLeft: -8,
+                    }}
+                  />
+                </Animated.View>
+              </View>
+            </View>
+            <ChartTimeAxis
+              sampleCount={Math.max(memoryHistory.length, 2)}
+              color={theme.colors.textTertiary}
+            />
+          </FrostedPanel>
+        </TouchableOpacity>
       </ScrollView>
 
       <View style={{ position: "absolute", bottom: backBottom, left: 15, backgroundColor: "transparent" }}>
@@ -1071,6 +1475,24 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
           </View>
         </Animated.View>
       )}
+
+      <BottomSheet
+        visible={graphInfoOpen}
+        onClose={() => setGraphInfoOpen(false)}
+        title={graphInfo?.title ?? ""}
+        fitContent
+      >
+        <Text
+          style={{
+            fontSize: 14,
+            color: theme.colors.textSecondary,
+            fontFamily: "Poppins",
+            lineHeight: 21,
+          }}
+        >
+          {graphInfo?.explanation}
+        </Text>
+      </BottomSheet>
 
       <BottomSheet
         visible={noModelSheetOpen}

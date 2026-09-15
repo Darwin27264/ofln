@@ -60,13 +60,17 @@ import PerspectiveEditorScreen from "./src/screens/PerspectiveEditorScreen";
 import TasksLibraryScreen from "./src/screens/TasksLibraryScreen";
 import TaskEditorScreen from "./src/screens/TaskEditorScreen";
 import TaskRunDetailScreen from "./src/screens/TaskRunDetailScreen";
-import { Persona, getPersonas, updatePersonaLastUsed } from "./src/services/personaService";
+import { Persona, getPersonasEnsured, updatePersonaLastUsed } from "./src/services/personaService";
 import type { PerspectivePreset } from "./src/services/perspectiveService";
 import type { SourceMonitorTask, TaskRun } from "./src/services/taskService";
 import {
   initBackgroundTaskScheduling,
   scheduleBackgroundFetch,
 } from "./src/services/backgroundTaskService";
+import {
+  syncAllScheduledTasks,
+  getInitialTaskNotification,
+} from "./src/services/nativeTaskScheduler";
 import { processDueTasks } from "./src/services/taskRunnerService";
 import { ModelInfo } from "./src/components/ModelCard";
 
@@ -307,7 +311,7 @@ function AppContent(): React.JSX.Element {
     };
   }, []);
 
-  // Source Monitor: OS background wake + catch-up when due.
+  // Source Monitor & Tasks: OS background wake + catch-up when due + native AlarmManager sync.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -315,12 +319,19 @@ function AppContent(): React.JSX.Element {
         await initBackgroundTaskScheduling();
         if (!cancelled) {
           await scheduleBackgroundFetch();
+          await syncAllScheduledTasks();
+          const initialNotif = await getInitialTaskNotification();
+          if (!cancelled && initialNotif?.runId) {
+            setViewingTaskRunId(initialNotif.runId);
+            setCurrentPage("taskRunDetail");
+          }
           // Don't compete with first-run / in-progress model downloads for network+RAM.
           if (!hasActiveDownloads()) {
             await processDueTasks({
               skipForegroundService: true,
               forceAnalysis: false,
               fallbackModelFileName: selectedGGUF,
+              trigger: "catch_up",
             });
           }
         }
@@ -463,7 +474,7 @@ function AppContent(): React.JSX.Element {
    */
   const loadAvailablePersonas = useCallback(async () => {
     try {
-      const personas = await getPersonas();
+      const personas = await getPersonasEnsured();
       setAvailablePersonas(personas);
     } catch (error) {
       console.error("Error loading personas:", error);

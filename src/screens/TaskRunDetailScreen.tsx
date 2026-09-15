@@ -25,6 +25,10 @@ import {
   getTaskRunById,
   type TaskRun,
 } from "../services/taskService";
+import {
+  formatLogEntryTime,
+  formatLogsForClipboard,
+} from "../services/taskLogger";
 
 interface Props {
   runId: string;
@@ -54,6 +58,7 @@ export default function TaskRunDetailScreen({
   const [run, setRun] = useState<TaskRun | null>(null);
   const [siblings, setSiblings] = useState<TaskRun[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showFullLogs, setShowFullLogs] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -296,6 +301,212 @@ export default function TaskRunDetailScreen({
             </Text>
           </View>
         ) : null}
+
+        {/* Execution Logs Section */}
+        <View style={{ marginBottom: 24 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 10,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "600",
+                  color: theme.colors.text,
+                  fontFamily: "Poppins",
+                }}
+              >
+                Execution Logs
+              </Text>
+              {run.trigger ? (
+                <View
+                  style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 2,
+                    borderRadius: 10,
+                    backgroundColor: theme.colors.card,
+                    borderWidth: 1,
+                    borderColor: theme.colors.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: theme.colors.textSecondary,
+                      fontSize: 11,
+                      fontFamily: "Poppins",
+                    }}
+                  >
+                    {run.trigger === "scheduled_native"
+                      ? "OS Alarm"
+                      : run.trigger === "background_fetch"
+                      ? "BG Fetch"
+                      : run.trigger === "catch_up"
+                      ? "Catch-up"
+                      : "Manual"}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            {run.logs && run.logs.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => copyText("Execution logs", formatLogsForClipboard(run.logs))}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Icon name="content-copy" size={20} color={theme.colors.text} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {run.logs && run.logs.length > 0 ? (
+            <View
+              style={{
+                backgroundColor: theme.colors.card,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+                padding: 12,
+              }}
+            >
+              {(showFullLogs ? run.logs : run.logs.slice(-6)).map((log, i) => {
+                const isErr = log.level === "error";
+                const isSuccess = log.level === "success";
+                const isWarn = log.level === "warn";
+                const badgeColor = isErr
+                  ? theme.colors.error
+                  : isSuccess
+                  ? theme.colors.success
+                  : isWarn
+                  ? theme.colors.warning
+                  : theme.colors.textSecondary;
+
+                return (
+                  <View
+                    key={i}
+                    style={{
+                      paddingVertical: 6,
+                      borderBottomWidth: i < (showFullLogs ? run.logs!.length : Math.min(6, run.logs!.length)) - 1 ? 1 : 0,
+                      borderBottomColor: theme.colors.borderLight,
+                    }}
+                  >
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 8,
+                        marginBottom: 2,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontFamily: "monospace",
+                          color: theme.colors.textTertiary,
+                        }}
+                      >
+                        {formatLogEntryTime(log.timestamp)}
+                      </Text>
+                      <View
+                        style={{
+                          paddingHorizontal: 6,
+                          paddingVertical: 1,
+                          borderRadius: 4,
+                          backgroundColor: `${badgeColor}22`,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 10,
+                            fontWeight: "700",
+                            color: badgeColor,
+                            fontFamily: "Poppins",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          {log.level}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        color: theme.colors.text,
+                        fontFamily: "Poppins",
+                        lineHeight: 18,
+                      }}
+                      selectable
+                    >
+                      {log.message}
+                    </Text>
+                    {log.details ? (
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontFamily: "monospace",
+                          color: theme.colors.textSecondary,
+                          marginTop: 4,
+                          backgroundColor: theme.colors.surface,
+                          padding: 6,
+                          borderRadius: 6,
+                        }}
+                        selectable
+                      >
+                        {log.details}
+                      </Text>
+                    ) : null}
+                  </View>
+                );
+              })}
+
+              {run.logs.length > 6 ? (
+                <TouchableOpacity
+                  onPress={() => setShowFullLogs((prev) => !prev)}
+                  style={{
+                    paddingTop: 10,
+                    alignItems: "center",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: theme.colors.primary,
+                      fontSize: 12,
+                      fontWeight: "600",
+                      fontFamily: "Poppins",
+                    }}
+                  >
+                    {showFullLogs
+                      ? "Show recent entries only"
+                      : `View all ${run.logs.length} log entries`}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : (
+            <View
+              style={{
+                backgroundColor: theme.colors.card,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+                padding: 14,
+              }}
+            >
+              <Text
+                style={{
+                  color: theme.colors.textSecondary,
+                  fontSize: 13,
+                  fontFamily: "Poppins",
+                }}
+              >
+                No execution logs were recorded for this run.
+              </Text>
+            </View>
+          )}
+        </View>
 
         {siblings.length > 1 && (
           <View style={{ marginBottom: 24 }}>

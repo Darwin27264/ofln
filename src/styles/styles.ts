@@ -654,7 +654,7 @@ export const styles = createStyles({
   primary: "#000000",
   primaryText: "#FFFFFF",
   secondary: "#F0F0F0",
-  accent: "#C9A227",
+  accent: "#D48E2F",
   accentText: "#FFFFFF",
   success: "#34C759",
   warning: "#FF9F0A",

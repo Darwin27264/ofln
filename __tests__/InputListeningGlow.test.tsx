@@ -20,7 +20,7 @@ jest.mock('../src/context/ThemeContext', () => ({
         primary: '#FFFFFF',
         primaryText: '#000000',
         secondary: '#2A2A2A',
-        accent: '#F0D78C',
+        accent: '#FFC845',
         accentText: '#1A1608',
         success: '#34C759',
         warning: '#FF9F0A',

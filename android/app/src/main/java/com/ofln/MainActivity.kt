@@ -24,6 +24,11 @@ class MainActivity : ReactActivity() {
     )
   }
 
+  override fun onNewIntent(intent: android.content.Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+  }
+
   override fun getMainComponentName(): String = "ofln"
 
   override fun createReactActivityDelegate(): ReactActivityDelegate =

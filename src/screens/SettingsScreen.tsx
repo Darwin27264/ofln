@@ -179,6 +179,10 @@ export default function SettingsScreen({
   const scrollPadBottom = useScrollPadForFloatingBack();
   /** Quick-settings chip sits above Back; clear both when scrolling. */
   const contentPadBottom = Math.max(scrollPadBottom, 92 + 32 + 16);
+  const [viewportH, setViewportH] = useState(0);
+  const [contentH, setContentH] = useState(0);
+  /** Only scroll when the tile grid is taller than the available area. */
+  const needsScroll = viewportH > 0 && contentH > viewportH + 1;
   const [chatModeInfoOpen, setChatModeInfoOpen] = useState(false);
   const [quickSettingsOpen, setQuickSettingsOpen] = useState(false);
 
@@ -337,14 +341,25 @@ export default function SettingsScreen({
         },
       ]}
     >
+      <Text style={styles.settingsTitle}>Settings</Text>
+
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: contentPadBottom }}
+        contentContainerStyle={{
+          paddingBottom: needsScroll ? contentPadBottom : 0,
+        }}
+        scrollEnabled={needsScroll}
+        bounces={needsScroll}
+        alwaysBounceVertical={false}
+        overScrollMode={needsScroll ? "auto" : "never"}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        onLayout={(e) => setViewportH(e.nativeEvent.layout.height)}
       >
-        <Text style={styles.settingsTitle}>Settings</Text>
-        <View style={{ marginBottom: 0 }}>
+        <View
+          style={{ marginBottom: 0 }}
+          onLayout={(e) => setContentH(e.nativeEvent.layout.height)}
+        >
           <View
             style={{
               flexDirection: "row",

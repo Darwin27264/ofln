@@ -43,6 +43,10 @@ import {
   formatScheduleSummary,
 } from "../utils/taskScheduleHelpers";
 import { isTaskRunnerBusy, runTaskById } from "../services/taskRunnerService";
+import {
+  checkNotificationPermission,
+  requestNotificationPermission,
+} from "../services/nativeTaskScheduler";
 
 interface Props {
   onBack: () => void;
@@ -153,6 +157,13 @@ export default function TasksLibraryScreen({
       try {
         const saved = await setTaskEnabled(task.id, enabled);
         if (saved) {
+          if (enabled) {
+            void checkNotificationPermission().then((granted) => {
+              if (!granted) {
+                void requestNotificationPermission();
+              }
+            });
+          }
           setTasks((prev) =>
             prev.map((t) => (t.id === saved.id ? { ...t, ...saved } : t)),
           );

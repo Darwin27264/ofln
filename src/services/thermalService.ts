@@ -103,16 +103,17 @@ export function formatThermalLabel(level: ThermalLevel): string {
 }
 
 /**
- * Map OS thermal to a 3-level graph axis (Cool / Warm / Hot).
- * Critical shares Hot with Serious.
+ * Map OS thermal to a 4-level graph axis (Cool / Warm / Hot / Crit).
+ * Matches native PowerManager / NSProcessInfo bands 1:1.
  */
-export function thermalLevelToGraphValue(level: ThermalLevel): 1 | 2 | 3 {
+export function thermalLevelToGraphValue(level: ThermalLevel): 1 | 2 | 3 | 4 {
   switch (level) {
     case 'fair':
       return 2;
     case 'serious':
-    case 'critical':
       return 3;
+    case 'critical':
+      return 4;
     case 'nominal':
     case 'unknown':
     default:
@@ -120,7 +121,13 @@ export function thermalLevelToGraphValue(level: ThermalLevel): 1 | 2 | 3 {
   }
 }
 
+/** Y-axis / legend labels for the 4 thermal bands (high → low). */
+export const THERMAL_GRAPH_BANDS = ['Crit', 'Hot', 'Warm', 'Cool'] as const;
+
 export function formatThermalGraphBand(value: number): string {
+  if (value >= 3.5) {
+    return 'Crit';
+  }
   if (value >= 2.5) {
     return 'Hot';
   }
@@ -129,6 +136,42 @@ export function formatThermalGraphBand(value: number): string {
   }
   return 'Cool';
 }
+
+/**
+ * Semantic color for a thermal level (UI + chart stroke/fill).
+ * Hex keeps chart-kit independent of ThemeContext.
+ */
+export function thermalLevelColor(level: ThermalLevel): string {
+  switch (level) {
+    case 'nominal':
+      return '#34C759';
+    case 'fair':
+      return '#FF9F0A';
+    case 'serious':
+      return '#FF6B00';
+    case 'critical':
+      return '#FF453A';
+    default:
+      return '#8E8E93';
+  }
+}
+
+/** Color for a numeric graph band (1–4). */
+export function thermalGraphValueColor(value: number): string {
+  if (value >= 3.5) {
+    return thermalLevelColor('critical');
+  }
+  if (value >= 2.5) {
+    return thermalLevelColor('serious');
+  }
+  if (value >= 1.5) {
+    return thermalLevelColor('fair');
+  }
+  return thermalLevelColor('nominal');
+}
+
+/** Graph Y value where streaming yields begin (serious). */
+export const THERMAL_YIELD_THRESHOLD = 3;
 
 /** Short calm copy under the thermal value. */
 export function formatThermalHint(level: ThermalLevel): string {
