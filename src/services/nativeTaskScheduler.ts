@@ -4,7 +4,8 @@
  */
 
 import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
-import { getTasks, ScheduledTask } from './taskService';
+import { getTasks, saveTask, ScheduledTask } from './taskService';
+import { computeNextRunAfter } from '../utils/taskScheduleHelpers';
 
 interface TaskSchedulerNative {
   scheduleTaskAlarm(taskId: string, triggerAtMillis: number): Promise<boolean>;
@@ -39,11 +40,12 @@ export async function scheduleNativeTask(
   triggerAtMs: number,
 ): Promise<boolean> {
   if (!NativeScheduler) return false;
+  // Never schedule an alarm in the past
+  if (!triggerAtMs || triggerAtMs <= Date.now()) {
+    return false;
+  }
   try {
-    const delay = triggerAtMs - Date.now();
-    // If due in the past or immediately, trigger within 1 second
-    const target = delay > 0 ? triggerAtMs : Date.now() + 1000;
-    return await NativeScheduler.scheduleTaskAlarm(taskId, target);
+    return await NativeScheduler.scheduleTaskAlarm(taskId, triggerAtMs);
   } catch (err) {
     console.warn('[nativeTaskScheduler] scheduleTaskAlarm failed', taskId, err);
     return false;
@@ -84,17 +86,20 @@ export async function syncAllScheduledTasks(): Promise<number> {
   try {
     const tasks = await getTasks();
     let scheduledCount = 0;
+    const now = Date.now();
 
     for (const task of tasks) {
-      if (task.enabled) {
+      if (task.enabled && task.lastStatus !== 'running') {
         let triggerAt = task.nextRunAt;
-        if (!triggerAt || triggerAt <= Date.now()) {
-          // If due time is expired or unset, schedule immediately / next slot
-          triggerAt = Date.now() + 2000;
+        if (!triggerAt || triggerAt <= now) {
+          // Compute the true next future occurrence — never set artificial immediate alarms
+          triggerAt = computeNextRunAfter(task.schedule, now);
+          task.nextRunAt = triggerAt;
+          await saveTask(task, { skipSchedule: true });
         }
-        await scheduleNativeTask(task.id, triggerAt);
-        scheduledCount += 1;
-      } else {
+        const ok = await scheduleNativeTask(task.id, triggerAt);
+        if (ok) scheduledCount += 1;
+      } else if (!task.enabled) {
         await cancelNativeTask(task.id);
       }
     }

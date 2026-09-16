@@ -26,7 +26,7 @@ const taskRunnerHeadlessHandler = async (taskData) => {
         forceAnalysis: true,
         trigger: 'scheduled_native',
       });
-    } else {
+    } else if (action === 'PROCESS_DUE') {
       await processDueTasks({
         skipForegroundService: true,
         forceAnalysis: true,

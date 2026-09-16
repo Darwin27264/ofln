@@ -16,6 +16,7 @@ import {
   getTaskRunById,
   type TaskRun,
 } from '../src/services/taskService';
+import { scheduleNativeTask } from '../src/services/nativeTaskScheduler';
 
 describe('taskLogger', () => {
   it('creates a logger and records structured timestamped entries', () => {
@@ -90,4 +91,11 @@ describe('taskLogger', () => {
     expect(retrieved?.logs?.[0].message).toBe('Step 1');
     expect(retrieved?.logs?.[1].message).toBe('Step 2');
   });
+
+  it('scheduleNativeTask rejects past timestamps', async () => {
+    const pastTime = Date.now() - 5000;
+    const ok = await scheduleNativeTask('task_123', pastTime);
+    expect(ok).toBe(false);
+  });
 });
+

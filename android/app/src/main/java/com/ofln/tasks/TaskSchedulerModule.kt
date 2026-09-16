@@ -25,6 +25,13 @@ class TaskSchedulerModule(private val reactContext: ReactApplicationContext) :
             }
 
             val triggerTime = triggerAtMillis.toLong()
+            val now = System.currentTimeMillis()
+            if (triggerTime <= now) {
+                // Do not schedule an alarm in the past — AlarmManager triggers past RTC_WAKEUP alarms immediately
+                promise.resolve(false)
+                return
+            }
+
             val intent = Intent(reactContext, TaskAlarmReceiver::class.java).apply {
                 putExtra("taskId", taskId)
             }

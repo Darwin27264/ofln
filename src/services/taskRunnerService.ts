@@ -20,6 +20,7 @@ import { listStoredGgufModels } from './modelStorageService';
 import {
   computeNextRunAfter,
   generateTaskRunId,
+  getAllTaskRuns,
   getDueTasks,
   getTaskById,
   saveTask,
@@ -33,9 +34,12 @@ import { notifyTaskFinished } from './taskNotificationService';
 import type { ChatMessage, StreamCallbacks } from '../types/ai';
 
 let runnerBusy = false;
+const activeRunningTasks = new Set<string>();
+const recentRunTimestamps = new Map<string, number>();
+const DEBOUNCE_COOLDOWN_MS = 60_000;
 
 export function isTaskRunnerBusy(): boolean {
-  return runnerBusy;
+  return runnerBusy || activeRunningTasks.size > 0;
 }
 
 function wrapFetchedForPrompt(taskName: string, sourceUrl: string, text: string): string {
@@ -188,6 +192,7 @@ async function runOneTaskInternal(
   const runId = generateTaskRunId();
   const trigger = options.trigger || 'manual';
   const logger = createTaskLogger();
+  const nextOccurrence = computeNextRunAfter(task.schedule, startedAt);
 
   logger.info(`Task execution started: "${task.name}"`, {
     taskId: task.id,
@@ -208,11 +213,16 @@ async function runOneTaskInternal(
   };
 
   await saveTaskRun(run);
-  await saveTask({
-    ...task,
-    lastStatus: 'running',
-    updatedAt: Date.now(),
-  });
+  // Advance nextRunAt immediately so no subsequent processDueTasks or catch-up considers it due
+  await saveTask(
+    {
+      ...task,
+      lastStatus: 'running',
+      nextRunAt: nextOccurrence,
+      updatedAt: startedAt,
+    },
+    { skipSchedule: true },
+  );
 
   let loadedByRunner = false;
   try {
@@ -298,6 +308,7 @@ async function runOneTaskInternal(
     );
 
     logger.info('Saving results and scheduling next occurrence...');
+    recentRunTimestamps.set(task.id, Date.now());
     run = {
       ...run,
       status: 'success',
@@ -311,7 +322,7 @@ async function runOneTaskInternal(
       ...task,
       lastStatus: 'success',
       lastRunAt: Date.now(),
-      nextRunAt: computeNextRunAfter(task.schedule, Date.now()),
+      nextRunAt: nextOccurrence,
       modelFileName: task.modelFileName || fileName,
       updatedAt: Date.now(),
     });
@@ -325,6 +336,7 @@ async function runOneTaskInternal(
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     logger.error(`Task execution failed: ${message}`, e);
+    recentRunTimestamps.set(task.id, Date.now());
 
     run = {
       ...run,
@@ -338,7 +350,7 @@ async function runOneTaskInternal(
       ...task,
       lastStatus: 'failed',
       lastRunAt: Date.now(),
-      nextRunAt: computeNextRunAfter(task.schedule, Date.now()),
+      nextRunAt: nextOccurrence,
       updatedAt: Date.now(),
     });
 
@@ -348,8 +360,11 @@ async function runOneTaskInternal(
     if (loadedByRunner) {
       try {
         // Only unload if we loaded solely for this task and nothing else needs it.
-        // Free RAM after background runs on Android.
-        if (Platform.OS === 'android' && !options.skipForegroundService) {
+        // Free RAM after background runs on Android so memory is not held.
+        if (
+          Platform.OS === 'android' &&
+          (AppState.currentState !== 'active' || !options.skipForegroundService)
+        ) {
           logger.info('Unloading model to free memory after background run.');
           await llamaProvider.unloadModel();
         }
@@ -424,13 +439,26 @@ export async function runTaskById(
   taskId: string,
   options: RunTaskOptions = {},
 ): Promise<TaskRun | null> {
-  if (runnerBusy) {
-    throw new Error('Another task is already running');
+  if (runnerBusy || activeRunningTasks.has(taskId)) {
+    console.log(`[taskRunner] Task ${taskId} is already running. Skipping duplicate run.`);
+    return null;
   }
   const task = await getTaskById(taskId);
   if (!task) return null;
 
+  // Suppress duplicate automatic runs if the task ran within the cooldown window
+  if (options.trigger !== 'manual') {
+    const lastRunTime = recentRunTimestamps.get(taskId) || task.lastRunAt || 0;
+    if (Date.now() - lastRunTime < DEBOUNCE_COOLDOWN_MS) {
+      console.log(
+        `[taskRunner] Task "${task.name}" ran ${Math.round((Date.now() - lastRunTime) / 1000)}s ago. Suppressing duplicate trigger.`,
+      );
+      return null;
+    }
+  }
+
   runnerBusy = true;
+  activeRunningTasks.add(taskId);
   try {
     const exec = () => runOneTaskInternal(task, options);
     if (options.skipForegroundService || Platform.OS !== 'android') {
@@ -439,6 +467,7 @@ export async function runTaskById(
     return await withAndroidForegroundService(exec);
   } finally {
     runnerBusy = false;
+    activeRunningTasks.delete(taskId);
   }
 }
 
@@ -448,8 +477,8 @@ export async function runTaskById(
 export async function finishPendingAnalysisRuns(
   options: RunTaskOptions = {},
 ): Promise<number> {
-  const { getAllTaskRuns } = await import('./taskService');
-  const pending = (await getAllTaskRuns()).filter(
+  const allRuns = await getAllTaskRuns();
+  const pending = allRuns.filter(
     (r) => r.status === 'pending_analysis',
   );
   let finished = 0;

@@ -172,7 +172,10 @@ export async function getTaskById(id: string): Promise<ScheduledTask | null> {
   return tasks.find((t) => t.id === id) ?? null;
 }
 
-export async function saveTask(task: ScheduledTask): Promise<ScheduledTask> {
+export async function saveTask(
+  task: ScheduledTask,
+  options?: { skipSchedule?: boolean },
+): Promise<ScheduledTask> {
   if (!task?.id || !task.name?.trim()) {
     throw new Error('Invalid task: name is required');
   }
@@ -215,10 +218,16 @@ export async function saveTask(task: ScheduledTask): Promise<ScheduledTask> {
     tasks.push(normalized);
   }
   await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
-  if (normalized.enabled) {
-    void scheduleNativeTask(normalized.id, normalized.nextRunAt);
-  } else {
-    void cancelNativeTask(normalized.id);
+  if (!options?.skipSchedule) {
+    if (
+      normalized.enabled &&
+      normalized.lastStatus !== 'running' &&
+      normalized.nextRunAt > Date.now()
+    ) {
+      void scheduleNativeTask(normalized.id, normalized.nextRunAt);
+    } else if (!normalized.enabled) {
+      void cancelNativeTask(normalized.id);
+    }
   }
   return normalized;
 }
@@ -255,7 +264,7 @@ export async function setTaskEnabled(
     tasks.push(next);
   }
   await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
-  if (enabled) {
+  if (enabled && next.nextRunAt > Date.now()) {
     void scheduleNativeTask(next.id, next.nextRunAt);
   } else {
     void cancelNativeTask(next.id);

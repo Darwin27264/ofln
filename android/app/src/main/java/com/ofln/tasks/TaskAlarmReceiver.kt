@@ -21,13 +21,8 @@ class TaskAlarmReceiver : BroadcastReceiver() {
 
         try {
             context.startService(serviceIntent)
-        } catch (_: Exception) {
-            // Fallback for strict device manufacturer background policies
-            try {
-                context.startService(serviceIntent)
-            } catch (_: Exception) {
-                // If service start is completely blocked, WakeLock will expire safely
-            }
+        } catch (e: Exception) {
+            android.util.Log.w("TaskAlarmReceiver", "Could not start TaskHeadlessService: ${e.message}", e)
         }
     }
 }
