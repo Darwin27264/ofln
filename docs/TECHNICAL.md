@@ -2,7 +2,7 @@
 
 Maintainer-oriented detail. Product overview and setup live in [`README.md`](../README.md).
 
-Copyright © 2026 Darwin Chen / Evolvyn AI · License: [GPLv3](../LICENSE) · Brand: [TRADEMARK.md](../TRADEMARK.md)
+Copyright © 2026 Darwin Chen / Evolvyn AI · License: [GPLv3](../LICENSE) · Brand: [TRADEMARK.md](../TRADEMARK.md) · Security: [SECURITY.md](../SECURITY.md)
 
 ## Architecture
 
@@ -97,7 +97,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\extract-release-apk.ps1
 Gradle output: `android/app/build/outputs/apk/release/ofln-release.apk`.  
 The extract script copies it to `releaseAPK/ofln_{date}.apk`.
 
-**Signing:** copy `android/gradle.properties.example` → `android/gradle.properties` and fill upload keystore placeholders locally. Never commit real passwords. If passwords ever appeared in git history, rotate them before a public release.
+**Signing:** copy `android/gradle.properties.example` → `android/gradle.properties` and fill upload keystore placeholders locally. Never commit real passwords or upload keystores. See [`SECURITY.md`](../SECURITY.md).
 
 **iOS:** `cd ios && bundle exec pod install` after native dependency changes.
 

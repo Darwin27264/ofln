@@ -1,7 +1,6 @@
 # Project-wide Gradle settings template.
 # Copy to android/gradle.properties (gitignored) and fill signing placeholders locally.
-# Never commit real keystore passwords. Rotate any passwords that appeared in git history
-# before a public release.
+# Never commit real keystore passwords. See SECURITY.md.
 
 # JVM
 org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m

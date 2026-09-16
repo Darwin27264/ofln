@@ -7,6 +7,7 @@ Offline LLM chat for Android and iOS by **Evolvyn AI** (Darwin Chen). Download a
 | Doc | Purpose |
 |-----|---------|
 | [`docs/PRIVACY.md`](./docs/PRIVACY.md) | What stays local, Hugging Face, tokens, backups |
+| [`SECURITY.md`](./SECURITY.md) | Vulnerability reporting; Android signing files stay local |
 | [`docs/TECHNICAL.md`](./docs/TECHNICAL.md) | Architecture, build/release, CI, Android 16KB, inference notes |
 | [`DESIGN.md`](./DESIGN.md) · [`styles.md`](./styles.md) | UI system |
 | [`docs/DEVICE_SMOKE.md`](./docs/DEVICE_SMOKE.md) | Maintainer device smoke checklist |
@@ -41,7 +42,7 @@ Offline LLM chat for Android and iOS by **Evolvyn AI** (Darwin Chen). Download a
 ## Setup
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/Darwin27264/ofln.git
 cd ofln
 cp android/gradle.properties.example android/gradle.properties
 npm install
@@ -143,6 +144,8 @@ Third-party libraries (including llama.cpp / llama.rn) retain their upstream lic
 
 **ofln™** and related branding are trademarks of Evolvyn AI. The GPLv3 license does **not** grant trademark rights. Forks that redistribute modified binaries must rebrand. See [`TRADEMARK.md`](./TRADEMARK.md).
 
-## Security note for public release
+## Security
 
-If this repository was previously private with upload-keystore passwords in git history, **rotate those passwords** before opening the repo. Local `android/gradle.properties` stays gitignored — use `android/gradle.properties.example` as the template.
+Report vulnerabilities privately — see [`SECURITY.md`](./SECURITY.md).
+
+Android release signing stays in gitignored `android/gradle.properties` (template: `android/gradle.properties.example`). Do not commit upload keystores or passwords.

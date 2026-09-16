@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Darwin27264/ofln/security/advisories/new
+    about: Private disclosure only — do not file a public issue. See SECURITY.md.

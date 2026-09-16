@@ -69,5 +69,6 @@ Network access is for **model discovery and download**, **user-configured Source
 ## Related
 
 - Feature overview and backup table: [`README.md`](../README.md)
+- Vulnerability reporting: [`SECURITY.md`](../SECURITY.md)
 - Maintainer device smoke after native rebuild: [`DEVICE_SMOKE.md`](./DEVICE_SMOKE.md)
 - Architecture and technical notes: [`TECHNICAL.md`](./TECHNICAL.md)
