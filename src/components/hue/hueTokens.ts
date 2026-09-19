@@ -10,8 +10,8 @@
  *
  * The fix is a falloff (`hueStops`) that reaches zero *with zero slope*, sampled
  * at enough offsets that the piecewise-linear approximation stays below the
- * visible threshold. Combined with fewer, oversized blobs and the grain overlay
- * in `HueGrain`, individual discs stop being discernible.
+ * visible threshold. Combined with fewer, oversized blobs and the masked grain
+ * in `HueBlob`, individual discs stop being discernible.
  */
 
 /** Shared gold / fade-yellow family (logo sun-amber; matches onboarding lava). */
@@ -176,11 +176,27 @@ export function hueRampStops(
 export const HUE_BLOB_OVERSIZE = 1.6;
 
 /**
- * Grain opacity per theme. The texture is uniform noise, so this works out to a
- * standard deviation of roughly two 8-bit levels — enough to break quantization
- * bands, below the threshold where it reads as texture.
+ * Default breathe amplitude — a blob expands this far past its own size at the
+ * top of its cycle. See `useHueDrift` for why blobs breathe at all.
+ *
+ * Oversizing is what makes this affordable: the rim is already off-screen, so
+ * growing the blob pushes it further out rather than sweeping it into view.
+ * Kept large enough that the idle cycle reads as motion, not a static wash.
+ */
+export const HUE_BREATHE = 0.11;
+
+/**
+ * Grain opacity at a blob's center, per theme. The texture is uniform noise, so
+ * this works out to a standard deviation of a couple of 8-bit levels — enough to
+ * break quantization bands, below the threshold where it reads as texture.
+ *
+ * Modulated by the blob's own falloff (see `HueBlob`), so grain exists only where
+ * there is hue to band and never as a flat layer over the screen.
  */
 export const HUE_GRAIN_OPACITY = {
-  dark: 0.03,
-  light: 0.022,
+  dark: 0.035,
+  light: 0.025,
 } as const;
+
+/** Edge length of the grain texture in px — must match scripts/generate-hue-grain.js. */
+export const HUE_GRAIN_TILE = 128;

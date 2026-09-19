@@ -24,7 +24,6 @@ import { useAmbientMotion } from '../context/AmbientMotionContext';
 import { EASING, OVERLAY_MOTION } from '../utils/animationConfig';
 import {
   HueField,
-  HueGrain,
   huePalette,
   type HueBlobExtras,
   type HueBlobSpec,
@@ -66,9 +65,9 @@ function buildEdgeBlobs(isDark: boolean): EdgeBlob[] {
       top: -H * 0.11,
       color: soft,
       peak: isDark ? 0.17 : 0.105,
-      dx: 14,
-      dy: 10,
-      duration: 6800,
+      dx: 41,
+      dy: 30,
+      duration: 5200,
       stagger: 0,
       enterDx: -14,
       enterDy: -10,
@@ -81,9 +80,9 @@ function buildEdgeBlobs(isDark: boolean): EdgeBlob[] {
       top: -H * 0.09,
       color: fade,
       peak: isDark ? 0.12 : 0.07,
-      dx: 22,
-      dy: 6,
-      duration: 7600,
+      dx: 62,
+      dy: 19,
+      duration: 5600,
       stagger: 0.06,
       enterDx: 8,
       enterDy: -16,
@@ -96,9 +95,9 @@ function buildEdgeBlobs(isDark: boolean): EdgeBlob[] {
       top: -H * 0.08,
       color: deep,
       peak: isDark ? 0.14 : 0.085,
-      dx: 8,
-      dy: 18,
-      duration: 8200,
+      dx: 25,
+      dy: 51,
+      duration: 5950,
       stagger: 0.1,
       enterDx: -18,
       enterDy: 8,
@@ -216,20 +215,11 @@ export function EdgeGlow({ active }: EdgeGlowProps) {
           isDark={isDark}
           motionEnabled={ambientMotion}
           extras={extras}
-          // Full-screen grain below; a clipped grain layer would show its edge.
-          grain={false}
           style={{
             transform: [{ translateX }, { translateY }, { scale: bloom }],
           }}
         />
       </View>
-      {/* Ramps with the wash so the grain does not pop in ahead of the blobs. */}
-      <Animated.View
-        pointerEvents="none"
-        style={[StyleSheet.absoluteFill, { opacity: bleed }]}
-      >
-        <HueGrain isDark={isDark} />
-      </Animated.View>
     </Animated.View>
   );
 }

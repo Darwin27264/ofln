@@ -347,11 +347,19 @@ Every glow surface — empty chat canvas, app-shell edge wash, onboarding lava, 
 
 **Oversize.** Draw blobs well past the area they should visibly cover (`HUE_BLOB_OVERSIZE`) so the rim sits off-screen or under other layers. A rim landing mid-screen reads as a circle however smooth its falloff.
 
-**Grain.** `HueGrain` tiles uniform noise at ~3% (dark) / ~2.2% (light). The hue runs at low enough alpha that its outer falloff spans only a handful of 8-bit levels, which quantizes into concentric rings; the noise randomizes which side of a quantization boundary each pixel lands on. Grain must span the **whole** fading container — a grain layer smaller than its parent draws its own rectangular edge.
+**Grain.** The hue runs at low enough alpha that its outer falloff spans only a handful of 8-bit levels, which quantizes into concentric rings; uniform noise at ~3.5% (dark) / ~2.5% (light) randomizes which side of a quantization boundary each pixel lands on.
+
+Grain belongs **inside** `HueBlob`, masked by the blob's own falloff, so it exists only where there is hue to band and fades out with it. A full-screen grain layer is the obvious implementation and the wrong one: it paints visible texture across the empty parts of the screen, and because `EdgeGlow` sits above every page at `zIndex: 2`, one such layer there tints the whole app.
+
+Tile it with an SVG `Pattern`, never `<Image resizeMode="repeat">`. On Android `repeat` falls back to drawing the bitmap once at natural size in the top-left corner whenever its tile-mode postprocessor does not run, and that postprocessor allocates a bitmap the size of the view.
 
 **Peak, not layer opacity.** `peak` is baked into the gradient stops, so blobs need no offscreen compositing pass. `HueBlob`'s `opacity` prop is a 0–1 *multiplier* for callers that animate brightness; values above 1 clamp, so bake the headroom into `peak` and rest the multiplier below 1.
 
-**Motion.** Idle drift comes from `useHueDrift` — four sine-eased legs returning to the origin, so the loop closes at zero velocity and never ticks. Always native-driven, applied as a transform on the parent so the SVG rasterizes once.
+**Motion.** Idle drift comes from `useHueDrift` — four sine-eased legs returning to the origin, plus a slower out-of-phase breathe (`HUE_BREATHE`). Translation alone is nearly invisible on oversized Gaussian blobs; the breathe is what the eye reads as motion. Always native-driven, applied as a transform on the parent so the SVG rasterizes once.
+
+Mode changes (Normal ↔ Temporary ↔ Perspective) crossfade two **persistent** hue slots — never remount the field. Remounting restarted every drift loop and rebuilt eight masked SVGs in one frame, which read as a stutter. The second slot mounts lazily on the first mode change so an idle empty chat only pays for four blobs.
+
+**Chat ↔ Settings.** `ConversationScreen` stays mounted (hidden) while Settings is open, so Back is a visibility flip rather than a full remount under `PageFadeIn`. The park is dropped when navigating anywhere else from Settings.
 
 **Ambient motion preference** (Settings → Display preferences) gates idle drift only; the hue itself stays as a static wash. The response loader is exempt — it is progress feedback, not ambience.
 

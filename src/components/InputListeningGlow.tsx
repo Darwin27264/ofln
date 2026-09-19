@@ -35,7 +35,7 @@ import Svg, {
 } from 'react-native-svg';
 
 import { useTheme } from '../context/ThemeContext';
-import { HueGrain, huePalette, hueRampStops } from './hue';
+import { huePalette, hueRampStops } from './hue';
 
 export type InputListeningGlowProps = {
   /** Whether the input bar is currently listening for voice input. */
@@ -392,8 +392,6 @@ export const InputListeningGlow = React.memo(function InputListeningGlow({
             />
           </Svg>
         </Animated.View>
-        {/* Dither: clipped to the capsule, so it shows no edge of its own. */}
-        <HueGrain isDark={isDark} intensity={0.8} />
       </Animated.View>
 
       {/* Layer 4: Inner Glowing Rim along the capsule contour */}

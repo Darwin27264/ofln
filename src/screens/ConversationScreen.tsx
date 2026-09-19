@@ -80,7 +80,7 @@ import { getModelSettings, DEFAULT_SETTINGS } from "../services/modelSettingsSer
 import { showAlert } from "../components/CustomAlert";
 import { BottomSheet } from "../components/BottomSheet";
 import { SegmentedTabBar } from "../components/SegmentedTabBar";
-import { FrostedGlass } from "../components/FrostedGlass";
+import { FrostedGlass, frostedPanelSystemBarColor } from "../components/FrostedGlass";
 import type { ChromeScale } from "../utils/chromeScale";
 import { AmbientHue } from "../components/AmbientHue";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -660,14 +660,17 @@ export default function ConversationScreen({
     [panelAnim, panelWidth],
   );
   const [isPanelOpen, setIsPanelOpen] = useState(false);
-  /** Shell/system-bar frost — drops at close *start* so it crossfades with the slide. */
+  /** Shell/system-bar frost — raised once the panel lands, dropped at close start. */
   const [historyChromeOpen, setHistoryChromeOpen] = useState(false);
-  /** While translating — HistoryDrawer promotes a GPU snapshot (BlurView stutter fix). */
+  /** While translating — gates card mounting so layout never lands mid-slide. */
   const [isPanelAnimating, setIsPanelAnimating] = useState(false);
   const panelAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const panelWantOpenRef = useRef(false);
   const panelCloseCallbacksRef = useRef<Array<() => void>>([]);
   const isPanelAnimatingRef = useRef(false);
+  /** Canvas frost while the drawer is up — raised after the panel lands. */
+  const canvasFrostOpacity = useRef(new Animated.Value(0)).current;
+  const canvasFrostAnimRef = useRef<Animated.CompositeAnimation | null>(null);
   const chatHistoryRef = useRef<ChatConversation[]>([]);
   /** History loaded while the panel was still sliding — apply after settle. */
   const pendingHistoryRef = useRef<ChatConversation[] | null>(null);
@@ -681,10 +684,32 @@ export default function ConversationScreen({
     }
   }, [isPanelOpen, isMultiselectMode, multiselectHeaderHeight, multiselectHeaderOpacity]);
 
-  // Frosted shell/system bars follow history chrome (synced to slide) + model panel.
+  // Frosted shell/system bars follow history chrome (raised once the panel has
+  // landed) + model panel.
+  const frostedChromeActive = historyChromeOpen || isModelSelectorChromeOpen;
+
   useEffect(() => {
-    onHistoryPanelChange?.(historyChromeOpen || isModelSelectorChromeOpen);
-  }, [historyChromeOpen, isModelSelectorChromeOpen, onHistoryPanelChange]);
+    onHistoryPanelChange?.(frostedChromeActive);
+  }, [frostedChromeActive, onHistoryPanelChange]);
+
+  // Only the quick model panel needs this — it shows the canvas around itself.
+  // The history drawer is opaque, so frosting the canvas under it would buy
+  // nothing and tint the chat back into view as the drawer slides away.
+  // Opacity, not a color swap: the swap is what popped the canvas.
+  useEffect(() => {
+    canvasFrostAnimRef.current?.stop();
+    const anim = Animated.timing(canvasFrostOpacity, {
+      toValue: isModelSelectorChromeOpen ? 1 : 0,
+      duration: isModelSelectorChromeOpen
+        ? OVERLAY_MOTION.FADE_IN_MS
+        : OVERLAY_MOTION.FADE_OUT_MS,
+      easing: isModelSelectorChromeOpen ? EASING.EASE_OUT : EASING.EASE_IN,
+      useNativeDriver: true,
+    });
+    canvasFrostAnimRef.current = anim;
+    anim.start();
+    return () => anim.stop();
+  }, [isModelSelectorChromeOpen, canvasFrostOpacity]);
 
   // Always restore system bars if this screen unmounts while frosted chrome was up
   useEffect(() => {
@@ -1043,10 +1068,9 @@ export default function ConversationScreen({
       isPanelAnimatingRef.current = true;
       setIsPanelAnimating(true);
       setIsPanelOpen(true);
-      setHistoryChromeOpen(true);
 
-      // Wait two frames so the first cards and the hardware-texture promotion
-      // commit before the translate starts — layout work mid-slide shows up as stutter.
+      // Wait two frames so the first cards commit before the translate starts —
+      // layout work landing mid-slide shows up as stutter.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           if (!panelWantOpenRef.current) return;
@@ -1059,13 +1083,17 @@ export default function ConversationScreen({
             isPanelAnimatingRef.current = false;
             setIsPanelAnimating(false);
             flushPendingHistory();
+            // Frost is raised only once the panel has landed, so the background
+            // eases in behind it instead of popping partway through the slide.
+            setHistoryChromeOpen(true);
           });
         });
       });
       return;
     }
 
-    // Drop shell frost with the slide — not after it — so close feels one beat.
+    // Frost releases here and fades out as an opacity, so the slide itself
+    // still carries no color work.
     setHistoryChromeOpen(false);
     isPanelAnimatingRef.current = true;
     setIsPanelAnimating(true);
@@ -1104,7 +1132,7 @@ export default function ConversationScreen({
     flushPendingHistory,
   ]);
 
-  /** Close the drawer, then run work so BlurView isn’t recompositing a changing underlay mid-slide. */
+  /** Close the drawer, then run work, so the slide isn't sharing frames with it. */
   const closePanelThen = useCallback(
     (afterClose: () => void) => {
       const alreadyClosed =
@@ -2841,6 +2869,20 @@ export default function ConversationScreen({
   return (
     <View style={{ flex: 1, backgroundColor: shellBackground }}>
       <View style={{ flex: 1, overflow: 'hidden' }} onLayout={handleLayout}>
+        {/*
+          Canvas frost. Sits at the bottom of the stack so it reads as the
+          background color, but as an opacity it can crossfade — the shell hex
+          it replaces could only snap.
+        */}
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            ...StyleSheet.absoluteFillObject,
+            backgroundColor: frostedPanelSystemBarColor(theme.mode),
+            opacity: canvasFrostOpacity,
+          }}
+        />
+
         {/* Ambient hue — empty chat only; palette follows chat mode */}
         <AmbientHue
           active={noMessages}

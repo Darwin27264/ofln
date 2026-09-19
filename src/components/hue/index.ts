@@ -7,8 +7,10 @@ export {
   AMBIENT_TEAL,
   AMBIENT_VIOLET,
   HUE_BLOB_OVERSIZE,
+  HUE_BREATHE,
   HUE_FALLOFF_POWER,
   HUE_GRAIN_OPACITY,
+  HUE_GRAIN_TILE,
   HUE_STOP_COUNT,
   hueStops,
   hueRampStops,
@@ -25,5 +27,4 @@ export {
   type HueBlobSpec,
 } from './HueBlob';
 export { HueField, type HueFieldProps } from './HueField';
-export { HueGrain } from './HueGrain';
 export { useHueDrift, type HueDriftConfig } from './useHueDrift';

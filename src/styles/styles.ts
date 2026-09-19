@@ -63,7 +63,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     overflow: "hidden",
   },
 
-  /* Full-page history slide-over — frosted; tint comes from FrostedGlass */
+  /* Full-page history slide-over — opaque fill set by HistoryDrawer */
   slideOutPanel: {
     position: "absolute",
     top: 0,

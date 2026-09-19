@@ -10,20 +10,23 @@
  * Four oversized blobs rather than the nine it used to stack: with a Gaussian
  * falloff (see hue/hueTokens.ts) each blob covers far more ground, and fewer
  * alpha-composited layers means no lens-shaped seams where they overlap.
+ *
+ * Mode crossfade keeps two persistent slots. The previous implementation swapped
+ * a single GlowLayer for a pair (and back) via `crossfading` state — that
+ * remounted eight masked SVGs and restarted every drift loop, which is the
+ * hitch you feel between Normal / Temporary / Perspective.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
   StyleSheet,
-  View,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useAmbientMotion } from '../context/AmbientMotionContext';
 import { EASING, OVERLAY_MOTION } from '../utils/animationConfig';
 import {
   HueField,
-  HueGrain,
   huePalette,
   type HueBlobExtras,
   type HueBlobSpec,
@@ -36,73 +39,101 @@ const MODE_CROSSFADE_MS = 480;
 
 export type AmbientHueMode = HueMode;
 
-/** Adds the onboarding-handoff start offset to the shared blob spec. */
-type AmbientBlob = HueBlobSpec & {
-  /** Where the blob sits before it gathers to the middle. */
+/** Geometry + drift — independent of palette so extras stay referentially stable. */
+type AmbientBlobGeom = {
+  id: string;
+  width: number;
+  height: number;
+  left: number;
+  top: number;
   edgeLeft: number;
   edgeTop: number;
+  dx: number;
+  dy: number;
+  duration: number;
+  /** Which palette swatch feeds this blob. */
+  swatch: 'deep' | 'soft' | 'fade';
+  peakDark: number;
+  peakLight: number;
 };
 
-function buildBlobs(mode: AmbientHueMode, isDark: boolean): AmbientBlob[] {
-  const { deep, soft, fade } = huePalette(mode, isDark);
-  return [
-    {
-      id: 'core',
-      width: W * 1.5,
-      height: H * 0.72,
-      left: -W * 0.25,
-      top: H * 0.1,
-      edgeLeft: W * 0.18,
-      edgeTop: H * 0.22,
-      color: soft,
-      peak: isDark ? 0.19 : 0.115,
-      dx: -46,
-      dy: 34,
-      duration: 6400,
-    },
-    {
-      id: 'left',
-      width: W * 1.15,
-      height: H * 0.58,
-      left: -W * 0.355,
-      top: H * 0.18,
-      edgeLeft: -W * 0.28,
-      edgeTop: H * 0.16,
-      color: deep,
-      peak: isDark ? 0.13 : 0.08,
-      dx: 52,
-      dy: -32,
-      duration: 7400,
-    },
-    {
-      id: 'right',
-      width: W * 1.15,
-      height: H * 0.58,
-      left: W * 0.225,
-      top: H * 0.15,
-      edgeLeft: W * 0.32,
-      edgeTop: H * 0.14,
-      color: fade,
-      peak: isDark ? 0.13 : 0.08,
-      dx: -48,
-      dy: 42,
-      duration: 6800,
-    },
-    {
-      id: 'low',
-      width: W * 1.3,
-      height: H * 0.5,
-      left: -W * 0.15,
-      top: H * 0.35,
-      edgeLeft: 0,
-      edgeTop: H * 0.28,
-      color: soft,
-      peak: isDark ? 0.1 : 0.06,
-      dx: 32,
-      dy: -44,
-      duration: 8000,
-    },
-  ];
+const BLOB_GEOM: readonly AmbientBlobGeom[] = [
+  {
+    id: 'core',
+    width: W * 1.5,
+    height: H * 0.72,
+    left: -W * 0.25,
+    top: H * 0.1,
+    edgeLeft: W * 0.18,
+    edgeTop: H * 0.22,
+    dx: -105,
+    dy: 78,
+    duration: 4700,
+    swatch: 'soft',
+    peakDark: 0.19,
+    peakLight: 0.115,
+  },
+  {
+    id: 'left',
+    width: W * 1.15,
+    height: H * 0.58,
+    left: -W * 0.355,
+    top: H * 0.18,
+    edgeLeft: -W * 0.28,
+    edgeTop: H * 0.16,
+    dx: 117,
+    dy: -72,
+    duration: 5400,
+    swatch: 'deep',
+    peakDark: 0.13,
+    peakLight: 0.08,
+  },
+  {
+    id: 'right',
+    width: W * 1.15,
+    height: H * 0.58,
+    left: W * 0.225,
+    top: H * 0.15,
+    edgeLeft: W * 0.32,
+    edgeTop: H * 0.14,
+    dx: -107,
+    dy: 95,
+    duration: 5050,
+    swatch: 'fade',
+    peakDark: 0.13,
+    peakLight: 0.08,
+  },
+  {
+    id: 'low',
+    width: W * 1.3,
+    height: H * 0.5,
+    left: -W * 0.15,
+    top: H * 0.35,
+    edgeLeft: 0,
+    edgeTop: H * 0.28,
+    dx: 72,
+    dy: -100,
+    duration: 5800,
+    swatch: 'soft',
+    peakDark: 0.1,
+    peakLight: 0.06,
+  },
+];
+
+function buildBlobs(mode: AmbientHueMode, isDark: boolean): HueBlobSpec[] {
+  const palette = huePalette(mode, isDark);
+  return BLOB_GEOM.map((g) => ({
+    id: g.id,
+    width: g.width,
+    height: g.height,
+    left: g.left,
+    top: g.top,
+    color: palette[g.swatch],
+    peak: isDark ? g.peakDark : g.peakLight,
+    dx: g.dx,
+    dy: g.dy,
+    duration: g.duration,
+  }));
 }
 
 function GlowLayer({
@@ -116,28 +147,28 @@ function GlowLayer({
   isDark: boolean;
   focus: Animated.Value;
   motionEnabled: boolean;
-  layerOpacity: Animated.AnimatedInterpolation<number> | Animated.Value;
+  layerOpacity: Animated.Value;
 }) {
   const blobs = useMemo(() => buildBlobs(mode, isDark), [mode, isDark]);
 
-  // Memoized so HueBlob's memo holds — a fresh interpolation each render would
-  // re-render every blob's SVG.
+  // Geometry only — must not rebuild when the palette swaps, or every HueBlob
+  // drops its memo and re-rasterizes its SVG mid-crossfade.
   const extras = useMemo(() => {
     const map: Record<string, HueBlobExtras> = {};
-    for (const blob of blobs) {
-      map[blob.id] = {
+    for (const g of BLOB_GEOM) {
+      map[g.id] = {
         offsetX: focus.interpolate({
           inputRange: [0, 1],
-          outputRange: [blob.edgeLeft, 0],
+          outputRange: [g.edgeLeft, 0],
         }),
         offsetY: focus.interpolate({
           inputRange: [0, 1],
-          outputRange: [blob.edgeTop, 0],
+          outputRange: [g.edgeTop, 0],
         }),
       };
     }
     return map;
-  }, [blobs, focus]);
+  }, [focus]);
 
   return (
     <HueField
@@ -145,8 +176,6 @@ function GlowLayer({
       isDark={isDark}
       motionEnabled={motionEnabled}
       extras={extras}
-      // Grain lives on the root so a mode crossfade does not stack two copies.
-      grain={false}
       style={{ opacity: layerOpacity }}
     />
   );
@@ -177,28 +206,70 @@ export function AmbientHue({
   const slideY = useRef(new Animated.Value(0)).current;
   const focus = useRef(new Animated.Value(handoff ? 0 : 1)).current;
   const bloom = useRef(new Animated.Value(handoff ? 1.18 : 1)).current;
-  const cross = useRef(new Animated.Value(1)).current;
-  const steady = useRef(new Animated.Value(1)).current;
+  const opacityA = useRef(new Animated.Value(1)).current;
+  const opacityB = useRef(new Animated.Value(0)).current;
   const readyRef = useRef(false);
   const handoffPlayed = useRef(false);
+  /** Which slot is the settled (visible) front after the last completed fade. */
+  const frontIsA = useRef(true);
+  const targetModeRef = useRef(mode);
+  const crossAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+  /**
+   * Slot that was in front when a mode change was queued. The fade runs in a
+   * follow-up effect so the hidden slot's new palette is committed before we
+   * start raising its opacity (otherwise the old colors fade in for a frame).
+   */
+  const pendingOutgoingIsA = useRef<boolean | null>(null);
 
-  const [fromMode, setFromMode] = useState<AmbientHueMode>(mode);
-  const [toMode, setToMode] = useState<AmbientHueMode>(mode);
-  const [crossfading, setCrossfading] = useState(false);
-  const toModeRef = useRef(mode);
+  const [modeA, setModeA] = useState<AmbientHueMode>(mode);
+  const [modeB, setModeB] = useState<AmbientHueMode>(mode);
+  const [crossGen, setCrossGen] = useState(0);
+  /** Second slot mounts on the first mode change — idle empty chat stays at 4 blobs. */
+  const [slotBMounted, setSlotBMounted] = useState(false);
 
-  // Mode change — crossfade outgoing palette into the next
+  // Queue: paint the new palette onto the hidden slot.
   useEffect(() => {
-    if (mode === toModeRef.current) return;
-    const prev = toModeRef.current;
-    toModeRef.current = mode;
-    setFromMode(prev);
-    setToMode(mode);
-    setCrossfading(true);
-    cross.setValue(0);
+    if (mode === targetModeRef.current) return;
+    targetModeRef.current = mode;
+
+    const showingA = frontIsA.current;
+    pendingOutgoingIsA.current = showingA;
+    if (showingA) {
+      setModeB(mode);
+    } else {
+      setModeA(mode);
+    }
+    frontIsA.current = !showingA;
+    setSlotBMounted(true);
+    setCrossGen((g) => g + 1);
+  }, [mode]);
+
+  // Run: crossfade only after the hidden slot has the new palette.
+  useEffect(() => {
+    if (crossGen === 0) return;
+    const showingA = pendingOutgoingIsA.current;
+    if (showingA === null) return;
+    pendingOutgoingIsA.current = null;
+
+    const frontOp = showingA ? opacityA : opacityB;
+    const backOp = showingA ? opacityB : opacityA;
+
+    crossAnimRef.current?.stop();
+    // Slot we are fading in may still hold opacity from an interrupted fade in
+    // the other direction — zero it so a freshly painted palette never pops in
+    // mid-strength. Fast toggle-back still looks fine: the outgoing side keeps
+    // its residual weight and we only raise the returning slot from 0.
+    backOp.setValue(0);
     bloom.setValue(1.06);
+
     const anim = Animated.parallel([
-      Animated.timing(cross, {
+      Animated.timing(frontOp, {
+        toValue: 0,
+        duration: MODE_CROSSFADE_MS,
+        easing: EASING.EASE_OUT,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backOp, {
         toValue: 1,
         duration: MODE_CROSSFADE_MS,
         easing: EASING.EASE_OUT,
@@ -211,13 +282,14 @@ export function AmbientHue({
         useNativeDriver: true,
       }),
     ]);
+    crossAnimRef.current = anim;
     anim.start(({ finished }) => {
-      if (!finished) return;
-      setFromMode(mode);
-      setCrossfading(false);
+      if (finished) crossAnimRef.current = null;
     });
-    return () => anim.stop();
-  }, [mode, cross, bloom]);
+    return () => {
+      anim.stop();
+    };
+  }, [crossGen, opacityA, opacityB, bloom]);
 
   // Show / hide + keyboard exit
   useEffect(() => {
@@ -336,11 +408,6 @@ export function AmbientHue({
     return () => clearTimeout(t);
   }, [active, handoff]);
 
-  const outgoingOpacity = cross.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 0],
-  });
-
   if (!mounted) return null;
 
   return (
@@ -354,33 +421,22 @@ export function AmbientHue({
         },
       ]}
     >
-      {crossfading && fromMode !== toMode ? (
-        <View style={StyleSheet.absoluteFill} pointerEvents="none">
-          <GlowLayer
-            mode={fromMode}
-            isDark={isDark}
-            focus={focus}
-            motionEnabled={ambientMotion}
-            layerOpacity={outgoingOpacity}
-          />
-          <GlowLayer
-            mode={toMode}
-            isDark={isDark}
-            focus={focus}
-            motionEnabled={ambientMotion}
-            layerOpacity={cross}
-          />
-        </View>
-      ) : (
+      <GlowLayer
+        mode={modeA}
+        isDark={isDark}
+        focus={focus}
+        motionEnabled={ambientMotion}
+        layerOpacity={opacityA}
+      />
+      {slotBMounted ? (
         <GlowLayer
-          mode={toMode}
+          mode={modeB}
           isDark={isDark}
           focus={focus}
           motionEnabled={ambientMotion}
-          layerOpacity={steady}
+          layerOpacity={opacityB}
         />
-      )}
-      <HueGrain isDark={isDark} />
+      ) : null}
     </Animated.View>
   );
 }

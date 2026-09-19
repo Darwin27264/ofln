@@ -27,7 +27,7 @@ import axios from "axios";
 // Theme
 import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
 import { AmbientMotionProvider } from "./src/context/AmbientMotionContext";
-import { applySystemBarTheme, lerpHexColor } from "./src/utils/systemBars";
+import { applySystemBarTheme } from "./src/utils/systemBars";
 import { frostedPanelSystemBarColor } from "./src/components/FrostedGlass";
 import { EASING, OVERLAY_MOTION } from "./src/utils/animationConfig";
 import { shouldRehydrateSelectionFromProvider } from "./src/utils/modelSelectionRehydrate";
@@ -134,80 +134,51 @@ function AppContent(): React.JSX.Element {
     }
   }, []);
 
-  // Soft crossfade for status / home bars when the frosted history panel opens.
-  // Native bars can't interpolate themselves — we lerp hex and push frames.
   // Frosted chrome open (history drawer OR quick model/persona panel) —
-  // drives status/nav bar + SafeArea shell to the same frost endpoint.
+  // drives status/nav bar and the frost band to the same endpoint.
   const [frostedChromeOpen, setFrostedChromeOpen] = useState(false);
+  // Page background. Frost is layered over it as an opacity rather than baked
+  // in here, so screens can crossfade instead of swapping the hex under you.
   const [shellBackground, setShellBackground] = useState(theme.colors.background);
-  const shellColorAnim = useRef(new Animated.Value(0)).current;
-  // Empty until first apply so cold-start always writes React state + native bars.
+  // Empty until first apply so cold-start always writes the native bars.
   // (Native theme defaults are black; matching React background must not skip the write.)
   const lastShellColorRef = useRef<string>("");
 
   // Status + nav share the opaque shell hex so top/bottom chrome match.
   // Native window/decor fill seals physical edges (API 35 ignores bar colors).
-  // Every push repaints that decor, so only send colors that actually changed.
-  const applyNativeShellColor = useCallback((hex: string) => {
+  // Each push relayouts the window, so it fires once per endpoint — stepping a
+  // crossfade through it frame by frame stalled whatever was animating.
+  const applyShellColor = useCallback((hex: string) => {
     if (hex === lastShellColorRef.current) return;
     lastShellColorRef.current = hex;
     applySystemBarTheme({ statusBarColor: hex, navBarColor: hex });
   }, []);
 
-  const applyShellColor = useCallback(
-    (hex: string) => {
-      applyNativeShellColor(hex);
-      setShellBackground(hex);
-    },
-    [applyNativeShellColor],
-  );
-
-  // Theme change / first mount: snap shell + system bars to the page background.
   useEffect(() => {
-    const target = frostedChromeOpen
-      ? frostedPanelSystemBarColor(theme.mode)
-      : theme.colors.background;
-    shellColorAnim.stopAnimation();
-    shellColorAnim.setValue(frostedChromeOpen ? 1 : 0);
-    applyShellColor(target);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme.mode, theme.colors.background]);
+    setShellBackground(theme.colors.background);
+    applyShellColor(
+      frostedChromeOpen
+        ? frostedPanelSystemBarColor(theme.mode)
+        : theme.colors.background,
+    );
+  }, [frostedChromeOpen, theme.mode, theme.colors.background, applyShellColor]);
 
-  // Panel chrome open/close — same duration as overlay/history exit.
+  // The status band above the screens is ours to paint, so it frosts as an
+  // opacity in step with the screen's own canvas — same duration, same easing.
+  const chromeFrost = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
-    const from = lastShellColorRef.current;
-    const to = frostedChromeOpen
-      ? frostedPanelSystemBarColor(theme.mode)
-      : theme.colors.background;
-    // Empty string before first shell apply — don't animate from "".
-    if (!from || from.toLowerCase() === to.toLowerCase()) {
-      applyShellColor(to);
-      return;
-    }
-
-    shellColorAnim.setValue(0);
-    // Only the native bars step through the lerp. The React shell color lands on
-    // the endpoint up front — the panel covers the canvas for the whole slide,
-    // and a per-frame setState re-renders the chat tree while it is translating.
-    setShellBackground(to);
-    const listenerId = shellColorAnim.addListener(({ value }) => {
-      applyNativeShellColor(lerpHexColor(from, to, value));
+    const anim = Animated.timing(chromeFrost, {
+      toValue: frostedChromeOpen ? 1 : 0,
+      duration: frostedChromeOpen
+        ? OVERLAY_MOTION.FADE_IN_MS
+        : OVERLAY_MOTION.FADE_OUT_MS,
+      easing: frostedChromeOpen ? EASING.EASE_OUT : EASING.EASE_IN,
+      useNativeDriver: true,
     });
-    const anim = Animated.timing(shellColorAnim, {
-      toValue: 1,
-      duration: OVERLAY_MOTION.FADE_OUT_MS,
-      easing: EASING.EASE_OUT,
-      useNativeDriver: false,
-    });
-    anim.start(({ finished }) => {
-      if (finished) applyShellColor(to);
-    });
-    return () => {
-      shellColorAnim.removeListener(listenerId);
-      anim.stop();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frostedChromeOpen, applyShellColor, applyNativeShellColor]);
+    anim.start();
+    return () => anim.stop();
+  }, [frostedChromeOpen, chromeFrost]);
 
   const INITIAL_CONVERSATION: Message[] = [
     {
@@ -248,6 +219,22 @@ function AppContent(): React.JSX.Element {
   const [onboardingSkipTo, setOnboardingSkipTo] = useState<"conversation" | "info">("conversation");
   /** One-shot: gather onboarding hue into the chat center after tutorial ends. */
   const [ambientHueHandoff, setAmbientHueHandoff] = useState(false);
+  /**
+   * Keep ConversationScreen mounted while visiting Settings so Back does not
+   * remount the chat (AmbientHue + MessageList) under PageFadeIn — that remount
+   * is the hitch. Drop the park when navigating anywhere else.
+   */
+  const conversationResidentRef = useRef(true);
+  if (currentPage === "conversation") {
+    conversationResidentRef.current = true;
+  } else if (currentPage !== "settings") {
+    conversationResidentRef.current = false;
+  }
+  const keepConversation =
+    bootstrapped &&
+    (currentPage === "conversation" ||
+      (currentPage === "settings" && conversationResidentRef.current));
+  const conversationVisible = currentPage === "conversation";
 
   // First-run gate (mount once). About “Review” never clears the flag.
   useEffect(() => {
@@ -912,6 +899,19 @@ function AppContent(): React.JSX.Element {
           backgroundColor: shellBackground,
         }}
       />
+      {/* Status band the screens don't paint — frosts with the chat canvas. */}
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: 0,
+          height: Math.max(insets.top, 3),
+          backgroundColor: frostedPanelSystemBarColor(theme.mode),
+          opacity: chromeFrost,
+        }}
+      />
       <View
         collapsable={false}
         style={{
@@ -956,9 +956,16 @@ function AppContent(): React.JSX.Element {
         </PageFadeIn>
       )}
 
-      {bootstrapped && currentPage === "conversation" && (
-        <PageFadeIn key="conversation">
-          <ConversationScreen
+      {keepConversation && (
+        <View
+          collapsable={false}
+          pointerEvents={conversationVisible ? "auto" : "none"}
+          // display:none parks the tree without tearing it down — returning from
+          // Settings is then a visibility flip, not a ConversationScreen remount.
+          style={conversationVisible ? { flex: 1 } : ({ display: "none" } as const)}
+        >
+          <PageFadeIn key="conversation">
+            <ConversationScreen
           conversation={conversation}
           setConversation={setConversation}
           userInput={userInput}
@@ -996,7 +1003,8 @@ function AppContent(): React.JSX.Element {
           ambientHueHandoff={ambientHueHandoff}
           onAmbientHueHandoffConsumed={() => setAmbientHueHandoff(false)}
           />
-        </PageFadeIn>
+          </PageFadeIn>
+        </View>
       )}
 
       {currentPage === "settings" && (
@@ -1254,6 +1262,18 @@ function AppContent(): React.JSX.Element {
           bottom: 0,
           height: 3,
           backgroundColor: shellBackground,
+        }}
+      />
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 3,
+          backgroundColor: frostedPanelSystemBarColor(theme.mode),
+          opacity: chromeFrost,
         }}
       />
     </View>

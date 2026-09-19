@@ -22,7 +22,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useAmbientMotion } from '../context/AmbientMotionContext';
 import { EASING } from '../utils/animationConfig';
 import Svg, { Defs, Ellipse, RadialGradient, Stop } from 'react-native-svg';
-import { HueBlob, HueGrain, huePalette, type HueBlobSpec } from './hue';
+import { HueBlob, huePalette, type HueBlobSpec } from './hue';
 
 const { width: W, height: H } = Dimensions.get('window');
 
@@ -87,10 +87,12 @@ function LavaBlobView({
   blob,
   pulseKey,
   motionEnabled,
+  isDark,
 }: {
   blob: LavaBlob;
   pulseKey: number;
   motionEnabled: boolean;
+  isDark: boolean;
 }) {
   const { region } = blob;
   const initial = homeFor(pulseKey, region);
@@ -163,6 +165,8 @@ function LavaBlobView({
       scale={bloom}
       opacity={wash}
       motionEnabled={motionEnabled}
+      isDark={isDark}
+      grain
     />
   );
 }
@@ -188,9 +192,9 @@ export function LavaLampBackground({ pulseKey = 0 }: Props) {
         top: H * 0.25,
         color: soft,
         peak: isDark ? 0.17 : 0.1,
-        dx: -92,
-        dy: -108,
-        duration: 5200,
+        dx: -106,
+        dy: -124,
+        duration: 4800,
       },
       {
         id: 'bl',
@@ -201,9 +205,9 @@ export function LavaLampBackground({ pulseKey = 0 }: Props) {
         top: H * 0.34,
         color: deep,
         peak: isDark ? 0.13 : 0.075,
-        dx: 100,
-        dy: -72,
-        duration: 5600,
+        dx: 115,
+        dy: -83,
+        duration: 5200,
       },
       {
         id: 're',
@@ -214,9 +218,9 @@ export function LavaLampBackground({ pulseKey = 0 }: Props) {
         top: -H * 0.05,
         color: fade,
         peak: isDark ? 0.12 : 0.065,
-        dx: -78,
-        dy: 110,
-        duration: 6000,
+        dx: -89,
+        dy: 125,
+        duration: 5550,
       },
       {
         id: 'le',
@@ -227,9 +231,9 @@ export function LavaLampBackground({ pulseKey = 0 }: Props) {
         top: -H * 0.08,
         color: soft,
         peak: isDark ? 0.09 : 0.05,
-        dx: 88,
-        dy: 96,
-        duration: 6400,
+        dx: 101,
+        dy: 110,
+        duration: 5900,
       },
     ];
   }, [isDark]);
@@ -245,9 +249,9 @@ export function LavaLampBackground({ pulseKey = 0 }: Props) {
           blob={blob}
           pulseKey={pulseKey}
           motionEnabled={ambientMotion}
+          isDark={isDark}
         />
       ))}
-      <HueGrain isDark={isDark} />
       {/* Keeps the guide copy in the upper-middle legible over the wash. */}
       <Svg
         pointerEvents="none"

@@ -27,7 +27,7 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
-import { FrostedGlass } from './FrostedGlass';
+import { SolidChrome, frostedPanelSystemBarColor } from './FrostedGlass';
 import { FloatingBackButton } from './FloatingBackButton';
 import { useTheme } from '../context/ThemeContext';
 import type { ChatConversation, Message } from '../services/chatHistoryService';
@@ -396,8 +396,8 @@ ChatHistoryCard.displayName = 'ChatHistoryCard';
 export type HistoryDrawerProps = {
   isPanelOpen: boolean;
   /**
-   * True while the panel is translating. Promotes a GPU snapshot so BlurView
-   * isn’t recomposited every frame (main stutter source on mid-range phones).
+   * True while the panel is translating — card mounting waits on it so layout
+   * work never lands mid-slide.
    */
   isPanelAnimating: boolean;
   panelWidth: number;
@@ -1155,7 +1155,7 @@ export function HistoryDrawer({
                   style={menuBlockStyle}
                   activeOpacity={0.85}
                 >
-                  <FrostedGlass style={StyleSheet.absoluteFillObject} />
+                  <SolidChrome style={StyleSheet.absoluteFillObject} />
                   <Ionicons name="pencil-outline" size={18} color={theme.colors.text} />
                   <Text
                     style={{
@@ -1181,7 +1181,7 @@ export function HistoryDrawer({
                   style={menuBlockStyle}
                   activeOpacity={0.85}
                 >
-                  <FrostedGlass style={StyleSheet.absoluteFillObject} />
+                  <SolidChrome style={StyleSheet.absoluteFillObject} />
                   <Ionicons
                     name={isPinned ? 'bookmark' : 'bookmark-outline'}
                     size={18}
@@ -1212,7 +1212,7 @@ export function HistoryDrawer({
                   activeOpacity={0.85}
                   accessibilityLabel="Export as Markdown"
                 >
-                  <FrostedGlass style={StyleSheet.absoluteFillObject} />
+                  <SolidChrome style={StyleSheet.absoluteFillObject} />
                   <Ionicons name="share-outline" size={18} color={theme.colors.text} />
                   <Text
                     style={{
@@ -1238,7 +1238,7 @@ export function HistoryDrawer({
                   style={menuBlockStyle}
                   activeOpacity={0.85}
                 >
-                  <FrostedGlass style={StyleSheet.absoluteFillObject} />
+                  <SolidChrome style={StyleSheet.absoluteFillObject} />
                   <Ionicons name="checkbox-outline" size={18} color={theme.colors.text} />
                   <Text
                     style={{
@@ -1263,7 +1263,7 @@ export function HistoryDrawer({
                   style={menuBlockStyle}
                   activeOpacity={0.85}
                 >
-                  <FrostedGlass style={StyleSheet.absoluteFillObject} />
+                  <SolidChrome style={StyleSheet.absoluteFillObject} />
                   <Ionicons name="trash-outline" size={18} color={theme.colors.error} />
                   <Text
                     style={{
@@ -1312,17 +1312,17 @@ export function HistoryDrawer({
             height: '100%',
             width: panelWidth,
             overflow: 'hidden',
+            // Opaque fill, matching the shell frost endpoint. A full-screen
+            // blur here had to resample the chat behind it every frame of the
+            // slide, which is what made the drawer stutter.
+            backgroundColor: frostedPanelSystemBarColor(theme.mode),
           },
         ]}
-        // Snapshot only while sliding — permanent rasterization froze stagger at opacity 0.
-        renderToHardwareTextureAndroid={isPanelAnimating}
-        shouldRasterizeIOS={isPanelAnimating}
         pointerEvents={isPanelOpen ? 'auto' : 'none'}
         onLayout={(e) => {
           handlePanelLayout(e.nativeEvent.layout.height);
         }}
       >
-        <FrostedGlass variant="panel" style={StyleSheet.absoluteFillObject} />
 
         {!isMultiselectMode && (
           <View
@@ -1345,7 +1345,10 @@ export function HistoryDrawer({
               activeOpacity={0.85}
               accessibilityLabel={`Filter by date, ${activePeriodLabel}`}
             >
-              <FrostedGlass style={StyleSheet.absoluteFillObject} />
+              {/* Active state paints its own fill — don't cover it. */}
+              {filterActive ? null : (
+                <SolidChrome style={StyleSheet.absoluteFillObject} />
+              )}
               <Ionicons
                 name={filterActive ? 'options' : 'options-outline'}
                 size={23}
@@ -1406,7 +1409,7 @@ export function HistoryDrawer({
                       style={menuBlockStyle}
                       activeOpacity={0.85}
                     >
-                      <FrostedGlass style={StyleSheet.absoluteFillObject} />
+                      <SolidChrome style={StyleSheet.absoluteFillObject} />
                       <Ionicons
                         name={selected ? 'checkmark-circle' : 'ellipse-outline'}
                         size={18}
@@ -1692,7 +1695,7 @@ export function HistoryDrawer({
                 transform: [{ scale: searchShellScale }],
               }}
             >
-              <FrostedGlass style={StyleSheet.absoluteFillObject} />
+              <SolidChrome style={StyleSheet.absoluteFillObject} />
 
               {/* Collapsed: search pill with icon + "Search" label */}
               <Animated.View

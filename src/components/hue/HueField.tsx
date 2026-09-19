@@ -1,5 +1,5 @@
 /**
- * A group of ambient hue blobs plus the grain overlay, composited as one layer.
+ * A group of ambient hue blobs composited as one layer.
  *
  * `extras` is a map keyed by blob id rather than a callback so callers can
  * memoize the animated values they derive. Rebuilding an interpolation every
@@ -7,13 +7,12 @@
  * pass.
  *
  * Callers needing per-blob state of their own (LavaLampBackground parks each
- * blob in a per-page home) should compose `HueBlob` and `HueGrain` directly.
+ * blob in a per-page home) should compose `HueBlob` directly.
  */
 import React from 'react';
 import { Animated, StyleProp, StyleSheet, ViewStyle } from 'react-native';
 
 import { HueBlob, type HueBlobExtras, type HueBlobSpec } from './HueBlob';
-import { HueGrain } from './HueGrain';
 
 export type HueFieldProps = {
   blobs: readonly HueBlobSpec[];
@@ -22,7 +21,7 @@ export type HueFieldProps = {
   motionEnabled?: boolean;
   /** Memoized per-blob overlay motion, keyed by blob id. */
   extras?: Record<string, HueBlobExtras | undefined>;
-  /** Grain must span the whole fading group — see HueGrain. */
+  /** Dither each blob's falloff. See HueBlob — grain is masked to the blob. */
   grain?: boolean;
   grainIntensity?: number;
   /** Group opacity / transform. Defaults to filling the parent. */
@@ -49,9 +48,11 @@ export const HueField = React.memo(function HueField({
           {...blob}
           {...extras?.[blob.id]}
           motionEnabled={motionEnabled}
+          isDark={isDark}
+          grain={grain}
+          grainIntensity={grainIntensity}
         />
       ))}
-      {grain ? <HueGrain isDark={isDark} intensity={grainIntensity} /> : null}
     </Animated.View>
   );
 });

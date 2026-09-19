@@ -55,6 +55,14 @@ export function frostedPanelSystemBarColor(mode: "light" | "dark"): string {
     : FROSTED_GLASS.panelSystemBarLight;
 }
 
+/**
+ * Chrome tint composited over `panelSystemBar*` — what a frosted pill resolves
+ * to once it sits on an opaque panel rather than on live content.
+ */
+export function opaqueChromeColor(mode: "light" | "dark"): string {
+  return mode === "dark" ? "#1D1D1D" : "#F2F2F2";
+}
+
 type FrostedGlassProps = {
   style?: StyleProp<ViewStyle>;
   children?: React.ReactNode;
@@ -128,6 +136,25 @@ export function FrostedGlass({
       )}
       {children}
     </View>
+  );
+}
+
+/**
+ * Drop-in for `FrostedGlass` on chrome that stacks over an opaque surface.
+ * Blurring there resamples the backdrop every frame and resolves to nothing
+ * but the tint, so the tint is precomputed instead.
+ */
+export function SolidChrome({ style }: { style?: StyleProp<ViewStyle> }) {
+  const { theme } = useTheme();
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        styles.base,
+        style,
+        { backgroundColor: opaqueChromeColor(theme.mode) },
+      ]}
+    />
   );
 }
 
