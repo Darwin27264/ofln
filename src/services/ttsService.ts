@@ -28,9 +28,22 @@ let statusListener: StatusListener | null = null;
 let eventWired = false;
 let emitter: NativeEventEmitter | null = null;
 let speaking = false;
+/** Device has the RN module but no OS TTS engine (common on bare emulators). */
+let engineMissing = false;
+
+function isNoEngineError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e ?? '');
+  return /no tts engine/i.test(msg);
+}
+
+function markEngineMissing(e: unknown): void {
+  if (!isNoEngineError(e)) return;
+  engineMissing = true;
+}
 
 function getNative(): NativeTts | null {
   try {
+    if (engineMissing) return null;
     const mod = NativeModules.TextToSpeech as NativeTts | undefined | null;
     if (!mod || typeof mod.speak !== 'function' || typeof mod.stop !== 'function') {
       return null;
@@ -91,11 +104,19 @@ export function setSpeechStatusListener(listener: StatusListener | null): void {
   statusListener = listener;
 }
 
-/** Stop any in-progress OS utterance. Safe if unlinked. */
+/** Stop any in-progress OS utterance. Safe if unlinked / no engine. */
 export async function stopSpeaking(): Promise<void> {
+  const wasSpeaking = speaking;
+  speaking = false;
+
+  // Nothing to stop — avoid native calls (emulators without a TTS engine throw).
+  if (!wasSpeaking) {
+    return;
+  }
+
   const native = getNative();
   if (!native) {
-    speaking = false;
+    statusListener?.({ speaking: false, reason: 'stopped' });
     return;
   }
   try {
@@ -105,9 +126,11 @@ export async function stopSpeaking(): Promise<void> {
       await Promise.resolve(native.stop());
     }
   } catch (e) {
-    if (__DEV__) console.warn('[tts] stop failed', e);
+    markEngineMissing(e);
+    if (__DEV__ && !isNoEngineError(e)) {
+      console.warn('[tts] stop failed', e);
+    }
   } finally {
-    speaking = false;
     statusListener?.({ speaking: false, reason: 'stopped' });
   }
 }
@@ -135,7 +158,15 @@ export async function speakText(raw: string): Promise<SpeakResult> {
     ensureEvents(native);
     await stopSpeaking();
     if (typeof native.getInitStatus === 'function') {
-      await native.getInitStatus().catch(() => true);
+      try {
+        await native.getInitStatus();
+      } catch (e) {
+        markEngineMissing(e);
+        if (engineMissing) {
+          statusListener?.({ speaking: false, reason: 'unavailable' });
+          return { ok: false, reason: 'unavailable' };
+        }
+      }
     }
     speaking = true;
     statusListener?.({ speaking: true });
@@ -148,6 +179,11 @@ export async function speakText(raw: string): Promise<SpeakResult> {
     return { ok: true, text };
   } catch (e) {
     speaking = false;
+    markEngineMissing(e);
+    if (isNoEngineError(e)) {
+      statusListener?.({ speaking: false, reason: 'unavailable' });
+      return { ok: false, reason: 'unavailable' };
+    }
     if (__DEV__) console.warn('[tts] speak failed', e);
     statusListener?.({ speaking: false, reason: 'error' });
     return { ok: false, reason: 'error' };
@@ -160,4 +196,5 @@ export function __resetTtsServiceForTests(): void {
   eventWired = false;
   emitter = null;
   speaking = false;
+  engineMissing = false;
 }

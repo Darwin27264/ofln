@@ -37,6 +37,18 @@ export const OVERLAY_MOTION = {
   SCALE_OUT_MS: 200,
 } as const;
 
+/**
+ * Full-width history drawer spring — snappy, critically damped, no bounce.
+ * Higher rest thresholds end the spring once the slide is visually done.
+ */
+export const HISTORY_PANEL_SPRING = {
+  tension: 200,
+  friction: 26,
+  overshootClamping: true,
+  restDisplacementThreshold: 0.5,
+  restSpeedThreshold: 1,
+} as const;
+
 /** Common Animated.timing presets (all use the native driver). */
 export const ANIMATION_CONFIG = {
   panel: {

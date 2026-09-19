@@ -49,6 +49,43 @@
         </intent-filter>
       </activity>
 
+      <activity
+        android:name=".ShareActivity"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.Ofln.ShareOverlay"
+        android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+        android:windowSoftInputMode="stateHidden|adjustResize"
+        android:excludeFromRecents="true"
+        android:taskAffinity=""
+        android:exported="true">
+
+        <!-- 1. Text & Links via Share Sheet -->
+        <intent-filter android:label="Summarize with ofln">
+          <action android:name="android.intent.action.SEND" />
+          <category android:name="android.intent.category.DEFAULT" />
+          <data android:mimeType="text/plain" />
+        </intent-filter>
+
+        <!-- 2. Photos & Images via Share Sheet -->
+        <intent-filter android:label="OCR &amp; Summarize with ofln">
+          <action android:name="android.intent.action.SEND" />
+          <action android:name="android.intent.action.SEND_MULTIPLE" />
+          <category android:name="android.intent.category.DEFAULT" />
+          <data android:mimeType="image/*" />
+        </intent-filter>
+
+        <!-- 3. Direct Highlighted Text Menu (PROCESS_TEXT) -->
+        <intent-filter android:label="Summarize with ofln">
+          <action android:name="android.intent.action.PROCESS_TEXT" />
+          <category android:name="android.intent.category.DEFAULT" />
+          <data android:mimeType="text/plain" />
+        </intent-filter>
+
+        <meta-data
+          android:name="android.app.shortcuts"
+          android:resource="@xml/shortcuts" />
+      </activity>
+
       <!-- OFLN Native Task Scheduling -->
       <receiver
         android:name=".tasks.TaskAlarmReceiver"

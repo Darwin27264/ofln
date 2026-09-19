@@ -90,7 +90,7 @@ Support **light** and **dark**. Persist the user’s choice. Switch with a brief
 | error | `#FF453A` |
 | glass | `rgba(36, 36, 36, 0.75)` |
 
-Ambient mode hues (empty-chat glow only — not theme tokens): default gold family above; temporary violet; perspective teal. Do not promote violet/teal into `accent`.
+Ambient mode hues (empty-chat glow only — not theme tokens): default gold family above; temporary violet; perspective teal. Do not promote violet/teal into `accent`. All three families live in `src/components/hue/hueTokens.ts` — see §9.9 for how the hue field is built.
 
 ### 2.3 Color usage rules
 
@@ -334,10 +334,28 @@ Do **not** rely on CSS `backdrop-filter` — it does nothing in React Native. Us
 2. `FrostedGlass` as `absoluteFill` behind content (or `variant="panel"` for drawers).
 3. Fallback when blur/reduced transparency is unavailable: theme `glass` (~75% opacity).
 4. Native rebuild required after adding the blur package (Metro reload is not enough).
-5. Never leave a solid black/white bar under floating chrome — use edge fades (§9.8) instead.
+5. Never leave a solid black/white bar under floating chrome — use edge fades (§9.9) instead.
 6. While a frosted history/drawer panel is open, restyle **status bar + nav/home bar + Safe Area shell** to the panel’s opaque frost tone (`frostedPanelSystemBarColor`). Crossfade over ~**220 ms** (ease-out) in sync with the drawer — never snap. Restore `background` the same way on close.
 
-### 9.8 Chat edge fades
+### 9.8 Ambient hue field
+
+Every glow surface — empty chat canvas, app-shell edge wash, onboarding lava, composer listening glow, response loader — is built from the shared primitives in `src/components/hue/`. Do not hand-roll another radial gradient stack.
+
+**Falloff.** Blob alpha follows `peak · (1 − t²)³` via `hueStops()` (`hueRampStops()` when the blob should shift hue on the way out). This kernel reaches 0 at the rim **with zero slope**. A gradient that is still descending when it hits 0 leaves a slope break, and the eye reads that break as a drawn circle outline — which is what made the old 4-stop profile look fragmented. Never close a hue gradient with a linear tail.
+
+**Layer count.** Prefer **3–4** large blobs per surface over many small ones. Each translucent layer composites as `a + b − ab`, so every overlap adds a lens-shaped seam with its own edge; more blobs multiply the artifact instead of hiding it.
+
+**Oversize.** Draw blobs well past the area they should visibly cover (`HUE_BLOB_OVERSIZE`) so the rim sits off-screen or under other layers. A rim landing mid-screen reads as a circle however smooth its falloff.
+
+**Grain.** `HueGrain` tiles uniform noise at ~3% (dark) / ~2.2% (light). The hue runs at low enough alpha that its outer falloff spans only a handful of 8-bit levels, which quantizes into concentric rings; the noise randomizes which side of a quantization boundary each pixel lands on. Grain must span the **whole** fading container — a grain layer smaller than its parent draws its own rectangular edge.
+
+**Peak, not layer opacity.** `peak` is baked into the gradient stops, so blobs need no offscreen compositing pass. `HueBlob`'s `opacity` prop is a 0–1 *multiplier* for callers that animate brightness; values above 1 clamp, so bake the headroom into `peak` and rest the multiplier below 1.
+
+**Motion.** Idle drift comes from `useHueDrift` — four sine-eased legs returning to the origin, so the loop closes at zero velocity and never ticks. Always native-driven, applied as a transform on the parent so the SVG rasterizes once.
+
+**Ambient motion preference** (Settings → Display preferences) gates idle drift only; the hue itself stays as a static wash. The response loader is exempt — it is progress feedback, not ambience.
+
+### 9.9 Chat edge fades
 
 On immersive chat (and similar full-bleed content), content scrolls under floating chrome. Soft vertical fades keep hierarchy without opaque bars.
 
@@ -411,7 +429,8 @@ When applying this system to a new product:
 - [ ] Theme toggle uses overlay dim, not opacity-wrapping the tree
 - [ ] Alerts/menus are absolute overlays with defined enter/exit timing
 - [ ] Floating chrome (pills, composer, side panel, menus) uses shared `FrostedGlass` (§9.7)
-- [ ] Chat (or similar) uses soft top/bottom edge fades — never a solid bar (§9.8)
+- [ ] Chat (or similar) uses soft top/bottom edge fades — never a solid bar (§9.9)
+- [ ] Ambient glow uses the shared hue primitives — zero-slope falloff, few large blobs, grain (§9.8)
 - [ ] Spinners are black/white appropriate to surface
 - [ ] Screens: title → sections → content → floating Back
 - [ ] Destructive / long jobs confirm first with honest copy

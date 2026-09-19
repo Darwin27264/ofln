@@ -26,6 +26,7 @@ import axios from "axios";
 
 // Theme
 import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
+import { AmbientMotionProvider } from "./src/context/AmbientMotionContext";
 import { applySystemBarTheme, lerpHexColor } from "./src/utils/systemBars";
 import { frostedPanelSystemBarColor } from "./src/components/FrostedGlass";
 import { EASING, OVERLAY_MOTION } from "./src/utils/animationConfig";
@@ -36,6 +37,12 @@ import {
   parseChatFontSize,
   type ChatFontSize,
 } from "./src/utils/chatFontSize";
+import {
+  CHROME_SCALE_STORAGE_KEY,
+  DEFAULT_CHROME_SCALE,
+  parseChromeScale,
+  type ChromeScale,
+} from "./src/utils/chromeScale";
 
 // Components
 import { CustomAlertProvider, showAlert } from "./src/components/CustomAlert";
@@ -57,7 +64,9 @@ import OnboardingScreen from "./src/screens/OnboardingScreen";
 import StorageScreen from "./src/screens/StorageScreen";
 import PerspectivesLibraryScreen from "./src/screens/PerspectivesLibraryScreen";
 import PerspectiveEditorScreen from "./src/screens/PerspectiveEditorScreen";
-import TasksLibraryScreen from "./src/screens/TasksLibraryScreen";
+import TasksLibraryScreen, {
+  type TasksLibraryTabId,
+} from "./src/screens/TasksLibraryScreen";
 import TaskEditorScreen from "./src/screens/TaskEditorScreen";
 import TaskRunDetailScreen from "./src/screens/TaskRunDetailScreen";
 import { Persona, getPersonasEnsured, updatePersonaLastUsed } from "./src/services/personaService";
@@ -71,7 +80,12 @@ import {
   syncAllScheduledTasks,
   getInitialTaskNotification,
 } from "./src/services/nativeTaskScheduler";
+import {
+  getFullAppHandoff,
+  publishDirectShareShortcuts,
+} from "./src/services/shareReceiverService";
 import { processDueTasks } from "./src/services/taskRunnerService";
+import { chatHistoryService } from "./src/services/chatHistoryService";
 import { ModelInfo } from "./src/components/ModelCard";
 
 // Services (legacy helpers still used for download / existence checks)
@@ -131,15 +145,22 @@ function AppContent(): React.JSX.Element {
   // (Native theme defaults are black; matching React background must not skip the write.)
   const lastShellColorRef = useRef<string>("");
 
-  const applyShellColor = useCallback((hex: string) => {
-    if (hex !== lastShellColorRef.current) {
-      lastShellColorRef.current = hex;
-      setShellBackground(hex);
-    }
-    // Status + nav share the opaque shell hex so top/bottom chrome match.
-    // Native window/decor fill seals physical edges (API 35 ignores bar colors).
+  // Status + nav share the opaque shell hex so top/bottom chrome match.
+  // Native window/decor fill seals physical edges (API 35 ignores bar colors).
+  // Every push repaints that decor, so only send colors that actually changed.
+  const applyNativeShellColor = useCallback((hex: string) => {
+    if (hex === lastShellColorRef.current) return;
+    lastShellColorRef.current = hex;
     applySystemBarTheme({ statusBarColor: hex, navBarColor: hex });
   }, []);
+
+  const applyShellColor = useCallback(
+    (hex: string) => {
+      applyNativeShellColor(hex);
+      setShellBackground(hex);
+    },
+    [applyNativeShellColor],
+  );
 
   // Theme change / first mount: snap shell + system bars to the page background.
   useEffect(() => {
@@ -165,8 +186,12 @@ function AppContent(): React.JSX.Element {
     }
 
     shellColorAnim.setValue(0);
+    // Only the native bars step through the lerp. The React shell color lands on
+    // the endpoint up front — the panel covers the canvas for the whole slide,
+    // and a per-frame setState re-renders the chat tree while it is translating.
+    setShellBackground(to);
     const listenerId = shellColorAnim.addListener(({ value }) => {
-      applyShellColor(lerpHexColor(from, to, value));
+      applyNativeShellColor(lerpHexColor(from, to, value));
     });
     const anim = Animated.timing(shellColorAnim, {
       toValue: 1,
@@ -182,7 +207,7 @@ function AppContent(): React.JSX.Element {
       anim.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frostedChromeOpen, applyShellColor]);
+  }, [frostedChromeOpen, applyShellColor, applyNativeShellColor]);
 
   const INITIAL_CONVERSATION: Message[] = [
     {
@@ -314,17 +339,56 @@ function AppContent(): React.JSX.Element {
   // Source Monitor & Tasks: OS background wake + catch-up when due + native AlarmManager sync.
   useEffect(() => {
     let cancelled = false;
+
+    const checkAndApplyHandoff = async () => {
+      try {
+        const handoff = await getFullAppHandoff();
+        if (cancelled || !handoff?.sharedPrompt) return;
+
+        setCurrentPage("conversation");
+        let loadedMessages: Message[] | null = null;
+        if (handoff.sharedChatId) {
+          setCurrentChatId(handoff.sharedChatId);
+          try {
+            const existing = await chatHistoryService.getChat(handoff.sharedChatId);
+            if (existing && existing.messages && existing.messages.length > 0) {
+              loadedMessages = existing.messages as Message[];
+            }
+          } catch (e) {
+            console.warn("[App] Failed to load handoff chat", e);
+          }
+        }
+        if (loadedMessages) {
+          setConversation(loadedMessages);
+        } else {
+          const fallbackMsgs: Message[] = [
+            ...INITIAL_CONVERSATION,
+            { role: "user", content: handoff.sharedPrompt },
+          ];
+          if (handoff.sharedResponse) {
+            fallbackMsgs.push({ role: "assistant", content: handoff.sharedResponse });
+          }
+          setConversation(fallbackMsgs);
+        }
+      } catch (err) {
+        console.warn("[App] Failed to check handoff", err);
+      }
+    };
+
     (async () => {
       try {
         await initBackgroundTaskScheduling();
         if (!cancelled) {
           await scheduleBackgroundFetch();
           await syncAllScheduledTasks();
+          await publishDirectShareShortcuts();
           const initialNotif = await getInitialTaskNotification();
           if (!cancelled && initialNotif?.runId) {
             setViewingTaskRunId(initialNotif.runId);
+            setTasksLibraryTab("results");
             setCurrentPage("taskRunDetail");
           }
+          await checkAndApplyHandoff();
           // Don't compete with first-run / in-progress model downloads for network+RAM.
           if (!hasActiveDownloads()) {
             await processDueTasks({
@@ -339,8 +403,17 @@ function AppContent(): React.JSX.Element {
         console.warn("Background task init failed", e);
       }
     })();
+
+    // Listen for warm app resume from Share overlay ("Open in ofln")
+    const appStateSub = AppState.addEventListener("change", (state: AppStateStatus) => {
+      if (state === "active") {
+        checkAndApplyHandoff();
+      }
+    });
+
     return () => {
       cancelled = true;
+      appStateSub.remove();
     };
     // Intentionally once on mount; selectedGGUF is read at first opportunity via catch-up later.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -361,6 +434,8 @@ function AppContent(): React.JSX.Element {
     SourceMonitorTask | null | undefined
   >(undefined);
   const [viewingTaskRunId, setViewingTaskRunId] = useState<string | null>(null);
+  const [tasksLibraryTab, setTasksLibraryTab] =
+    useState<TasksLibraryTabId>("tasks");
   const [pendingPerspectivePreset, setPendingPerspectivePreset] =
     useState<PerspectivePreset | null>(null);
   const [selectedModelForSettings, setSelectedModelForSettings] = useState<ModelInfo | null>(null);
@@ -373,6 +448,7 @@ function AppContent(): React.JSX.Element {
     "direct"
   );
   const [chatFontSize, setChatFontSizeState] = useState<ChatFontSize>(DEFAULT_CHAT_FONT_SIZE);
+  const [chromeScale, setChromeScaleState] = useState<ChromeScale>(DEFAULT_CHROME_SCALE);
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
   const [availablePersonas, setAvailablePersonas] = useState<Persona[]>([]);
 
@@ -414,13 +490,14 @@ function AppContent(): React.JSX.Element {
     return () => sub.remove();
   }, [rehydrateModelSelectionFromProvider]);
 
-  // Load saved chat mode + font size preferences on app startup
+  // Load saved chat mode + font / button size preferences on app startup
   useEffect(() => {
     const loadDisplayPrefs = async () => {
       try {
-        const [savedChatMode, savedFontSize] = await Promise.all([
+        const [savedChatMode, savedFontSize, savedChromeScale] = await Promise.all([
           AsyncStorage.getItem('@app_chat_mode'),
           AsyncStorage.getItem(CHAT_FONT_SIZE_STORAGE_KEY),
+          AsyncStorage.getItem(CHROME_SCALE_STORAGE_KEY),
         ]);
         if (savedChatMode === 'bubble' || savedChatMode === 'direct') {
           setAssistantDisplayModeState(savedChatMode);
@@ -428,6 +505,10 @@ function AppContent(): React.JSX.Element {
         const fontSize = parseChatFontSize(savedFontSize);
         if (fontSize != null) {
           setChatFontSizeState(fontSize);
+        }
+        const scale = parseChromeScale(savedChromeScale);
+        if (scale != null) {
+          setChromeScaleState(scale);
         }
       } catch (error) {
         console.error('Error loading display preferences:', error);
@@ -455,6 +536,18 @@ function AppContent(): React.JSX.Element {
       const next = typeof size === 'function' ? size(prev) : size;
       AsyncStorage.setItem(CHAT_FONT_SIZE_STORAGE_KEY, String(next)).catch((error) => {
         console.error('Error saving chat font size:', error);
+      });
+      return next;
+    });
+  }, []);
+
+  const setChromeScale = useCallback((
+    scale: ChromeScale | ((prev: ChromeScale) => ChromeScale),
+  ) => {
+    setChromeScaleState((prev) => {
+      const next = typeof scale === 'function' ? scale(prev) : scale;
+      AsyncStorage.setItem(CHROME_SCALE_STORAGE_KEY, String(next)).catch((error) => {
+        console.error('Error saving button size preference:', error);
       });
       return next;
     });
@@ -852,6 +945,7 @@ function AppContent(): React.JSX.Element {
           checkDownloadedModels={checkDownloadedModels}
           selectedGGUF={selectedGGUF}
           setSelectedGGUF={setSelectedGGUF}
+          chromeScale={chromeScale}
           onOpenModelSettings={(model) => {
             setSelectedModelForSettings(model);
             setCurrentPage("modelSettings");
@@ -883,6 +977,7 @@ function AppContent(): React.JSX.Element {
           onGoToModelSelection={() => setCurrentPage("modelSelection")}
           assistantDisplayMode={assistantDisplayMode}
           chatFontSize={chatFontSize}
+          chromeScale={chromeScale}
           onOpenSettings={() => setCurrentPage("settings")}
           selectedGGUF={selectedGGUF}
           setSelectedGGUF={setSelectedGGUF}
@@ -911,6 +1006,8 @@ function AppContent(): React.JSX.Element {
           setAssistantDisplayMode={setAssistantDisplayMode}
           chatFontSize={chatFontSize}
           setChatFontSize={setChatFontSize}
+          chromeScale={chromeScale}
+          setChromeScale={setChromeScale}
           downloadedModels={downloadedModels}
           onBackToConversation={() => setCurrentPage("conversation")}
           onOpenStats={() => setCurrentPage("stages")}
@@ -1053,6 +1150,9 @@ function AppContent(): React.JSX.Element {
           <TasksLibraryScreen
             onBack={() => setCurrentPage("settings")}
             fallbackModelFileName={selectedGGUF}
+            chromeScale={chromeScale}
+            libraryTab={tasksLibraryTab}
+            onLibraryTabChange={setTasksLibraryTab}
             onEditTask={(task) => {
               setEditingTask(task);
               setCurrentPage("taskEditor");
@@ -1164,9 +1264,11 @@ export default function App(): React.JSX.Element {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
-        <CustomAlertProvider>
-          <AppContent />
-        </CustomAlertProvider>
+        <AmbientMotionProvider>
+          <CustomAlertProvider>
+            <AppContent />
+          </CustomAlertProvider>
+        </AmbientMotionProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );

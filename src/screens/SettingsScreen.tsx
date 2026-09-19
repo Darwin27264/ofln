@@ -41,12 +41,29 @@ import {
   DEFAULT_CHAT_FONT_SIZE,
   type ChatFontSize,
 } from "../utils/chatFontSize";
+import {
+  CHROME_SCALES,
+  DEFAULT_CHROME_SCALE,
+  chromeFontForRole,
+  chromeScaleChipLabel,
+  chromeSpace,
+  type ChromeScale,
+} from "../utils/chromeScale";
+import { useAmbientMotion } from "../context/AmbientMotionContext";
+
+/** Ambient motion is a plain on/off, shown as chips to match the rows above it. */
+const AMBIENT_MOTION_CHOICES = [
+  { label: "On", value: true },
+  { label: "Off", value: false },
+] as const;
 
 interface Props {
   assistantDisplayMode: "bubble" | "direct";
   setAssistantDisplayMode: React.Dispatch<React.SetStateAction<"bubble" | "direct">>;
   chatFontSize: ChatFontSize;
   setChatFontSize: React.Dispatch<React.SetStateAction<ChatFontSize>>;
+  chromeScale: ChromeScale;
+  setChromeScale: React.Dispatch<React.SetStateAction<ChromeScale>>;
   downloadedModels: string[];
   onBackToConversation: () => void;
   onGoToModelSelection: () => void;
@@ -71,13 +88,14 @@ type SettingsTileProps = {
   stat?: string | null;
   onPress: () => void;
   touchStyle?: StyleProp<ViewStyle>;
-  /** Optional solid wash on top of frost (e.g. quick-settings On state). */
+  /** Optional solid wash on top of frost (e.g. display-preferences On state). */
   overlayColor?: string | Animated.AnimatedInterpolation<string | number>;
   iconColor: string;
   labelColor?: string | Animated.AnimatedInterpolation<string | number>;
   iconCircleBg: string;
   badgeBg: string;
   badgeTextColor: string;
+  chromeScale?: ChromeScale;
   info?: {
     onPress: () => void;
     color: string;
@@ -97,10 +115,12 @@ function SettingsTile({
   iconCircleBg,
   badgeBg,
   badgeTextColor,
+  chromeScale = DEFAULT_CHROME_SCALE,
   info,
 }: SettingsTileProps) {
   const { isDark } = useTheme();
   const showStat = typeof stat === "string" && stat.length > 0;
+  const labelSize = chromeFontForRole("tile", chromeScale);
 
   return (
     <TouchableOpacity style={touchStyle} onPress={onPress} activeOpacity={0.85}>
@@ -132,11 +152,31 @@ function SettingsTile({
         ) : null}
         <View style={styles.blockTextContainer}>
           {typeof labelColor === "string" || labelColor == null ? (
-            <Text style={[styles.blockText, labelColor ? { color: labelColor } : null]}>
+            <Text
+              style={[
+                styles.blockText,
+                {
+                  fontSize: labelSize,
+                  lineHeight: Math.round(labelSize * 1.22),
+                },
+                labelColor ? { color: labelColor } : null,
+              ]}
+              numberOfLines={2}
+            >
               {label}
             </Text>
           ) : (
-            <Animated.Text style={[styles.blockText, { color: labelColor } as TextStyle]}>
+            <Animated.Text
+              style={[
+                styles.blockText,
+                {
+                  fontSize: labelSize,
+                  lineHeight: Math.round(labelSize * 1.22),
+                  color: labelColor,
+                } as TextStyle,
+              ]}
+              numberOfLines={2}
+            >
               {label}
             </Animated.Text>
           )}
@@ -162,6 +202,8 @@ export default function SettingsScreen({
   setAssistantDisplayMode,
   chatFontSize,
   setChatFontSize,
+  chromeScale,
+  setChromeScale,
   downloadedModels,
   onBackToConversation,
   onGoToModelSelection,
@@ -174,10 +216,16 @@ export default function SettingsScreen({
   onGoToStorage,
 }: Props) {
   const { theme, toggleTheme, isDark, isTransitioning } = useTheme();
+  const { ambientMotion, setAmbientMotion } = useAmbientMotion();
   const styles = createStyles(theme.colors);
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
-  /** Quick-settings chip sits above Back; clear both when scrolling. */
+  const tileLabelSize = chromeFontForRole("tile", chromeScale);
+  const fontChipMinW = chromeSpace(36, chromeScale);
+  const fontChipH = chromeSpace(34, chromeScale);
+  const fontChipGap = Math.max(4, chromeSpace(6, chromeScale));
+  const fontChipPadH = Math.max(6, chromeSpace(8, chromeScale));
+  /** Display-preferences chip sits above Back; clear both when scrolling. */
   const contentPadBottom = Math.max(scrollPadBottom, 92 + 32 + 16);
   const [viewportH, setViewportH] = useState(0);
   const [contentH, setContentH] = useState(0);
@@ -378,6 +426,7 @@ export default function SettingsScreen({
               iconCircleBg={iconCircleDefault}
               badgeBg={perfBadgeBg}
               badgeTextColor={perfStatColor}
+              chromeScale={chromeScale}
             />
             <SettingsTile
               styles={styles}
@@ -390,6 +439,7 @@ export default function SettingsScreen({
               iconCircleBg={iconCircleDefault}
               badgeBg={mutedBadgeBg}
               badgeTextColor={mutedBadgeText}
+              chromeScale={chromeScale}
             />
           </View>
           <View style={{ flexDirection: "row", height: SETTINGS_TILE_HEIGHT }}>
@@ -403,6 +453,7 @@ export default function SettingsScreen({
               iconCircleBg={iconCircleDefault}
               badgeBg={mutedBadgeBg}
               badgeTextColor={mutedBadgeText}
+              chromeScale={chromeScale}
             />
             <SettingsTile
               styles={styles}
@@ -415,6 +466,7 @@ export default function SettingsScreen({
               iconCircleBg={iconCircleDefault}
               badgeBg={mutedBadgeBg}
               badgeTextColor={mutedBadgeText}
+              chromeScale={chromeScale}
             />
           </View>
           <View
@@ -435,6 +487,7 @@ export default function SettingsScreen({
               iconCircleBg={iconCircleDefault}
               badgeBg={mutedBadgeBg}
               badgeTextColor={mutedBadgeText}
+              chromeScale={chromeScale}
             />
             <SettingsTile
               styles={styles}
@@ -447,6 +500,7 @@ export default function SettingsScreen({
               iconCircleBg={iconCircleDefault}
               badgeBg={mutedBadgeBg}
               badgeTextColor={mutedBadgeText}
+              chromeScale={chromeScale}
             />
           </View>
           <View style={{ height: SETTINGS_TILE_HEIGHT, marginTop: SETTINGS_TILE_GAP }}>
@@ -523,7 +577,18 @@ export default function SettingsScreen({
                   ) : null}
                 </View>
                 <View style={styles.blockTextContainer}>
-                  <Text style={styles.blockText}>Storage</Text>
+                  <Text
+                    style={[
+                      styles.blockText,
+                      {
+                        fontSize: tileLabelSize,
+                        lineHeight: Math.round(tileLabelSize * 1.22),
+                      },
+                    ]}
+                    numberOfLines={2}
+                  >
+                    Storage
+                  </Text>
                 </View>
               </View>
             </TouchableOpacity>
@@ -545,8 +610,8 @@ export default function SettingsScreen({
           onPress={() => setQuickSettingsOpen(true)}
           activeOpacity={0.75}
           accessibilityRole="button"
-          accessibilityLabel="Quick settings"
-          accessibilityHint="Opens chat mode and dark mode controls"
+          accessibilityLabel="Display preferences"
+          accessibilityHint="Opens chat mode, dark mode, chat font, and button font controls"
           style={{
             width: 52,
             height: 32,
@@ -594,8 +659,7 @@ export default function SettingsScreen({
       <BottomSheet
         visible={quickSettingsOpen}
         onClose={() => setQuickSettingsOpen(false)}
-        title="Quick settings"
-        subtitle="Display preferences"
+        title="Display preferences"
         fitContent
       >
         <View
@@ -620,6 +684,7 @@ export default function SettingsScreen({
             badgeTextColor={
               bubblesMode ? theme.colors.primaryText : mutedBadgeText
             }
+            chromeScale={chromeScale}
             info={{
               onPress: () => setChatModeInfoOpen(true),
               color: bubblesMode ? theme.colors.primaryText : theme.colors.text,
@@ -640,6 +705,7 @@ export default function SettingsScreen({
             badgeTextColor={
               isDark ? theme.colors.primaryText : mutedBadgeText
             }
+            chromeScale={chromeScale}
           />
         </View>
 
@@ -670,7 +736,7 @@ export default function SettingsScreen({
               flexDirection: "row",
               justifyContent: "flex-end",
               alignItems: "center",
-              gap: 6,
+              gap: fontChipGap,
             }}
           >
             {CHAT_FONT_SIZES.map((size) => {
@@ -682,12 +748,16 @@ export default function SettingsScreen({
                   activeOpacity={0.85}
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
-                  accessibilityLabel={`Font size ${size}`}
+                  accessibilityLabel={`Chat font ${size}`}
                   style={{
-                    minWidth: 40,
-                    height: 36,
-                    borderRadius: 18,
-                    paddingHorizontal: 10,
+                    flexGrow: 1,
+                    flexShrink: 1,
+                    flexBasis: fontChipMinW,
+                    minWidth: fontChipMinW,
+                    maxWidth: 48,
+                    height: fontChipH,
+                    borderRadius: fontChipH / 2,
+                    paddingHorizontal: fontChipPadH,
                     alignItems: "center",
                     justifyContent: "center",
                     backgroundColor: selected
@@ -699,11 +769,15 @@ export default function SettingsScreen({
                     style={{
                       fontFamily: "Poppins",
                       fontWeight: "600",
-                      fontSize: Math.min(16, size),
+                      fontSize: Math.min(
+                        chromeFontForRole("control", chromeScale),
+                        size,
+                      ),
                       color: selected
                         ? theme.colors.primaryText
                         : theme.colors.textSecondary,
                     }}
+                    numberOfLines={1}
                   >
                     {size}
                   </Text>
@@ -712,20 +786,31 @@ export default function SettingsScreen({
             })}
           </View>
           <View style={styles.blockTextContainer}>
-            <Text style={styles.blockText}>{"Font\nSize"}</Text>
+            <Text
+              style={[
+                styles.blockText,
+                {
+                  fontSize: tileLabelSize,
+                  lineHeight: Math.round(tileLabelSize * 1.22),
+                },
+              ]}
+              numberOfLines={2}
+            >
+              {"Chat\nFont"}
+            </Text>
           </View>
           <TouchableOpacity
             onPress={() => setChatFontSize(DEFAULT_CHAT_FONT_SIZE)}
             activeOpacity={0.85}
             accessibilityRole="button"
-            accessibilityLabel="Reset font size to default"
+            accessibilityLabel="Reset chat font to default"
             disabled={chatFontSize === DEFAULT_CHAT_FONT_SIZE}
             style={{
               position: "absolute",
               bottom: 15,
               right: 14,
-              paddingHorizontal: 12,
-              paddingVertical: 6,
+              paddingHorizontal: Math.max(10, chromeSpace(12, chromeScale)),
+              paddingVertical: Math.max(5, chromeSpace(6, chromeScale)),
               borderRadius: 16,
               backgroundColor: mutedBadgeBg,
               opacity: chatFontSize === DEFAULT_CHAT_FONT_SIZE ? 0.45 : 1,
@@ -734,7 +819,7 @@ export default function SettingsScreen({
             <Text
               style={{
                 fontFamily: "Poppins",
-                fontSize: 13,
+                fontSize: chromeFontForRole("caption", chromeScale),
                 fontWeight: "500",
                 color: theme.colors.textSecondary,
               }}
@@ -742,6 +827,211 @@ export default function SettingsScreen({
               Default
             </Text>
           </TouchableOpacity>
+        </View>
+
+        <View
+          style={[
+            styles.settingsBlock,
+            {
+              height: SETTINGS_TILE_HEIGHT,
+              marginTop: SETTINGS_TILE_GAP,
+              flex: 0,
+            },
+          ]}
+        >
+          <FrostedGlass
+            style={StyleSheet.absoluteFillObject}
+            blurAmount={SETTINGS_BLOCK.blurAmount}
+            tintOpacity={isDark ? SETTINGS_BLOCK.tintDark : SETTINGS_BLOCK.tintLight}
+          />
+          <View style={[styles.blockIconCircle, { backgroundColor: iconCircleDefault }]}>
+            <Ionicons name="resize-outline" size={18} color={theme.colors.text} />
+          </View>
+          <View
+            style={{
+              position: "absolute",
+              top: 14,
+              right: 14,
+              left: 62,
+              flexDirection: "row",
+              justifyContent: "flex-end",
+              alignItems: "center",
+              gap: fontChipGap,
+            }}
+          >
+            {CHROME_SCALES.map((scale) => {
+              const selected = chromeScale === scale;
+              const label = chromeScaleChipLabel(scale);
+              return (
+                <TouchableOpacity
+                  key={scale}
+                  onPress={() => setChromeScale(scale)}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={`Button font ${label}`}
+                  style={{
+                    flexGrow: 1,
+                    flexShrink: 1,
+                    flexBasis: fontChipMinW,
+                    minWidth: fontChipMinW,
+                    maxWidth: 48,
+                    height: fontChipH,
+                    borderRadius: fontChipH / 2,
+                    paddingHorizontal: fontChipPadH,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: selected
+                      ? theme.colors.primary
+                      : mutedBadgeBg,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: "Poppins",
+                      fontWeight: "600",
+                      fontSize: chromeFontForRole("control", chromeScale),
+                      color: selected
+                        ? theme.colors.primaryText
+                        : theme.colors.textSecondary,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <View style={styles.blockTextContainer}>
+            <Text
+              style={[
+                styles.blockText,
+                {
+                  fontSize: tileLabelSize,
+                  lineHeight: Math.round(tileLabelSize * 1.22),
+                },
+              ]}
+              numberOfLines={2}
+            >
+              {"Button\nFont"}
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => setChromeScale(DEFAULT_CHROME_SCALE)}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Reset button font to default"
+            disabled={chromeScale === DEFAULT_CHROME_SCALE}
+            style={{
+              position: "absolute",
+              bottom: 15,
+              right: 14,
+              paddingHorizontal: Math.max(10, chromeSpace(12, chromeScale)),
+              paddingVertical: Math.max(5, chromeSpace(6, chromeScale)),
+              borderRadius: 16,
+              backgroundColor: mutedBadgeBg,
+              opacity: chromeScale === DEFAULT_CHROME_SCALE ? 0.45 : 1,
+            }}
+          >
+            <Text
+              style={{
+                fontFamily: "Poppins",
+                fontSize: chromeFontForRole("caption", chromeScale),
+                fontWeight: "500",
+                color: theme.colors.textSecondary,
+              }}
+            >
+              Default
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View
+          style={[
+            styles.settingsBlock,
+            {
+              height: SETTINGS_TILE_HEIGHT,
+              marginTop: SETTINGS_TILE_GAP,
+              flex: 0,
+            },
+          ]}
+        >
+          <FrostedGlass
+            style={StyleSheet.absoluteFillObject}
+            blurAmount={SETTINGS_BLOCK.blurAmount}
+            tintOpacity={isDark ? SETTINGS_BLOCK.tintDark : SETTINGS_BLOCK.tintLight}
+          />
+          <View style={[styles.blockIconCircle, { backgroundColor: iconCircleDefault }]}>
+            <Ionicons name="sparkles-outline" size={18} color={theme.colors.text} />
+          </View>
+          <View
+            style={{
+              position: "absolute",
+              top: 14,
+              right: 14,
+              left: 62,
+              flexDirection: "row",
+              justifyContent: "flex-end",
+              alignItems: "center",
+              gap: fontChipGap,
+            }}
+          >
+            {AMBIENT_MOTION_CHOICES.map(({ label, value }) => {
+              const selected = ambientMotion === value;
+              return (
+                <TouchableOpacity
+                  key={label}
+                  onPress={() => setAmbientMotion(value)}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={`Ambient motion ${label}`}
+                  style={{
+                    flexGrow: 0,
+                    flexShrink: 1,
+                    minWidth: Math.max(fontChipMinW, 44),
+                    height: fontChipH,
+                    borderRadius: fontChipH / 2,
+                    paddingHorizontal: fontChipPadH,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: selected
+                      ? theme.colors.primary
+                      : mutedBadgeBg,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: "Poppins",
+                      fontWeight: "600",
+                      fontSize: chromeFontForRole("control", chromeScale),
+                      color: selected
+                        ? theme.colors.primaryText
+                        : theme.colors.textSecondary,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <View style={styles.blockTextContainer}>
+            <Text
+              style={[
+                styles.blockText,
+                {
+                  fontSize: tileLabelSize,
+                  lineHeight: Math.round(tileLabelSize * 1.22),
+                },
+              ]}
+              numberOfLines={2}
+            >
+              {"Ambient\nMotion"}
+            </Text>
+          </View>
         </View>
       </BottomSheet>
 

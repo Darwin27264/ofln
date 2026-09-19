@@ -29,7 +29,6 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import { FrostedGlass } from './FrostedGlass';
 import { FloatingBackButton } from './FloatingBackButton';
-import { StaggerFadeIn } from './StaggerFadeIn';
 import { useTheme } from '../context/ThemeContext';
 import type { ChatConversation, Message } from '../services/chatHistoryService';
 import {
@@ -50,8 +49,13 @@ export type GroupedChatHistory = {
   groupedUnpinned: Map<string, ChatConversation[]>;
 };
 
-const CARD_RADIUS = 14;
+/** Matches conversation cards / message menus (12), not hub tiles (30). */
+const CARD_RADIUS = 12;
+/** Nested media — slightly tighter than the card shell. */
+const CARD_MEDIA_RADIUS = 8;
 const GAP = 10;
+/** Cards mounted while the panel translates — roughly one screenful per column. */
+const SLIDE_CARD_BUDGET = 12;
 /** Matches top filter pill height so left-column cards share its baseline. */
 const TOP_CHROME_TOP = 8;
 const FILTER_PILL_SIZE = 42;
@@ -99,9 +103,6 @@ function formatRelativeChatLabel(timestamp: number): string {
     return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   }
   if (dayDiff === 1) return 'Yesterday';
-  if (dayDiff > 1 && dayDiff < 7) {
-    return date.toLocaleDateString(undefined, { weekday: 'long' });
-  }
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
@@ -347,11 +348,12 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(
             style={{
               width: '100%',
               height: preview.length > 60 ? 120 : 148,
-              borderRadius: 10,
+              borderRadius: CARD_MEDIA_RADIUS,
               marginTop: preview ? 10 : 6,
               backgroundColor: theme.colors.surface,
             }}
             resizeMode="cover"
+            fadeDuration={0}
           />
         ) : null}
 
@@ -393,9 +395,15 @@ ChatHistoryCard.displayName = 'ChatHistoryCard';
 
 export type HistoryDrawerProps = {
   isPanelOpen: boolean;
+  /**
+   * True while the panel is translating. Promotes a GPU snapshot so BlurView
+   * isn’t recomposited every frame (main stutter source on mid-range phones).
+   */
+  isPanelAnimating: boolean;
   panelWidth: number;
   panelAnim: Animated.Value;
-  backdropOpacity: Animated.Value;
+  /** Derived from `panelAnim` so the dim tracks the slide exactly. */
+  backdropOpacity: Animated.AnimatedInterpolation<string | number>;
   panelStyle: object;
   topInset: number;
   bottomInset: number;
@@ -453,6 +461,7 @@ export type HistoryDrawerProps = {
 
 export function HistoryDrawer({
   isPanelOpen,
+  isPanelAnimating,
   panelWidth,
   panelAnim,
   backdropOpacity,
@@ -980,16 +989,39 @@ export function HistoryDrawer({
     return filterChatsByDatePeriod(flattenGroupedHistory(groupedChatHistory), datePeriod);
   }, [groupedChatHistory, datePeriod]);
 
-  const [leftColumn, rightColumn] = useMemo(
-    () => splitIntoColumns(collageChats),
-    [collageChats],
+  // Mounting the whole collage on the frame the slide starts stutters it, so the
+  // translate only carries a screenful. splitIntoColumns is greedy in order, so
+  // the rest append after settle without moving what is already on screen.
+  const [collageFullyMounted, setCollageFullyMounted] = useState(false);
+  const slideSettled = isPanelOpen && !isPanelAnimating;
+
+  useEffect(() => {
+    if (!isPanelOpen || collageFullyMounted) return undefined;
+    if (slideSettled) {
+      setCollageFullyMounted(true);
+      return undefined;
+    }
+    // Fallback for a slide that never reports settling (interrupted open).
+    const timer = setTimeout(() => setCollageFullyMounted(true), 400);
+    return () => clearTimeout(timer);
+  }, [isPanelOpen, slideSettled, collageFullyMounted]);
+
+  const visibleChats = useMemo(
+    () =>
+      collageFullyMounted ? collageChats : collageChats.slice(0, SLIDE_CARD_BUDGET),
+    [collageChats, collageFullyMounted],
   );
 
-  const indexById = useMemo(() => {
-    const map = new Map<string, number>();
-    collageChats.forEach((c, i) => map.set(c.id, i));
-    return map;
-  }, [collageChats]);
+  const [leftColumn, rightColumn] = useMemo(
+    () => splitIntoColumns(visibleChats),
+    [visibleChats],
+  );
+
+  // Keep the collage mounted after the first open so reopen doesn’t remount
+  // cards (and re-decode images) in the middle of the slide.
+  const keepHistoryCollageRef = useRef(false);
+  if (isPanelOpen) keepHistoryCollageRef.current = true;
+  const showHistoryCollage = isPanelOpen || keepHistoryCollageRef.current;
 
   const activePeriodLabel =
     HISTORY_DATE_PERIODS.find((p) => p.id === datePeriod)?.label ?? 'All time';
@@ -1047,27 +1079,22 @@ export function HistoryDrawer({
   const isPinned = selectedMenuChat?.pinned || false;
 
   const renderCard = (chat: ChatConversation) => (
-    <StaggerFadeIn
+    <ChatHistoryCard
       key={chat.id}
-      index={indexById.get(chat.id) ?? 0}
-      active={isPanelOpen && !isLoadingHistory}
-    >
-      <ChatHistoryCard
-        chat={chat}
-        currentChatId={currentChatId}
-        theme={theme}
-        onPress={() => (isMultiselectMode ? onToggleSelect(chat.id) : onChatPress(chat))}
-        onLongPress={(e) => onChatLongPress(chat, e)}
-        isEditing={editingChatId === chat.id}
-        editingTitle={editingTitle}
-        onEditingTitleChange={onEditingTitleChange}
-        onRenameSave={onRenameSave}
-        onRenameCancel={onRenameCancel}
-        isMultiselectMode={isMultiselectMode}
-        isSelected={selectedChatIds.has(chat.id)}
-        onToggleSelect={() => onToggleSelect(chat.id)}
-      />
-    </StaggerFadeIn>
+      chat={chat}
+      currentChatId={currentChatId}
+      theme={theme}
+      onPress={() => (isMultiselectMode ? onToggleSelect(chat.id) : onChatPress(chat))}
+      onLongPress={(e) => onChatLongPress(chat, e)}
+      isEditing={editingChatId === chat.id}
+      editingTitle={editingTitle}
+      onEditingTitleChange={onEditingTitleChange}
+      onRenameSave={onRenameSave}
+      onRenameCancel={onRenameCancel}
+      isMultiselectMode={isMultiselectMode}
+      isSelected={selectedChatIds.has(chat.id)}
+      onToggleSelect={() => onToggleSelect(chat.id)}
+    />
   );
 
   const emptyPeriodMessage =
@@ -1287,6 +1314,9 @@ export function HistoryDrawer({
             overflow: 'hidden',
           },
         ]}
+        // Snapshot only while sliding — permanent rasterization froze stagger at opacity 0.
+        renderToHardwareTextureAndroid={isPanelAnimating}
+        shouldRasterizeIOS={isPanelAnimating}
         pointerEvents={isPanelOpen ? 'auto' : 'none'}
         onLayout={(e) => {
           handlePanelLayout(e.nativeEvent.layout.height);
@@ -1553,7 +1583,7 @@ export function HistoryDrawer({
             </View>
           )}
 
-          {isLoadingHistory ? (
+          {isLoadingHistory && chatHistory.length === 0 ? (
             <View style={{ padding: 20, alignItems: 'center' }}>
               <Text
                 style={{
@@ -1565,6 +1595,8 @@ export function HistoryDrawer({
                 Loading...
               </Text>
             </View>
+          ) : !showHistoryCollage ? (
+            <View style={{ minHeight: 1 }} />
           ) : chatHistory.length === 0 ? (
             <View style={{ padding: 20, alignItems: 'center' }}>
               <Text

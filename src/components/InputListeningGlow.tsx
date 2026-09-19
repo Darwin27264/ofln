@@ -8,7 +8,9 @@
  * - On finish/turn off, smoothly animates going back to the right side (reversed entrance)
  * - Continuous, seamless harmonic loop with zero jumps (sinusoidal in-out ping-pong)
  * - Gradient density calibrated so left side (text area) remains crystal-clear and high-contrast
- * - Dual-bloom radiant harmonic sweep + breathing ambient wash (using AMBIENT_GOLD)
+ * - Blooms use the shared Gaussian falloff (hue/hueTokens.ts) plus grain, so they
+ *   dissolve into the capsule instead of showing a visible disc rim
+ * - Dual-bloom radiant harmonic sweep + breathing ambient wash (ambient gold)
  * - Inner glowing rim along the capsule contour that pulses in tandem with breathing
  * - 100% GPU-accelerated motion (useNativeDriver: true)
  * - pointerEvents="none" so text input and action buttons remain completely unobstructed
@@ -33,7 +35,7 @@ import Svg, {
 } from 'react-native-svg';
 
 import { useTheme } from '../context/ThemeContext';
-import { AMBIENT_GOLD } from './AmbientHue';
+import { HueGrain, huePalette, hueRampStops } from './hue';
 
 export type InputListeningGlowProps = {
   /** Whether the input bar is currently listening for voice input. */
@@ -52,13 +54,19 @@ export const InputListeningGlow = React.memo(function InputListeningGlow({
   const micBloomGradId = `listenGradMic_${safeId}`;
   const driftBloomGradId = `listenGradDrift_${safeId}`;
 
-  const colors = useMemo(() => {
-    return {
-      deep: isDark ? AMBIENT_GOLD.deepDark : AMBIENT_GOLD.deepLight,
-      soft: isDark ? AMBIENT_GOLD.softDark : AMBIENT_GOLD.softLight,
-      fade: isDark ? AMBIENT_GOLD.fadeDark : AMBIENT_GOLD.fadeLight,
-    };
-  }, [isDark]);
+  const colors = useMemo(() => huePalette('default', isDark), [isDark]);
+
+  // Shared falloff (see hue/hueTokens.ts) so the blooms inside the capsule
+  // dissolve instead of showing a rim, blending pale core → burnt rim.
+  const micBloomStops = useMemo(
+    () =>
+      hueRampStops(isDark ? 0.62 : 0.44, [colors.fade, colors.soft, colors.deep]),
+    [isDark, colors],
+  );
+  const driftBloomStops = useMemo(
+    () => hueRampStops(isDark ? 0.42 : 0.28, [colors.soft, colors.deep]),
+    [isDark, colors],
+  );
 
   // Keep rendered while active or fading/retracting out
   const [visible, setVisible] = useState(active);
@@ -312,10 +320,14 @@ export const InputListeningGlow = React.memo(function InputListeningGlow({
                 rx="60%"
                 ry="50%"
               >
-                <Stop offset="0%" stopColor={colors.fade} stopOpacity={isDark ? 0.62 : 0.44} />
-                <Stop offset="30%" stopColor={colors.soft} stopOpacity={isDark ? 0.36 : 0.25} />
-                <Stop offset="65%" stopColor={colors.deep} stopOpacity={isDark ? 0.12 : 0.08} />
-                <Stop offset="100%" stopColor={colors.deep} stopOpacity={0} />
+                {micBloomStops.map((stop) => (
+                  <Stop
+                    key={stop.offset}
+                    offset={stop.offset}
+                    stopColor={stop.color}
+                    stopOpacity={stop.opacity}
+                  />
+                ))}
               </RadialGradient>
             </Defs>
             <Ellipse
@@ -361,9 +373,14 @@ export const InputListeningGlow = React.memo(function InputListeningGlow({
           <Svg width={driftBloomW} height={driftBloomH}>
             <Defs>
               <RadialGradient id={driftBloomGradId} cx="50%" cy="50%" rx="50%" ry="50%">
-                <Stop offset="0%" stopColor={colors.soft} stopOpacity={isDark ? 0.42 : 0.28} />
-                <Stop offset="50%" stopColor={colors.deep} stopOpacity={isDark ? 0.16 : 0.10} />
-                <Stop offset="100%" stopColor={colors.deep} stopOpacity={0} />
+                {driftBloomStops.map((stop) => (
+                  <Stop
+                    key={stop.offset}
+                    offset={stop.offset}
+                    stopColor={stop.color}
+                    stopOpacity={stop.opacity}
+                  />
+                ))}
               </RadialGradient>
             </Defs>
             <Ellipse
@@ -375,6 +392,8 @@ export const InputListeningGlow = React.memo(function InputListeningGlow({
             />
           </Svg>
         </Animated.View>
+        {/* Dither: clipped to the capsule, so it shows no edge of its own. */}
+        <HueGrain isDark={isDark} intensity={0.8} />
       </Animated.View>
 
       {/* Layer 4: Inner Glowing Rim along the capsule contour */}

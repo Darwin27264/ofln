@@ -6,8 +6,12 @@
  *
  * Enter: light blooms from past the top + left edges — staggered blobs, soft
  * fade, and a brief scale settle — so it feels like wash arriving, not a slide.
+ *
+ * The blobs are clipped to the corner, but grain spans the full screen: a grain
+ * layer that stopped at the clip box would draw its own rectangular edge, which
+ * is exactly the artifact it exists to remove.
  */
-import React, { useEffect, useId, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
   Dimensions,
@@ -15,15 +19,16 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import Svg, {
-  Defs,
-  Ellipse,
-  RadialGradient,
-  Stop,
-} from 'react-native-svg';
 import { useTheme } from '../context/ThemeContext';
-import { AMBIENT_GOLD } from './AmbientHue';
+import { useAmbientMotion } from '../context/AmbientMotionContext';
 import { EASING, OVERLAY_MOTION } from '../utils/animationConfig';
+import {
+  HueField,
+  HueGrain,
+  huePalette,
+  type HueBlobExtras,
+  type HueBlobSpec,
+} from './hue';
 
 const { width: W, height: H } = Dimensions.get('window');
 
@@ -36,17 +41,8 @@ const BLEED_FROM_Y = -Math.min(64, H * 0.09);
 const BLOOM_FROM = 0.92;
 const ENTER_EASE = Easing.bezier(0.16, 1, 0.3, 1);
 
-type GlowSpec = {
-  id: string;
-  width: number;
-  height: number;
-  left: number;
-  top: number;
-  color: string;
-  peak: number;
-  dx: number;
-  dy: number;
-  duration: number;
+/** Adds the staggered-entrance fields to the shared blob spec. */
+type EdgeBlob = HueBlobSpec & {
   /** 0–1 fraction of enter progress before this blob starts arriving. */
   stagger: number;
   /** Extra local offset while entering (edge-creep direction). */
@@ -54,26 +50,22 @@ type GlowSpec = {
   enterDy: number;
 };
 
-function palette(isDark: boolean) {
-  return {
-    deep: isDark ? AMBIENT_GOLD.deepDark : AMBIENT_GOLD.deepLight,
-    soft: isDark ? AMBIENT_GOLD.softDark : AMBIENT_GOLD.softLight,
-    fade: isDark ? AMBIENT_GOLD.fadeDark : AMBIENT_GOLD.fadeLight,
-  };
-}
-
-/** Hugs the physical top-left corner + top/left edges of the screen. */
-function buildEdgeGlows(isDark: boolean): GlowSpec[] {
-  const { deep, soft, fade } = palette(isDark);
+/**
+ * Hugs the physical top-left corner + top/left edges of the screen. Three
+ * oversized blobs replace the previous four: with the Gaussian falloff each one
+ * spreads much further, so a fourth only added overlap seams.
+ */
+function buildEdgeBlobs(isDark: boolean): EdgeBlob[] {
+  const { deep, soft, fade } = huePalette('default', isDark);
   return [
     {
       id: 'corner',
-      width: W * 0.48,
-      height: H * 0.22,
-      left: -W * 0.14,
-      top: -H * 0.04,
+      width: W * 0.78,
+      height: H * 0.36,
+      left: -W * 0.29,
+      top: -H * 0.11,
       color: soft,
-      peak: isDark ? 0.32 : 0.2,
+      peak: isDark ? 0.17 : 0.105,
       dx: 14,
       dy: 10,
       duration: 6800,
@@ -83,12 +75,12 @@ function buildEdgeGlows(isDark: boolean): GlowSpec[] {
     },
     {
       id: 'top-edge',
-      width: W * 0.55,
-      height: H * 0.12,
-      left: -W * 0.06,
-      top: -H * 0.05,
+      width: W * 0.88,
+      height: H * 0.2,
+      left: -W * 0.22,
+      top: -H * 0.09,
       color: fade,
-      peak: isDark ? 0.22 : 0.13,
+      peak: isDark ? 0.12 : 0.07,
       dx: 22,
       dy: 6,
       duration: 7600,
@@ -98,12 +90,12 @@ function buildEdgeGlows(isDark: boolean): GlowSpec[] {
     },
     {
       id: 'left-edge',
-      width: W * 0.28,
-      height: H * 0.32,
-      left: -W * 0.16,
-      top: -H * 0.02,
+      width: W * 0.46,
+      height: H * 0.52,
+      left: -W * 0.25,
+      top: -H * 0.08,
       color: deep,
-      peak: isDark ? 0.26 : 0.15,
+      peak: isDark ? 0.14 : 0.085,
       dx: 8,
       dy: 18,
       duration: 8200,
@@ -111,157 +103,7 @@ function buildEdgeGlows(isDark: boolean): GlowSpec[] {
       enterDx: -18,
       enterDy: 8,
     },
-    {
-      id: 'corner-soft',
-      width: W * 0.36,
-      height: H * 0.18,
-      left: -W * 0.1,
-      top: H * 0.01,
-      color: soft,
-      peak: isDark ? 0.14 : 0.08,
-      dx: -10,
-      dy: 12,
-      duration: 9000,
-      stagger: 0.14,
-      enterDx: -6,
-      enterDy: 12,
-    },
   ];
-}
-
-function EdgeGlowBlob({
-  id,
-  width,
-  height,
-  left,
-  top,
-  color,
-  peak,
-  dx,
-  dy,
-  duration,
-  stagger,
-  enterDx,
-  enterDy,
-  enter,
-}: GlowSpec & { enter: Animated.Value }) {
-  const idleTx = useRef(new Animated.Value(0)).current;
-  const idleTy = useRef(new Animated.Value(0)).current;
-  const reactId = useId().replace(/:/g, '');
-  const gradId = `edge-glow-${id}-${reactId}`;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.parallel([
-          Animated.timing(idleTx, {
-            toValue: dx,
-            duration,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(idleTy, {
-            toValue: dy,
-            duration,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.parallel([
-          Animated.timing(idleTx, {
-            toValue: -dx * 0.7,
-            duration: duration * 0.85,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(idleTy, {
-            toValue: -dy * 0.65,
-            duration: duration * 0.85,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.parallel([
-          Animated.timing(idleTx, {
-            toValue: 0,
-            duration: duration * 0.65,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(idleTy, {
-            toValue: 0,
-            duration: duration * 0.65,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ]),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [dx, dy, duration, idleTx, idleTy]);
-
-  // All blobs finish together at enter=1 — stagger only delays the start.
-  const blobOpacity = enter.interpolate({
-    inputRange: [stagger, 1],
-    outputRange: [0, peak],
-    extrapolate: 'clamp',
-  });
-  const localTx = enter.interpolate({
-    inputRange: [stagger, 1],
-    outputRange: [enterDx, 0],
-    extrapolate: 'clamp',
-  });
-  const localTy = enter.interpolate({
-    inputRange: [stagger, 1],
-    outputRange: [enterDy, 0],
-    extrapolate: 'clamp',
-  });
-  const localScale = enter.interpolate({
-    inputRange: [stagger, 1],
-    outputRange: [0.92, 1],
-    extrapolate: 'clamp',
-  });
-
-  const translateX = Animated.add(idleTx, localTx);
-  const translateY = Animated.add(idleTy, localTy);
-
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={{
-        position: 'absolute',
-        left,
-        top,
-        width,
-        height,
-        opacity: blobOpacity,
-        transform: [
-          { translateX },
-          { translateY },
-          { scale: localScale },
-        ],
-      }}
-    >
-      <Svg width={width} height={height}>
-        <Defs>
-          <RadialGradient id={gradId} cx="50%" cy="50%" rx="50%" ry="50%">
-            <Stop offset="0%" stopColor={color} stopOpacity={0.75} />
-            <Stop offset="30%" stopColor={color} stopOpacity={0.34} />
-            <Stop offset="62%" stopColor={color} stopOpacity={0.1} />
-            <Stop offset="100%" stopColor={color} stopOpacity={0} />
-          </RadialGradient>
-        </Defs>
-        <Ellipse
-          cx={width / 2}
-          cy={height / 2}
-          rx={width / 2}
-          ry={height / 2}
-          fill={`url(#${gradId})`}
-        />
-      </Svg>
-    </Animated.View>
-  );
 }
 
 export type EdgeGlowProps = {
@@ -275,11 +117,27 @@ export type EdgeGlowProps = {
  */
 export function EdgeGlow({ active }: EdgeGlowProps) {
   const { isDark } = useTheme();
+  const { ambientMotion } = useAmbientMotion();
   const opacity = useRef(new Animated.Value(0)).current;
   /** 0 = parked past the top-left edges, 1 = settled on-screen. */
   const bleed = useRef(new Animated.Value(0)).current;
   const wasActive = useRef(false);
-  const glows = useMemo(() => buildEdgeGlows(isDark), [isDark]);
+  const blobs = useMemo(() => buildEdgeBlobs(isDark), [isDark]);
+
+  // All blobs finish together at bleed=1 — stagger only delays the start.
+  const extras = useMemo(() => {
+    const map: Record<string, HueBlobExtras> = {};
+    for (const blob of blobs) {
+      const ramp = { inputRange: [blob.stagger, 1], extrapolate: 'clamp' as const };
+      map[blob.id] = {
+        opacity: bleed.interpolate({ ...ramp, outputRange: [0, 1] }),
+        offsetX: bleed.interpolate({ ...ramp, outputRange: [blob.enterDx, 0] }),
+        offsetY: bleed.interpolate({ ...ramp, outputRange: [blob.enterDy, 0] }),
+        scale: bleed.interpolate({ ...ramp, outputRange: [0.92, 1] }),
+      };
+    }
+    return map;
+  }, [blobs, bleed]);
 
   useEffect(() => {
     if (active) {
@@ -350,29 +208,29 @@ export function EdgeGlow({ active }: EdgeGlowProps) {
   });
 
   return (
-    <View pointerEvents="none" style={styles.root}>
+    <Animated.View pointerEvents="none" style={[styles.root, { opacity }]}>
       {/* Clip: wash is revealed as it crosses the screen edges. */}
       <View style={styles.corner} pointerEvents="none">
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            StyleSheet.absoluteFill,
-            {
-              opacity,
-              transform: [
-                { translateX },
-                { translateY },
-                { scale: bloom },
-              ],
-            },
-          ]}
-        >
-          {glows.map((g) => (
-            <EdgeGlowBlob key={g.id} {...g} enter={bleed} />
-          ))}
-        </Animated.View>
+        <HueField
+          blobs={blobs}
+          isDark={isDark}
+          motionEnabled={ambientMotion}
+          extras={extras}
+          // Full-screen grain below; a clipped grain layer would show its edge.
+          grain={false}
+          style={{
+            transform: [{ translateX }, { translateY }, { scale: bloom }],
+          }}
+        />
       </View>
-    </View>
+      {/* Ramps with the wash so the grain does not pop in ahead of the blobs. */}
+      <Animated.View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, { opacity: bleed }]}
+      >
+        <HueGrain isDark={isDark} />
+      </Animated.View>
+    </Animated.View>
   );
 }
 
@@ -388,8 +246,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     left: 0,
-    width: Math.min(W * 0.72, 340),
-    height: Math.min(H * 0.38, 320),
+    width: Math.min(W * 0.86, 400),
+    height: Math.min(H * 0.46, 380),
     overflow: 'hidden',
   },
 });

@@ -462,17 +462,6 @@ export default function StorageScreen({
       ]}
     >
       <Text style={styles.settingsTitle}>Storage</Text>
-      <Text
-        style={{
-          fontFamily: 'Poppins',
-          fontSize: 14,
-          color: theme.colors.textSecondary,
-          marginBottom: 24,
-          lineHeight: 20,
-        }}
-      >
-        Manage models and chats. Export a backup before clearing data.
-      </Text>
 
       <ScrollView
         style={{ flex: 1 }}

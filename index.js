@@ -2,8 +2,10 @@
  * @format
  */
 
+import './src/utils/textEncodingPolyfill';
 import { AppRegistry } from 'react-native';
 import App from './App';
+import { ShareOverlay } from './src/screens/ShareOverlay';
 import { name as appName } from './app.json';
 import BackgroundFetch from 'react-native-background-fetch';
 import { backgroundFetchHeadlessTask } from './src/services/backgroundTaskService';
@@ -11,6 +13,7 @@ import { runTaskById, processDueTasks } from './src/services/taskRunnerService';
 import { syncAllScheduledTasks } from './src/services/nativeTaskScheduler';
 
 AppRegistry.registerComponent(appName, () => App);
+AppRegistry.registerComponent('ShareOverlay', () => ShareOverlay);
 
 // Native Android Headless Task for exact AlarmManager execution and boot reschedule
 const taskRunnerHeadlessHandler = async (taskData) => {

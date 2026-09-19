@@ -3,6 +3,10 @@ import { Animated } from 'react-native';
 import renderer, { act } from 'react-test-renderer';
 import { InputListeningGlow } from '../src/components/InputListeningGlow';
 
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
+);
+
 jest.mock('../src/context/ThemeContext', () => ({
   useTheme: jest.fn(() => ({
     theme: {

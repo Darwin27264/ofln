@@ -1,9 +1,16 @@
 /**
- * Soft edge glow that drifts (lava-lamp feel).
- * Dense overlapping radials so individual discs don't read; gold / fade-yellow.
+ * Soft edge glow that drifts (lava-lamp feel) behind the onboarding guide.
  * Each guide page parks the wash in a different region.
+ *
+ * Composes `HueBlob` directly rather than `HueField` because every blob owns
+ * animated state of its own (its per-page home, plus the bloom/brighten pulse
+ * when the page changes).
+ *
+ * Four oversized blobs replace the eleven this used to stack — one per region.
+ * With a Gaussian falloff each blob covers a whole quadrant, so the extra
+ * "stitching" fillers that used to hide the seams have nothing left to hide.
  */
-import React, { useEffect, useId, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
   Dimensions,
@@ -11,36 +18,17 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import Svg, {
-  Defs,
-  Ellipse,
-  RadialGradient,
-  Stop,
-} from 'react-native-svg';
 import { useTheme } from '../context/ThemeContext';
+import { useAmbientMotion } from '../context/AmbientMotionContext';
 import { EASING } from '../utils/animationConfig';
-import { AMBIENT_GOLD } from './AmbientHue';
+import Svg, { Defs, Ellipse, RadialGradient, Stop } from 'react-native-svg';
+import { HueBlob, HueGrain, huePalette, type HueBlobSpec } from './hue';
 
 const { width: W, height: H } = Dimensions.get('window');
 
 type Region = 'br' | 'bl' | 're' | 'le';
 
-type GlowBase = {
-  id: string;
-  region: Region;
-  /** Extra offset on top of the page-region home */
-  jitterX?: number;
-  jitterY?: number;
-  width: number;
-  height: number;
-  left: number;
-  top: number;
-  color: string;
-  peak: number;
-  dx: number;
-  dy: number;
-  duration: number;
-};
+type LavaBlob = HueBlobSpec & { region: Region };
 
 /** Per-page resting offsets — deliberately far apart. */
 const PAGE_HOMES: Record<number, Record<Region, { x: number; y: number }>> = {
@@ -78,121 +66,56 @@ const PAGE_HOMES: Record<number, Record<Region, { x: number; y: number }>> = {
 
 const PAGE_COUNT = 5;
 
-function homeFor(step: number, region: Region, jitterX = 0, jitterY = 0) {
+/**
+ * Brightness gain at the peak of the page-change pulse. `HueBlob` opacity is a
+ * 0–1 multiplier (values above 1 would just clamp), so headroom comes from
+ * baking `peak * PULSE_GAIN` into the gradient and resting the layer below 1.
+ */
+const PULSE_GAIN = 1.5;
+const REST_WASH = 1 / PULSE_GAIN;
+
+function homeFor(step: number, region: Region) {
   const page = ((step % PAGE_COUNT) + PAGE_COUNT) % PAGE_COUNT;
-  const h = PAGE_HOMES[page][region];
-  return { x: h.x + jitterX, y: h.y + jitterY };
+  return PAGE_HOMES[page][region];
 }
 
-function SoftGlow({
-  id,
-  region,
-  jitterX = 0,
-  jitterY = 0,
-  width,
-  height,
-  left,
-  top,
-  color,
-  peak,
-  dx,
-  dy,
-  duration,
+/**
+ * One region blob that slides to a new home, blooms and brightens when the
+ * guide page changes.
+ */
+function LavaBlobView({
+  blob,
   pulseKey,
-}: GlowBase & { pulseKey: number }) {
-  const idleTx = useRef(new Animated.Value(0)).current;
-  const idleTy = useRef(new Animated.Value(0)).current;
-  const initial = homeFor(pulseKey, region, jitterX, jitterY);
-  const homeTx = useRef(new Animated.Value(initial.x)).current;
-  const homeTy = useRef(new Animated.Value(initial.y)).current;
+  motionEnabled,
+}: {
+  blob: LavaBlob;
+  pulseKey: number;
+  motionEnabled: boolean;
+}) {
+  const { region } = blob;
+  const initial = homeFor(pulseKey, region);
+  const homeX = useRef(new Animated.Value(initial.x)).current;
+  const homeY = useRef(new Animated.Value(initial.y)).current;
   const bloom = useRef(new Animated.Value(1)).current;
-  const wash = useRef(new Animated.Value(peak)).current;
-  const reactId = useId().replace(/:/g, '');
-  const gradId = `lava-${id}-${reactId}`;
+  const wash = useRef(new Animated.Value(REST_WASH)).current;
   const mounted = useRef(false);
 
   useEffect(() => {
-    wash.setValue(peak);
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.parallel([
-          Animated.timing(idleTx, {
-            toValue: dx,
-            duration,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(idleTy, {
-            toValue: dy,
-            duration,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.parallel([
-          Animated.timing(idleTx, {
-            toValue: -dx * 0.75,
-            duration: duration * 0.85,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(idleTy, {
-            toValue: -dy * 0.7,
-            duration: duration * 0.85,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.parallel([
-          Animated.timing(idleTx, {
-            toValue: dx * 0.35,
-            duration: duration * 0.7,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(idleTy, {
-            toValue: -dy * 0.3,
-            duration: duration * 0.7,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.parallel([
-          Animated.timing(idleTx, {
-            toValue: 0,
-            duration: duration * 0.65,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(idleTy, {
-            toValue: 0,
-            duration: duration * 0.65,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ]),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [dx, dy, duration, idleTx, idleTy, peak, wash]);
-
-  useEffect(() => {
-    const next = homeFor(pulseKey, region, jitterX, jitterY);
+    const next = homeFor(pulseKey, region);
     if (!mounted.current) {
       mounted.current = true;
-      homeTx.setValue(next.x);
-      homeTy.setValue(next.y);
+      homeX.setValue(next.x);
+      homeY.setValue(next.y);
       return;
     }
     const anim = Animated.parallel([
-      Animated.timing(homeTx, {
+      Animated.timing(homeX, {
         toValue: next.x,
         duration: 720,
         easing: EASING.EASE_OUT,
         useNativeDriver: true,
       }),
-      Animated.timing(homeTy, {
+      Animated.timing(homeY, {
         toValue: next.y,
         duration: 720,
         easing: EASING.EASE_OUT,
@@ -214,13 +137,13 @@ function SoftGlow({
       ]),
       Animated.sequence([
         Animated.timing(wash, {
-          toValue: Math.min(0.75, peak * 1.55),
+          toValue: 1,
           duration: 300,
           easing: EASING.EASE_OUT,
           useNativeDriver: true,
         }),
         Animated.timing(wash, {
-          toValue: peak,
+          toValue: REST_WASH,
           duration: 800,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
@@ -229,42 +152,18 @@ function SoftGlow({
     ]);
     anim.start();
     return () => anim.stop();
-  }, [pulseKey, region, jitterX, jitterY, homeTx, homeTy, bloom, wash, peak]);
-
-  const translateX = Animated.add(idleTx, homeTx);
-  const translateY = Animated.add(idleTy, homeTy);
+  }, [pulseKey, region, homeX, homeY, bloom, wash]);
 
   return (
-    <Animated.View
-      pointerEvents="none"
-      style={{
-        position: 'absolute',
-        left,
-        top,
-        width,
-        height,
-        opacity: wash,
-        transform: [{ translateX }, { translateY }, { scale: bloom }],
-      }}
-    >
-      <Svg width={width} height={height}>
-        <Defs>
-          <RadialGradient id={gradId} cx="50%" cy="50%" rx="50%" ry="50%">
-            <Stop offset="0%" stopColor={color} stopOpacity={0.7} />
-            <Stop offset="28%" stopColor={color} stopOpacity={0.32} />
-            <Stop offset="58%" stopColor={color} stopOpacity={0.1} />
-            <Stop offset="100%" stopColor={color} stopOpacity={0} />
-          </RadialGradient>
-        </Defs>
-        <Ellipse
-          cx={width / 2}
-          cy={height / 2}
-          rx={width / 2}
-          ry={height / 2}
-          fill={`url(#${gradId})`}
-        />
-      </Svg>
-    </Animated.View>
+    <HueBlob
+      {...blob}
+      peak={blob.peak * PULSE_GAIN}
+      offsetX={homeX}
+      offsetY={homeY}
+      scale={bloom}
+      opacity={wash}
+      motionEnabled={motionEnabled}
+    />
   );
 }
 
@@ -275,187 +174,81 @@ type Props = {
 
 export function LavaLampBackground({ pulseKey = 0 }: Props) {
   const { theme, isDark } = useTheme();
+  const { ambientMotion } = useAmbientMotion();
 
-  const goldDeep = isDark ? AMBIENT_GOLD.deepDark : AMBIENT_GOLD.deepLight;
-  const goldSoft = isDark ? AMBIENT_GOLD.softDark : AMBIENT_GOLD.softLight;
-  const fadeYellow = isDark ? AMBIENT_GOLD.fadeDark : AMBIENT_GOLD.fadeLight;
-
-  const glows: GlowBase[] = useMemo(
-    () => [
-      // Bottom-right cluster
+  const blobs: LavaBlob[] = useMemo(() => {
+    const { deep, soft, fade } = huePalette('default', isDark);
+    return [
       {
         id: 'br',
         region: 'br',
-        width: W * 1.35,
-        height: H * 0.7,
-        left: W * 0.05,
-        top: H * 0.46,
-        color: goldSoft,
-        peak: isDark ? 0.34 : 0.2,
+        width: W * 2.1,
+        height: H * 1.1,
+        left: -W * 0.3,
+        top: H * 0.25,
+        color: soft,
+        peak: isDark ? 0.17 : 0.1,
         dx: -92,
         dy: -108,
         duration: 5200,
       },
       {
-        id: 'br2',
-        region: 'br',
-        jitterX: -W * 0.12,
-        jitterY: -H * 0.06,
-        width: W * 0.85,
-        height: H * 0.48,
-        left: W * 0.22,
-        top: H * 0.52,
-        color: fadeYellow,
-        peak: isDark ? 0.22 : 0.13,
-        dx: 70,
-        dy: -80,
-        duration: 6100,
-      },
-      {
-        id: 'br3',
-        region: 'br',
-        jitterX: W * 0.08,
-        jitterY: H * 0.05,
-        width: W * 0.7,
-        height: H * 0.4,
-        left: W * 0.28,
-        top: H * 0.58,
-        color: goldDeep,
-        peak: isDark ? 0.18 : 0.1,
-        dx: -60,
-        dy: 72,
-        duration: 6800,
-      },
-      // Bottom-left cluster
-      {
         id: 'bl',
         region: 'bl',
-        width: W * 1.1,
-        height: H * 0.58,
-        left: -W * 0.42,
-        top: H * 0.5,
-        color: goldDeep,
-        peak: isDark ? 0.26 : 0.14,
+        width: W * 1.7,
+        height: H * 0.9,
+        left: -W * 0.72,
+        top: H * 0.34,
+        color: deep,
+        peak: isDark ? 0.13 : 0.075,
         dx: 100,
         dy: -72,
         duration: 5600,
       },
       {
-        id: 'bl2',
-        region: 'bl',
-        jitterX: W * 0.1,
-        jitterY: -H * 0.08,
-        width: W * 0.75,
-        height: H * 0.42,
-        left: -W * 0.2,
-        top: H * 0.58,
-        color: goldSoft,
-        peak: isDark ? 0.16 : 0.09,
-        dx: -68,
-        dy: 64,
-        duration: 7200,
-      },
-      // Right edge cluster
-      {
         id: 're',
         region: 're',
-        width: W * 0.95,
-        height: H * 0.55,
-        left: W * 0.4,
-        top: H * 0.1,
-        color: fadeYellow,
-        peak: isDark ? 0.22 : 0.12,
+        width: W * 1.5,
+        height: H * 0.86,
+        left: W * 0.12,
+        top: -H * 0.05,
+        color: fade,
+        peak: isDark ? 0.12 : 0.065,
         dx: -78,
         dy: 110,
         duration: 6000,
       },
       {
-        id: 're2',
-        region: 're',
-        jitterX: -W * 0.08,
-        jitterY: H * 0.1,
-        width: W * 0.65,
-        height: H * 0.4,
-        left: W * 0.52,
-        top: H * 0.22,
-        color: goldSoft,
-        peak: isDark ? 0.14 : 0.08,
-        dx: 55,
-        dy: -90,
-        duration: 7000,
-      },
-      // Left edge cluster
-      {
         id: 'le',
         region: 'le',
-        width: W * 0.85,
-        height: H * 0.5,
-        left: -W * 0.35,
-        top: H * 0.06,
-        color: goldSoft,
-        peak: isDark ? 0.16 : 0.09,
+        width: W * 1.35,
+        height: H * 0.8,
+        left: -W * 0.6,
+        top: -H * 0.08,
+        color: soft,
+        peak: isDark ? 0.09 : 0.05,
         dx: 88,
         dy: 96,
         duration: 6400,
       },
-      {
-        id: 'le2',
-        region: 'le',
-        jitterX: W * 0.1,
-        jitterY: H * 0.08,
-        width: W * 0.6,
-        height: H * 0.38,
-        left: -W * 0.18,
-        top: H * 0.16,
-        color: goldDeep,
-        peak: isDark ? 0.12 : 0.07,
-        dx: -50,
-        dy: -70,
-        duration: 7600,
-      },
-      // Soft mid fillers — stitch clusters together
-      {
-        id: 'mid',
-        region: 'br',
-        jitterX: -W * 0.25,
-        jitterY: -H * 0.2,
-        width: W * 0.9,
-        height: H * 0.5,
-        left: W * 0.05,
-        top: H * 0.32,
-        color: fadeYellow,
-        peak: isDark ? 0.12 : 0.07,
-        dx: 64,
-        dy: 58,
-        duration: 8000,
-      },
-      {
-        id: 'mid2',
-        region: 'bl',
-        jitterX: W * 0.2,
-        jitterY: -H * 0.15,
-        width: W * 0.8,
-        height: H * 0.45,
-        left: W * 0.1,
-        top: H * 0.38,
-        color: goldSoft,
-        peak: isDark ? 0.1 : 0.06,
-        dx: -72,
-        dy: -48,
-        duration: 7400,
-      },
-    ],
-    [goldDeep, goldSoft, fadeYellow, isDark],
-  );
+    ];
+  }, [isDark]);
 
   return (
     <View
       pointerEvents="none"
       style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.background }]}
     >
-      {glows.map((g) => (
-        <SoftGlow key={g.id} {...g} pulseKey={pulseKey} />
+      {blobs.map((blob) => (
+        <LavaBlobView
+          key={blob.id}
+          blob={blob}
+          pulseKey={pulseKey}
+          motionEnabled={ambientMotion}
+        />
       ))}
+      <HueGrain isDark={isDark} />
+      {/* Keeps the guide copy in the upper-middle legible over the wash. */}
       <Svg
         pointerEvents="none"
         width={W}

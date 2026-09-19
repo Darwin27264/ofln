@@ -6,377 +6,149 @@
  * - Cold empty chat: subtle fade-in after load
  * - Keyboard / input focus: slides down and fades out
  * - New empty chat: fades back in (any mode)
+ *
+ * Four oversized blobs rather than the nine it used to stack: with a Gaussian
+ * falloff (see hue/hueTokens.ts) each blob covers far more ground, and fewer
+ * alpha-composited layers means no lens-shaped seams where they overlap.
  */
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
-  Easing,
   StyleSheet,
   View,
 } from 'react-native';
-import Svg, {
-  Defs,
-  Ellipse,
-  RadialGradient,
-  Stop,
-} from 'react-native-svg';
 import { useTheme } from '../context/ThemeContext';
+import { useAmbientMotion } from '../context/AmbientMotionContext';
 import { EASING, OVERLAY_MOTION } from '../utils/animationConfig';
+import {
+  HueField,
+  HueGrain,
+  huePalette,
+  type HueBlobExtras,
+  type HueBlobSpec,
+  type HueMode,
+} from './hue';
 
 const { width: W, height: H } = Dimensions.get('window');
 
 const MODE_CROSSFADE_MS = 480;
 
-/** Shared gold / fade-yellow family (logo sun-amber; matches onboarding lava). */
-export const AMBIENT_GOLD = {
-  // Logo solar flare: burnt amber → saturated gold → pale sun highlight
-  deepDark: '#F5A623',
-  softDark: '#FFC845',
-  fadeDark: '#FFF0B8',
-  deepLight: '#D48E2F',
-  softLight: '#E8B040',
-  fadeLight: '#F5D78A',
-} as const;
+export type AmbientHueMode = HueMode;
 
-/** Cool violet — ephemeral / temporary mode. */
-const AMBIENT_VIOLET = {
-  deepDark: '#8B7CF6',
-  softDark: '#B4A7FB',
-  fadeDark: '#D4CCFD',
-  deepLight: '#6D5BD0',
-  softLight: '#9B8CE8',
-  fadeLight: '#C5BBF0',
-} as const;
-
-/** Soft teal — multi-speaker / perspective mode. */
-const AMBIENT_TEAL = {
-  deepDark: '#2DB8A8',
-  softDark: '#5ED4C6',
-  fadeDark: '#A8EBE3',
-  deepLight: '#1F9A8C',
-  softLight: '#4AB8AA',
-  fadeLight: '#9AD9D1',
-} as const;
-
-export type AmbientHueMode = 'default' | 'temporary' | 'perspective';
-
-function paletteFor(mode: AmbientHueMode, isDark: boolean) {
-  const p =
-    mode === 'temporary'
-      ? AMBIENT_VIOLET
-      : mode === 'perspective'
-        ? AMBIENT_TEAL
-        : AMBIENT_GOLD;
-  return {
-    deep: isDark ? p.deepDark : p.deepLight,
-    soft: isDark ? p.softDark : p.softLight,
-    fade: isDark ? p.fadeDark : p.fadeLight,
-  };
-}
-
-type GlowSpec = {
-  id: string;
-  width: number;
-  height: number;
-  left: number;
-  top: number;
+/** Adds the onboarding-handoff start offset to the shared blob spec. */
+type AmbientBlob = HueBlobSpec & {
+  /** Where the blob sits before it gathers to the middle. */
   edgeLeft: number;
   edgeTop: number;
-  color: string;
-  peak: number;
-  dx: number;
-  dy: number;
-  duration: number;
 };
 
-function buildGlows(
-  mode: AmbientHueMode,
-  isDark: boolean,
-): GlowSpec[] {
-  const { deep, soft, fade } = paletteFor(mode, isDark);
+function buildBlobs(mode: AmbientHueMode, isDark: boolean): AmbientBlob[] {
+  const { deep, soft, fade } = huePalette(mode, isDark);
   return [
     {
       id: 'core',
-      width: W * 0.85,
-      height: H * 0.4,
-      left: W * 0.075,
-      top: H * 0.26,
+      width: W * 1.5,
+      height: H * 0.72,
+      left: -W * 0.25,
+      top: H * 0.1,
       edgeLeft: W * 0.18,
       edgeTop: H * 0.22,
       color: soft,
-      peak: isDark ? 0.36 : 0.22,
-      dx: -52,
-      dy: 40,
-      duration: 6200,
-    },
-    {
-      id: 'core2',
-      width: W * 0.55,
-      height: H * 0.28,
-      left: W * 0.22,
-      top: H * 0.3,
-      edgeLeft: W * 0.1,
-      edgeTop: H * 0.12,
-      color: fade,
-      peak: isDark ? 0.24 : 0.15,
-      dx: 40,
-      dy: -34,
-      duration: 7000,
+      peak: isDark ? 0.19 : 0.115,
+      dx: -46,
+      dy: 34,
+      duration: 6400,
     },
     {
       id: 'left',
-      width: W * 0.62,
-      height: H * 0.34,
-      left: W * -0.06,
-      top: H * 0.3,
+      width: W * 1.15,
+      height: H * 0.58,
+      left: -W * 0.355,
+      top: H * 0.18,
       edgeLeft: -W * 0.28,
       edgeTop: H * 0.16,
       color: deep,
-      peak: isDark ? 0.26 : 0.16,
-      dx: 58,
-      dy: -36,
+      peak: isDark ? 0.13 : 0.08,
+      dx: 52,
+      dy: -32,
       duration: 7400,
     },
     {
-      id: 'left2',
-      width: W * 0.45,
-      height: H * 0.26,
-      left: W * 0.05,
-      top: H * 0.36,
-      edgeLeft: -W * 0.15,
-      edgeTop: H * 0.08,
-      color: soft,
-      peak: isDark ? 0.17 : 0.1,
-      dx: -44,
-      dy: 42,
-      duration: 8200,
-    },
-    {
       id: 'right',
-      width: W * 0.62,
-      height: H * 0.34,
-      left: W * 0.44,
-      top: H * 0.28,
+      width: W * 1.15,
+      height: H * 0.58,
+      left: W * 0.225,
+      top: H * 0.15,
       edgeLeft: W * 0.32,
       edgeTop: H * 0.14,
       color: fade,
-      peak: isDark ? 0.26 : 0.16,
-      dx: -54,
-      dy: 48,
+      peak: isDark ? 0.13 : 0.08,
+      dx: -48,
+      dy: 42,
       duration: 6800,
     },
     {
-      id: 'right2',
-      width: W * 0.42,
-      height: H * 0.24,
-      left: W * 0.48,
-      top: H * 0.34,
-      edgeLeft: W * 0.18,
-      edgeTop: H * 0.06,
-      color: deep,
-      peak: isDark ? 0.17 : 0.1,
-      dx: 38,
-      dy: -40,
-      duration: 7600,
-    },
-    {
       id: 'low',
-      width: W * 0.72,
-      height: H * 0.3,
-      left: W * 0.14,
-      top: H * 0.4,
+      width: W * 1.3,
+      height: H * 0.5,
+      left: -W * 0.15,
+      top: H * 0.35,
       edgeLeft: 0,
       edgeTop: H * 0.28,
       color: soft,
-      peak: isDark ? 0.19 : 0.11,
-      dx: 36,
-      dy: -50,
+      peak: isDark ? 0.1 : 0.06,
+      dx: 32,
+      dy: -44,
       duration: 8000,
     },
-    {
-      id: 'low2',
-      width: W * 0.5,
-      height: H * 0.24,
-      left: W * 0.25,
-      top: H * 0.44,
-      edgeLeft: W * 0.05,
-      edgeTop: H * 0.15,
-      color: fade,
-      peak: isDark ? 0.15 : 0.09,
-      dx: -42,
-      dy: 36,
-      duration: 7200,
-    },
-    {
-      id: 'mid',
-      width: W * 0.7,
-      height: H * 0.32,
-      left: W * 0.15,
-      top: H * 0.33,
-      edgeLeft: W * 0.08,
-      edgeTop: H * 0.1,
-      color: soft,
-      peak: isDark ? 0.15 : 0.09,
-      dx: 48,
-      dy: 28,
-      duration: 8500,
-    },
   ];
-}
-
-function CenterGlow({
-  id,
-  width,
-  height,
-  left,
-  top,
-  edgeLeft,
-  edgeTop,
-  color,
-  peak,
-  dx,
-  dy,
-  duration,
-  focus,
-}: GlowSpec & { focus: Animated.Value }) {
-  const idleTx = useRef(new Animated.Value(0)).current;
-  const idleTy = useRef(new Animated.Value(0)).current;
-  const reactId = useId().replace(/:/g, '');
-  const gradId = `ambient-${id}-${reactId}`;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.parallel([
-          Animated.timing(idleTx, {
-            toValue: dx,
-            duration,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(idleTy, {
-            toValue: dy,
-            duration,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.parallel([
-          Animated.timing(idleTx, {
-            toValue: -dx * 0.75,
-            duration: duration * 0.85,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(idleTy, {
-            toValue: -dy * 0.7,
-            duration: duration * 0.85,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.parallel([
-          Animated.timing(idleTx, {
-            toValue: dx * 0.35,
-            duration: duration * 0.7,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(idleTy, {
-            toValue: -dy * 0.3,
-            duration: duration * 0.7,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.parallel([
-          Animated.timing(idleTx, {
-            toValue: 0,
-            duration: duration * 0.65,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(idleTy, {
-            toValue: 0,
-            duration: duration * 0.65,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ]),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [dx, dy, duration, idleTx, idleTy]);
-
-  const gatherX = focus.interpolate({
-    inputRange: [0, 1],
-    outputRange: [edgeLeft, 0],
-  });
-  const gatherY = focus.interpolate({
-    inputRange: [0, 1],
-    outputRange: [edgeTop, 0],
-  });
-
-  const translateX = Animated.add(idleTx, gatherX);
-  const translateY = Animated.add(idleTy, gatherY);
-
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={{
-        position: 'absolute',
-        left,
-        top,
-        width,
-        height,
-        opacity: peak,
-        transform: [{ translateX }, { translateY }],
-      }}
-    >
-      <Svg width={width} height={height}>
-        <Defs>
-          <RadialGradient id={gradId} cx="50%" cy="50%" rx="50%" ry="50%">
-            <Stop offset="0%" stopColor={color} stopOpacity={0.7} />
-            <Stop offset="28%" stopColor={color} stopOpacity={0.32} />
-            <Stop offset="58%" stopColor={color} stopOpacity={0.1} />
-            <Stop offset="100%" stopColor={color} stopOpacity={0} />
-          </RadialGradient>
-        </Defs>
-        <Ellipse
-          cx={width / 2}
-          cy={height / 2}
-          rx={width / 2}
-          ry={height / 2}
-          fill={`url(#${gradId})`}
-        />
-      </Svg>
-    </Animated.View>
-  );
 }
 
 function GlowLayer({
   mode,
   isDark,
   focus,
+  motionEnabled,
   layerOpacity,
 }: {
   mode: AmbientHueMode;
   isDark: boolean;
   focus: Animated.Value;
+  motionEnabled: boolean;
   layerOpacity: Animated.AnimatedInterpolation<number> | Animated.Value;
 }) {
-  const glows = useMemo(() => buildGlows(mode, isDark), [mode, isDark]);
+  const blobs = useMemo(() => buildBlobs(mode, isDark), [mode, isDark]);
+
+  // Memoized so HueBlob's memo holds — a fresh interpolation each render would
+  // re-render every blob's SVG.
+  const extras = useMemo(() => {
+    const map: Record<string, HueBlobExtras> = {};
+    for (const blob of blobs) {
+      map[blob.id] = {
+        offsetX: focus.interpolate({
+          inputRange: [0, 1],
+          outputRange: [blob.edgeLeft, 0],
+        }),
+        offsetY: focus.interpolate({
+          inputRange: [0, 1],
+          outputRange: [blob.edgeTop, 0],
+        }),
+      };
+    }
+    return map;
+  }, [blobs, focus]);
+
   return (
-    <Animated.View
-      pointerEvents="none"
-      style={[StyleSheet.absoluteFill, { opacity: layerOpacity }]}
-    >
-      {glows.map((g) => (
-        <CenterGlow key={`${mode}-${g.id}`} {...g} focus={focus} />
-      ))}
-    </Animated.View>
+    <HueField
+      blobs={blobs}
+      isDark={isDark}
+      motionEnabled={motionEnabled}
+      extras={extras}
+      // Grain lives on the root so a mode crossfade does not stack two copies.
+      grain={false}
+      style={{ opacity: layerOpacity }}
+    />
   );
 }
 
@@ -400,6 +172,7 @@ export function AmbientHue({
   onHandoffConsumed,
 }: AmbientHueProps) {
   const { isDark } = useTheme();
+  const { ambientMotion } = useAmbientMotion();
   const opacity = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(0)).current;
   const focus = useRef(new Animated.Value(handoff ? 0 : 1)).current;
@@ -587,12 +360,14 @@ export function AmbientHue({
             mode={fromMode}
             isDark={isDark}
             focus={focus}
+            motionEnabled={ambientMotion}
             layerOpacity={outgoingOpacity}
           />
           <GlowLayer
             mode={toMode}
             isDark={isDark}
             focus={focus}
+            motionEnabled={ambientMotion}
             layerOpacity={cross}
           />
         </View>
@@ -601,9 +376,11 @@ export function AmbientHue({
           mode={toMode}
           isDark={isDark}
           focus={focus}
+          motionEnabled={ambientMotion}
           layerOpacity={steady}
         />
       )}
+      <HueGrain isDark={isDark} />
     </Animated.View>
   );
 }

@@ -241,9 +241,23 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   // Pill swipe animation state (declared before callbacks that close over them).
   const pillTranslateX = useRef(new Animated.Value(0)).current;
   const pillOpacity = useRef(new Animated.Value(1)).current;
+  const pillScale = useRef(new Animated.Value(1)).current;
   const isAnimating = useRef(false);
   const currentAnimation = useRef<Animated.CompositeAnimation | null>(null);
   const isMountedRef = useRef(true);
+
+  const pillSpring = useMemo(
+    () => ({
+      stiffness: 420,
+      damping: 28,
+      mass: 0.72,
+      overshootClamping: false,
+      restDisplacementThreshold: 0.35,
+      restSpeedThreshold: 0.35,
+      useNativeDriver: true as const,
+    }),
+    [],
+  );
 
   const stopCurrentAnimation = useCallback(() => {
     if (currentAnimation.current) {
@@ -271,19 +285,19 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
     isAnimating.current = true;
     runPillAnimation(
       Animated.parallel([
-        Animated.timing(pillTranslateX, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pillOpacity, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
+        Animated.spring(pillTranslateX, { ...pillSpring, toValue: 0 }),
+        Animated.spring(pillOpacity, { ...pillSpring, toValue: 1, stiffness: 380 }),
+        Animated.spring(pillScale, { ...pillSpring, toValue: 1, stiffness: 520 }),
       ]),
     );
-  }, [pillOpacity, pillTranslateX, runPillAnimation, stopCurrentAnimation]);
+  }, [
+    pillOpacity,
+    pillScale,
+    pillSpring,
+    pillTranslateX,
+    runPillAnimation,
+    stopCurrentAnimation,
+  ]);
 
   /** Animate to an adjacent model. direction -1 = previous, +1 = next. */
   const navigateModelByOffset = useCallback(
@@ -310,19 +324,29 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
       userTouchedRef.current = true;
 
       // Exit toward the swipe direction, then enter from the opposite side.
-      const exitX = direction < 0 ? SCREEN_WIDTH * 0.2 : -SCREEN_WIDTH * 0.2;
+      const exitX = direction < 0 ? SCREEN_WIDTH * 0.22 : -SCREEN_WIDTH * 0.22;
       const enterX = -exitX;
 
+      pillScale.setValue(0.96);
+
       const outAnimation = Animated.parallel([
-        Animated.timing(pillTranslateX, {
+        Animated.spring(pillTranslateX, {
+          ...pillSpring,
           toValue: exitX,
-          duration: 120,
-          useNativeDriver: true,
+          stiffness: 380,
+          overshootClamping: true,
         }),
         Animated.timing(pillOpacity, {
-          toValue: 0.3,
-          duration: 120,
+          toValue: 0.25,
+          duration: 100,
+          easing: EASING.ACCELERATE,
           useNativeDriver: true,
+        }),
+        Animated.spring(pillScale, {
+          ...pillSpring,
+          toValue: 0.92,
+          stiffness: 480,
+          overshootClamping: true,
         }),
       ]);
 
@@ -342,23 +366,27 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
         if (nextModel && nextModel !== selectedModel) {
           setSelectedModel(nextModel);
           pillTranslateX.setValue(enterX);
+          pillOpacity.setValue(0.25);
+          pillScale.setValue(0.94);
           runPillAnimation(
             Animated.parallel([
-              Animated.timing(pillTranslateX, {
-                toValue: 0,
-                duration: 220,
-                useNativeDriver: true,
-              }),
-              Animated.timing(pillOpacity, {
+              Animated.spring(pillTranslateX, { ...pillSpring, toValue: 0 }),
+              Animated.spring(pillOpacity, {
+                ...pillSpring,
                 toValue: 1,
-                duration: 220,
-                useNativeDriver: true,
+                stiffness: 360,
+              }),
+              Animated.spring(pillScale, {
+                ...pillSpring,
+                toValue: 1,
+                stiffness: 520,
               }),
             ]),
           );
         } else {
           pillTranslateX.setValue(0);
           pillOpacity.setValue(1);
+          pillScale.setValue(1);
           isAnimating.current = false;
           currentAnimation.current = null;
         }
@@ -369,6 +397,8 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
       hasNextModel,
       hasPreviousModel,
       pillOpacity,
+      pillScale,
+      pillSpring,
       pillTranslateX,
       runPillAnimation,
       selectedModel,
@@ -404,6 +434,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           if (isAnimating.current) return;
           pillTranslateX.setValue(0);
           pillOpacity.setValue(1);
+          pillScale.setValue(1);
         },
         onPanResponderMove: (_, gestureState) => {
           if (isAnimating.current) return;
@@ -411,8 +442,9 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           const maxDrag = 60;
           const dragAmount = Math.max(-maxDrag, Math.min(maxDrag, gestureState.dx * resistance));
           pillTranslateX.setValue(dragAmount);
-          const opacityChange = 1 - (Math.abs(dragAmount) / maxDrag) * 0.1;
-          pillOpacity.setValue(Math.max(0.9, opacityChange));
+          const progress = Math.abs(dragAmount) / maxDrag;
+          pillOpacity.setValue(Math.max(0.88, 1 - progress * 0.12));
+          pillScale.setValue(Math.max(0.96, 1 - progress * 0.04));
         },
         onPanResponderRelease: (_, gestureState) => {
           if (isAnimating.current || sortedModels.length <= 1 || !isMountedRef.current) {
@@ -1027,7 +1059,10 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
               stylesLocalWithTheme.modelChip,
               {
                 borderColor: theme.colors.border,
-                transform: [{ translateX: pillTranslateX }],
+                transform: [
+                  { translateX: pillTranslateX },
+                  { scale: pillScale },
+                ],
                 opacity: pillOpacity,
               },
             ]}

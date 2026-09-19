@@ -59,4 +59,50 @@ describe('ttsService', () => {
     expect(result).toEqual({ ok: false, reason: 'empty' });
     expect(speak).not.toHaveBeenCalled();
   });
+
+  it('does not call native stop when nothing is speaking', async () => {
+    (NativeModules as any).TextToSpeech = { speak, stop, getInitStatus };
+    await stopSpeaking();
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it('still stops and speaks when an engine is present', async () => {
+    (NativeModules as any).TextToSpeech = {
+      speak,
+      stop,
+      getInitStatus,
+      addListener: jest.fn(),
+      removeListeners: jest.fn(),
+    };
+    const first = await speakText('Hello there');
+    expect(first).toEqual(expect.objectContaining({ ok: true }));
+    expect(speak).toHaveBeenCalledTimes(1);
+    // Idle stop is skipped; interrupting an active utterance still hits native stop.
+    await stopSpeaking();
+    expect(stop).toHaveBeenCalledTimes(1);
+
+    const second = await speakText('Second utterance');
+    expect(second.ok).toBe(true);
+    expect(speak).toHaveBeenCalledTimes(2);
+    expect(getInitStatus).toHaveBeenCalled();
+    expect(isTtsAvailable()).toBe(true);
+  });
+
+  it('treats missing OS TTS engine as unavailable', async () => {
+    const noEngine = new Error('No TTS engine installed');
+    getInitStatus.mockRejectedValueOnce(noEngine);
+    (NativeModules as any).TextToSpeech = {
+      speak,
+      stop,
+      getInitStatus,
+      addListener: jest.fn(),
+      removeListeners: jest.fn(),
+    };
+    const result = await speakText('Hello');
+    expect(result).toEqual({ ok: false, reason: 'unavailable' });
+    expect(speak).not.toHaveBeenCalled();
+    expect(isTtsAvailable()).toBe(false);
+    await stopSpeaking();
+    expect(stop).not.toHaveBeenCalled();
+  });
 });

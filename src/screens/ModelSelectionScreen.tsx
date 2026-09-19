@@ -84,6 +84,11 @@ import {
   type StarterShelfTabId,
 } from "../services/starterModels";
 import { formatDownloadProgressLine } from "../utils/downloadProgressFormat";
+import {
+  chromeFontForRole,
+  DEFAULT_CHROME_SCALE,
+  type ChromeScale,
+} from "../utils/chromeScale";
 
 const ADD_MODEL_TILE_HEIGHT = 96;
 const ADD_MODEL_TILE_GAP = SETTINGS_BLOCK.gap;
@@ -115,6 +120,8 @@ interface ModelSelectionScreenProps {
   selectedGGUF: string | null;
   setSelectedGGUF: (gguf: string | null) => void;
   onOpenModelSettings?: (model: ModelInfo) => void;
+  /** Button / tile label density from Display preferences. */
+  chromeScale?: ChromeScale;
   /** When set, opens Start here on this tab (consumed once on mount). */
   initialStarterShelfTab?: StarterShelfTabId;
   onStarterShelfTabConsumed?: () => void;
@@ -151,7 +158,9 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
   const iconCircleBg = theme.colors.card;
+  const density = props.chromeScale ?? DEFAULT_CHROME_SCALE;
 
+  const addModelLabelSize = chromeFontForRole("modelTile", density);
   const renderAddModelTile = (
     label: string,
     icon: string,
@@ -162,7 +171,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       style={touchStyle}
       onPress={onPress}
       activeOpacity={0.85}
-      accessibilityLabel={label}
+      accessibilityLabel={label.replace(/\n/g, " ")}
     >
       <FrostedPanel
         style={{
@@ -175,8 +184,20 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         <View style={[styles.blockIconCircle, { backgroundColor: iconCircleBg }]}>
           <Ionicons name={icon as any} size={18} color={theme.colors.text} />
         </View>
-        <View style={styles.blockTextContainer}>
-          <Text style={styles.blockText}>{label}</Text>
+        {/* Full-width label (settings tiles reserve right:40 for info icons). */}
+        <View style={[styles.blockTextContainer, { right: 15 }]}>
+          <Text
+            style={[
+              styles.blockText,
+              {
+                fontSize: addModelLabelSize,
+                lineHeight: Math.round(addModelLabelSize * 1.2),
+              },
+            ]}
+            numberOfLines={2}
+          >
+            {label}
+          </Text>
         </View>
       </FrostedPanel>
     </TouchableOpacity>
@@ -261,8 +282,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const starterShelfFrost = useMemo(() => {
     const dark = theme.mode === "dark";
     return {
-      chrome: dark ? "rgba(0, 0, 0, 0.32)" : "rgba(15, 23, 42, 0.06)",
-      rowBorder: dark ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.08)",
+      rowBorder: dark ? "rgba(255, 255, 255, 0.12)" : "rgba(15, 23, 42, 0.1)",
     };
   }, [theme.mode]);
 
@@ -272,9 +292,9 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       padding: 4,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: starterShelfFrost.rowBorder,
-      backgroundColor: starterShelfFrost.chrome,
+      backgroundColor: "transparent" as const,
     }),
-    [starterShelfFrost.rowBorder, starterShelfFrost.chrome],
+    [starterShelfFrost.rowBorder],
   );
 
   const starterShelfChromeInner = useMemo(
@@ -283,16 +303,6 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       borderRadius: 8,
       alignItems: "center" as const,
       justifyContent: "center" as const,
-    }),
-    [],
-  );
-
-  const starterShelfChromeLabel = useMemo(
-    () => ({
-      fontSize: 14,
-      lineHeight: 20,
-      fontWeight: "600" as const,
-      fontFamily: "Poppins",
     }),
     [],
   );
@@ -1959,7 +1969,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
               { marginBottom: 12 },
             ]}
             chromeInner={starterShelfChromeInner}
-            labelStyle={starterShelfChromeLabel}
+            chromeScale={density}
             activeLabelColor={theme.colors.primaryText}
             inactiveLabelColor={theme.colors.text}
             activePillColor={theme.colors.primary}
@@ -2012,7 +2022,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
             }}
           >
             {renderAddModelTile(
-              "HuggingFace",
+              "Hugging\nFace",
               "cloud-download-outline",
               openHFPanel,
               { flex: 1, marginRight: ADD_MODEL_TILE_GUTTER },

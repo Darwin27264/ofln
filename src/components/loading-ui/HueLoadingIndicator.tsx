@@ -7,8 +7,12 @@
  * - Continuous, left-to-right harmonic breathing motion in an endless seamless loop
  * - Dual phased hue blooms that sweep gracefully from left to right
  * - Zero animation jumps: seamless boundary wrap with zero-opacity handoff
- * - Soft polynomial falloff radial gradients behind native frosted glass
+ * - Shared Gaussian falloff radial gradients (hue/hueTokens.ts) behind native
+ *   frosted glass
  * - 100% GPU-accelerated (useNativeDriver: true)
+ *
+ * Not gated by the Ambient motion preference: this is response progress, not
+ * idle ambience, and it is the only signal that generation is still running.
  */
 
 import React, { useEffect, useId, useMemo, useRef } from 'react';
@@ -28,9 +32,9 @@ import Svg, {
 } from 'react-native-svg';
 import { useTheme } from '../../context/ThemeContext';
 import { FrostedGlass, FROSTED_GLASS } from '../FrostedGlass';
-import { AMBIENT_GOLD } from '../AmbientHue';
+import { hueStops, huePalette, type HueMode } from '../hue';
 
-export type HueMode = 'default' | 'temporary' | 'perspective';
+export type { HueMode };
 
 export type HueLoadingIndicatorProps = {
   /** Capsule width in dp (default 56). */
@@ -44,30 +48,6 @@ export type HueLoadingIndicatorProps = {
   style?: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
 };
-
-// Palettes matching AmbientHue and EdgeGlow
-const PALETTES = {
-  default: {
-    dark: {
-      deep: AMBIENT_GOLD.deepDark,
-      soft: AMBIENT_GOLD.softDark,
-      fade: AMBIENT_GOLD.fadeDark,
-    },
-    light: {
-      deep: AMBIENT_GOLD.deepLight,
-      soft: AMBIENT_GOLD.softLight,
-      fade: AMBIENT_GOLD.fadeLight,
-    },
-  },
-  temporary: {
-    dark: { deep: '#8B7CF6', soft: '#B4A7FB', fade: '#D4CCFD' },
-    light: { deep: '#6D5BD0', soft: '#9B8CE8', fade: '#C5BBF0' },
-  },
-  perspective: {
-    dark: { deep: '#2DB8A8', soft: '#5ED4C6', fade: '#A8EBE3' },
-    light: { deep: '#1F9A8C', soft: '#4AB8AA', fade: '#9AD9D1' },
-  },
-} as const;
 
 /**
  * Computes seamless left-to-right wave keyframes with zero boundary jumps.
@@ -167,8 +147,7 @@ export const HueLoadingIndicator: React.FC<HueLoadingIndicatorProps> = React.mem
     return () => loopAnim.stop();
   }, [loopProgress]);
 
-  const scheme = isDark ? 'dark' : 'light';
-  const palette = PALETTES[mode] ? PALETTES[mode][scheme] : PALETTES.default[scheme];
+  const palette = huePalette(mode, isDark);
   const deepColor = color || palette.deep;
   const softColor = color || palette.soft;
   const fadeColor = color || palette.fade;
@@ -269,10 +248,14 @@ export const HueLoadingIndicator: React.FC<HueLoadingIndicatorProps> = React.mem
           <Svg width={svgW} height={svgH}>
             <Defs>
               <RadialGradient id={gradIdC} cx="50%" cy="50%" rx="36%" ry="42%">
-                <Stop offset="0%" stopColor={fadeColor} stopOpacity={0.65} />
-                <Stop offset="45%" stopColor={fadeColor} stopOpacity={0.25} />
-                <Stop offset="85%" stopColor={fadeColor} stopOpacity={0.04} />
-                <Stop offset="100%" stopColor={fadeColor} stopOpacity={0} />
+                {hueStops(0.65).map((stop) => (
+                  <Stop
+                    key={stop.offset}
+                    offset={stop.offset}
+                    stopColor={fadeColor}
+                    stopOpacity={stop.opacity}
+                  />
+                ))}
               </RadialGradient>
             </Defs>
             <Ellipse
@@ -302,11 +285,14 @@ export const HueLoadingIndicator: React.FC<HueLoadingIndicatorProps> = React.mem
           <Svg width={svgW} height={svgH}>
             <Defs>
               <RadialGradient id={gradIdA} cx="50%" cy="50%" rx="46%" ry="48%">
-                <Stop offset="0%" stopColor={softColor} stopOpacity={0.92} />
-                <Stop offset="26%" stopColor={softColor} stopOpacity={0.58} />
-                <Stop offset="58%" stopColor={softColor} stopOpacity={0.20} />
-                <Stop offset="84%" stopColor={softColor} stopOpacity={0.04} />
-                <Stop offset="100%" stopColor={softColor} stopOpacity={0} />
+                {hueStops(0.92).map((stop) => (
+                  <Stop
+                    key={stop.offset}
+                    offset={stop.offset}
+                    stopColor={softColor}
+                    stopOpacity={stop.opacity}
+                  />
+                ))}
               </RadialGradient>
             </Defs>
             <Ellipse
@@ -336,10 +322,14 @@ export const HueLoadingIndicator: React.FC<HueLoadingIndicatorProps> = React.mem
           <Svg width={svgW} height={svgH}>
             <Defs>
               <RadialGradient id={gradIdB} cx="50%" cy="50%" rx="48%" ry="48%">
-                <Stop offset="0%" stopColor={deepColor} stopOpacity={0.84} />
-                <Stop offset="30%" stopColor={deepColor} stopOpacity={0.48} />
-                <Stop offset="62%" stopColor={deepColor} stopOpacity={0.16} />
-                <Stop offset="100%" stopColor={deepColor} stopOpacity={0} />
+                {hueStops(0.84).map((stop) => (
+                  <Stop
+                    key={stop.offset}
+                    offset={stop.offset}
+                    stopColor={deepColor}
+                    stopOpacity={stop.opacity}
+                  />
+                ))}
               </RadialGradient>
             </Defs>
             <Ellipse

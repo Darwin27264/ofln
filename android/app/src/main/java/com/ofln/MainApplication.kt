@@ -22,6 +22,7 @@ class MainApplication : Application(), ReactApplication {
               // add(MyReactNativePackage())
               add(SystemBarsPackage())
               add(ThermalStatusPackage())
+              add(ShareReceiverPackage())
               add(com.ofln.tasks.TaskPackage())
             }
 

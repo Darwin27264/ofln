@@ -81,13 +81,14 @@ import { showAlert } from "../components/CustomAlert";
 import { BottomSheet } from "../components/BottomSheet";
 import { SegmentedTabBar } from "../components/SegmentedTabBar";
 import { FrostedGlass } from "../components/FrostedGlass";
+import type { ChromeScale } from "../utils/chromeScale";
 import { AmbientHue } from "../components/AmbientHue";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { floatingBackBottom } from "../utils/layoutInsets";
 import { useKeyboardPadding } from "../hooks/useKeyboardPadding";
 import { Persona, getPersonasEnsured, updatePersonaLastUsed } from "../services/personaService";
 import { PersonaAvatar } from "../components/PersonaAvatar";
-import { ANIMATION_CONFIG, EASING, ANIMATION_DURATIONS, OVERLAY_MOTION } from "../utils/animationConfig";
+import { ANIMATION_CONFIG, EASING, ANIMATION_DURATIONS, HISTORY_PANEL_SPRING, OVERLAY_MOTION } from "../utils/animationConfig";
 import { extractTextFromImage } from "../services/ocrService";
 import {
   extractTextFromAttachment,
@@ -234,6 +235,7 @@ interface Props {
   onGoToModelSelection: () => void;
   assistantDisplayMode: "bubble" | "direct";
   chatFontSize: number;
+  chromeScale: ChromeScale;
   onOpenSettings: () => void;
   selectedGGUF: string | null;
   setSelectedGGUF: (gguf: string | null) => void;
@@ -276,6 +278,7 @@ export default function ConversationScreen({
   onGoToModelSelection,
   assistantDisplayMode,
   chatFontSize,
+  chromeScale,
   onOpenSettings,
   selectedGGUF,
   setSelectedGGUF,
@@ -305,7 +308,7 @@ export default function ConversationScreen({
     return {
       chrome: dark ? 'rgba(0, 0, 0, 0.32)' : 'rgba(15, 23, 42, 0.06)',
       row: dark ? 'rgba(0, 0, 0, 0.38)' : 'rgba(15, 23, 42, 0.07)',
-      rowBorder: dark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.08)',
+      rowBorder: dark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.1)',
       outline: dark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.1)',
     };
   }, [theme.mode]);
@@ -320,21 +323,23 @@ export default function ConversationScreen({
     }),
     [selectorFrost.rowBorder, selectorFrost.chrome],
   );
+  /** Tab bar only — frost is drawn inside SegmentedTabBar. */
+  const selectorTabChromeOuter = useMemo(
+    () => ({
+      borderRadius: 12,
+      padding: 4,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: selectorFrost.rowBorder,
+      backgroundColor: 'transparent' as const,
+    }),
+    [selectorFrost.rowBorder],
+  );
   const selectorChromeInner = useMemo(
     () => ({
       paddingVertical: 10,
       borderRadius: 8,
       alignItems: "center" as const,
       justifyContent: "center" as const,
-    }),
-    [],
-  );
-  const selectorChromeLabel = useMemo(
-    () => ({
-      fontSize: 16,
-      lineHeight: 22,
-      fontWeight: "600" as const,
-      fontFamily: "Poppins",
     }),
     [],
   );
@@ -644,13 +649,30 @@ export default function ConversationScreen({
   const screenWidth = Dimensions.get('window').width;
   const panelWidth = screenWidth;
   const panelAnim = useRef(new Animated.Value(-panelWidth)).current;
-  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  /** Dim is read off the slide itself, so it can never lead or lag the panel. */
+  const backdropOpacity = useMemo(
+    () =>
+      panelAnim.interpolate({
+        inputRange: [-panelWidth, 0],
+        outputRange: [0, 1],
+        extrapolate: 'clamp',
+      }),
+    [panelAnim, panelWidth],
+  );
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   /** Shell/system-bar frost — drops at close *start* so it crossfades with the slide. */
   const [historyChromeOpen, setHistoryChromeOpen] = useState(false);
+  /** While translating — HistoryDrawer promotes a GPU snapshot (BlurView stutter fix). */
+  const [isPanelAnimating, setIsPanelAnimating] = useState(false);
   const panelAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const panelWantOpenRef = useRef(false);
   const panelCloseCallbacksRef = useRef<Array<() => void>>([]);
+  const isPanelAnimatingRef = useRef(false);
+  const chatHistoryRef = useRef<ChatConversation[]>([]);
+  /** History loaded while the panel was still sliding — apply after settle. */
+  const pendingHistoryRef = useRef<ChatConversation[] | null>(null);
+  /** Drops stale prefetch/open races so an older getAllChats can’t clobber a newer one. */
+  const historyLoadGenRef = useRef(0);
 
   useEffect(() => {
     if (!isPanelOpen && isMultiselectMode) {
@@ -770,9 +792,30 @@ export default function ConversationScreen({
     };
   }, [selectedGGUF]);
 
-  // Initialize chat history service
+  // Initialize + prefetch history so the drawer has cards ready before first open.
   useEffect(() => {
-    chatHistoryService.initialize();
+    let cancelled = false;
+    const gen = ++historyLoadGenRef.current;
+    (async () => {
+      await chatHistoryService.initialize();
+      if (cancelled || gen !== historyLoadGenRef.current) return;
+      try {
+        const chats = await chatHistoryService.getAllChats();
+        if (cancelled || gen !== historyLoadGenRef.current) return;
+        const withMeta = await attachPerspectiveMetaToChats(chats);
+        if (cancelled || gen !== historyLoadGenRef.current) return;
+        if (isPanelAnimatingRef.current && chatHistoryRef.current.length > 0) {
+          pendingHistoryRef.current = withMeta as ChatConversation[];
+          return;
+        }
+        setChatHistory(withMeta as ChatConversation[]);
+      } catch (error) {
+        console.error('Error loading chat history:', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // If provider still has a live model but UI selection was wiped (e.g. remount),
@@ -858,39 +901,63 @@ export default function ConversationScreen({
     });
   }, [hasStartedChat, selectedGGUF, contextRingOpacity]);
 
-  // Load chat history when the drawer opens or the active chat id changes.
+  // Keep the last snapshot on close so reopen doesn’t remount mid-slide.
   useEffect(() => {
+    chatHistoryRef.current = chatHistory;
+  }, [chatHistory]);
+
+  useEffect(() => {
+    if (!isPanelOpen) return;
+
     let isMounted = true;
-    
+    const gen = ++historyLoadGenRef.current;
+
+    const applyHistory = (chats: ChatConversation[]) => {
+      if (gen !== historyLoadGenRef.current) return;
+      // Hold updates only when cards are already on screen — first paint can
+      // land during the off-screen 2-frame wait so the slide includes content.
+      if (isPanelAnimatingRef.current && chatHistoryRef.current.length > 0) {
+        pendingHistoryRef.current = chats;
+        return;
+      }
+      pendingHistoryRef.current = null;
+      setChatHistory(chats);
+    };
+
     const loadChatHistory = async () => {
-      if (isPanelOpen) {
-        // Load immediately without delay for instant responsiveness
-        setIsLoadingHistory(true);
-        try {
-          const chats = await chatHistoryService.getAllChats();
-          const withMeta = await attachPerspectiveMetaToChats(chats);
-          if (isMounted) {
-            setChatHistory(withMeta as ChatConversation[]);
-          }
-        } catch (error) {
-          console.error('Error loading chat history:', error);
-        } finally {
-          if (isMounted) {
-            setIsLoadingHistory(false);
-          }
+      const showSpinner = chatHistoryRef.current.length === 0;
+      if (showSpinner) setIsLoadingHistory(true);
+      try {
+        const chats = await chatHistoryService.getAllChats();
+        if (!isMounted || gen !== historyLoadGenRef.current) return;
+        // Paint titles immediately; perspective badges can follow a tick later.
+        applyHistory(chats);
+        const withMeta = await attachPerspectiveMetaToChats(chats);
+        if (isMounted && gen === historyLoadGenRef.current) {
+          applyHistory(withMeta as ChatConversation[]);
         }
-      } else {
-        // Clear history when panel closes to prevent stale data
-        setChatHistory([]);
+      } catch (error) {
+        console.error('Error loading chat history:', error);
+      } finally {
+        if (isMounted) {
+          setIsLoadingHistory(false);
+        }
       }
     };
-    
+
     loadChatHistory();
-    
+
     return () => {
       isMounted = false;
     };
   }, [isPanelOpen, currentChatId]);
+
+  const flushPendingHistory = useCallback(() => {
+    const pending = pendingHistoryRef.current;
+    if (!pending) return;
+    pendingHistoryRef.current = null;
+    setChatHistory(pending);
+  }, []);
 
   // Refresh open drawer after a turn settles (title/preview), without re-saving.
   useEffect(() => {
@@ -900,7 +967,13 @@ export default function ConversationScreen({
     const timer = setTimeout(() => {
       chatHistoryService
         .getAllChats()
-        .then(setChatHistory)
+        .then((chats) => {
+          if (isPanelAnimatingRef.current) {
+            pendingHistoryRef.current = chats;
+            return;
+          }
+          setChatHistory(chats);
+        })
         .catch((error) => {
           console.error('Error refreshing chat history:', error);
         });
@@ -957,73 +1030,79 @@ export default function ConversationScreen({
     const opening = !panelWantOpenRef.current;
     panelWantOpenRef.current = opening;
 
+    /** Same spring both ways — snappy, no bounce. */
+    const panelSpring = (toValue: number) =>
+      Animated.spring(panelAnim, {
+        toValue,
+        useNativeDriver: true,
+        ...HISTORY_PANEL_SPRING,
+      });
+
     if (opening) {
       panelCloseCallbacksRef.current = [];
+      isPanelAnimatingRef.current = true;
+      setIsPanelAnimating(true);
       setIsPanelOpen(true);
       setHistoryChromeOpen(true);
-      const anim = Animated.parallel([
-        Animated.spring(panelAnim, {
-          toValue: 0,
-          useNativeDriver: true,
-          tension: 100,
-          friction: 14,
-          overshootClamping: true,
-        }),
-        Animated.timing(backdropOpacity, {
-          toValue: 1,
-          duration: 160,
-          easing: EASING.DECELERATE,
-          useNativeDriver: true,
-        }),
-      ]);
-      panelAnimationRef.current = anim;
-      anim.start(({ finished }) => {
-        if (!finished || !panelWantOpenRef.current) return;
-        panelAnim.setValue(0);
-        backdropOpacity.setValue(1);
-        panelAnimationRef.current = null;
+
+      // Wait two frames so the first cards and the hardware-texture promotion
+      // commit before the translate starts — layout work mid-slide shows up as stutter.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!panelWantOpenRef.current) return;
+          const anim = panelSpring(0);
+          panelAnimationRef.current = anim;
+          anim.start(({ finished }) => {
+            if (!finished || !panelWantOpenRef.current) return;
+            panelAnim.setValue(0);
+            panelAnimationRef.current = null;
+            isPanelAnimatingRef.current = false;
+            setIsPanelAnimating(false);
+            flushPendingHistory();
+          });
+        });
       });
       return;
     }
 
     // Drop shell frost with the slide — not after it — so close feels one beat.
     setHistoryChromeOpen(false);
+    isPanelAnimatingRef.current = true;
+    setIsPanelAnimating(true);
 
-    const anim = Animated.parallel([
-      Animated.timing(panelAnim, {
-        toValue: -panelWidth,
-        duration: ANIMATION_DURATIONS.PAGE,
-        // Accelerate off-screen — ease-out on exit crawls at the end and fights BlurView.
-        easing: EASING.ACCELERATE,
-        useNativeDriver: true,
-      }),
-      Animated.timing(backdropOpacity, {
-        toValue: 0,
-        duration: ANIMATION_DURATIONS.PAGE,
-        easing: EASING.ACCELERATE,
-        useNativeDriver: true,
-      }),
-    ]);
-    panelAnimationRef.current = anim;
-    anim.start(({ finished }) => {
-      if (!finished || panelWantOpenRef.current) return;
-      panelAnim.setValue(-panelWidth);
-      backdropOpacity.setValue(0);
-      panelAnimationRef.current = null;
-      setIsPanelOpen(false);
-      setHistorySearchQuery('');
-      if (isMultiselectMode) exitMultiselectMode();
-      const pending = panelCloseCallbacksRef.current;
-      panelCloseCallbacksRef.current = [];
-      pending.forEach((cb) => {
-        try {
-          cb();
-        } catch (e) {
-          console.error('History panel close callback failed:', e);
-        }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (panelWantOpenRef.current) return;
+        const anim = panelSpring(-panelWidth);
+        panelAnimationRef.current = anim;
+        anim.start(({ finished }) => {
+          if (!finished || panelWantOpenRef.current) return;
+          panelAnim.setValue(-panelWidth);
+          panelAnimationRef.current = null;
+          isPanelAnimatingRef.current = false;
+          setIsPanelAnimating(false);
+          setIsPanelOpen(false);
+          setHistorySearchQuery('');
+          if (isMultiselectMode) exitMultiselectMode();
+          const pending = panelCloseCallbacksRef.current;
+          panelCloseCallbacksRef.current = [];
+          pending.forEach((cb) => {
+            try {
+              cb();
+            } catch (e) {
+              console.error('History panel close callback failed:', e);
+            }
+          });
+        });
       });
     });
-  }, [panelAnim, panelWidth, backdropOpacity, isMultiselectMode, exitMultiselectMode]);
+  }, [
+    panelAnim,
+    panelWidth,
+    isMultiselectMode,
+    exitMultiselectMode,
+    flushPendingHistory,
+  ]);
 
   /** Close the drawer, then run work so BlurView isn’t recompositing a changing underlay mid-slide. */
   const closePanelThen = useCallback(
@@ -2974,6 +3053,7 @@ export default function ConversationScreen({
 
         <HistoryDrawer
           isPanelOpen={isPanelOpen}
+          isPanelAnimating={isPanelAnimating}
           panelWidth={panelWidth}
           panelAnim={panelAnim}
           backdropOpacity={backdropOpacity}
@@ -3148,11 +3228,11 @@ export default function ConversationScreen({
                 setSelectorTab(id as "models" | "personas" | "perspective")
               }
               chromeOuter={[
-                selectorChromeOuter,
+                selectorTabChromeOuter,
                 { marginBottom: SELECTOR_LIST_GAP, flexShrink: 0 },
               ]}
               chromeInner={selectorChromeInner}
-              labelStyle={selectorChromeLabel}
+              chromeScale={chromeScale}
               activeLabelColor={theme.colors.primaryText}
               inactiveLabelColor={theme.colors.text}
               activePillColor={theme.colors.primary}
@@ -3577,7 +3657,7 @@ export default function ConversationScreen({
                     color={theme.colors.text}
                     style={{ marginRight: 8 }}
                   />
-                  <Text style={[selectorChromeLabel, { color: theme.colors.text }]}>
+                  <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: "600", fontFamily: "Poppins" }}>
                     Browse models
                   </Text>
                 </View>
@@ -3612,7 +3692,7 @@ export default function ConversationScreen({
                     color={theme.colors.error}
                     style={{ marginRight: 8 }}
                   />
-                  <Text style={[selectorChromeLabel, { color: theme.colors.text }]}>
+                  <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: "600", fontFamily: "Poppins" }}>
                     Clear persona
                   </Text>
                 </View>
@@ -3641,7 +3721,7 @@ export default function ConversationScreen({
                     color={theme.colors.text}
                     style={{ marginRight: 8 }}
                   />
-                  <Text style={[selectorChromeLabel, { color: theme.colors.text }]}>
+                  <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: "600", fontFamily: "Poppins" }}>
                     Manage perspectives
                   </Text>
                 </View>
