@@ -1,8 +1,27 @@
 {
   "name": "ofln",
   "version": "1.1",
+  "description": "Offline on-device local LLM assistant for mobile (Android & iOS)",
   "private": true,
-  "license": "GPL-3.0-only",
+  "license": "GPL-3.0-or-later",
+  "author": "Darwin Chen",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Darwin27264/ofln.git"
+  },
+  "homepage": "https://github.com/Darwin27264/ofln#readme",
+  "bugs": "https://github.com/Darwin27264/ofln/issues",
+  "keywords": [
+    "llm",
+    "llama",
+    "llama-cpp",
+    "offline-ai",
+    "react-native",
+    "android",
+    "ios",
+    "gguf",
+    "on-device"
+  ],
   "scripts": {
     "android": "react-native run-android",
     "ios": "react-native run-ios",
@@ -26,7 +45,6 @@
   "dependencies": {
     "@dev-amirzubair/react-native-voice": "^1.0.4",
     "@op-engineering/op-sqlite": "^15.2.14",
-    "@react-native-ai/llama": "^0.12.0",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-clipboard/clipboard": "^1.16.3",
     "@react-native-community/blur": "^4.4.1",

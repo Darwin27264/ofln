@@ -49,7 +49,7 @@ export function toQueuedDownloads(
   models: BackupModelEntry[],
 ): QueuedModelDownload[] {
   return sortModelsSmallestFirst(models)
-    .map((m) => {
+    .map((m): QueuedModelDownload | null => {
       const fileName = safeBackupModelFileName(m.fileName);
       const downloadUrl =
         typeof m.downloadUrl === 'string' ? m.downloadUrl.trim() : '';
@@ -129,7 +129,7 @@ export async function runModelDownloadQueue(
           const pre = await checkDiskSpaceForDownload(need);
           if (!pre.ok) {
             throw new Error(
-              pre.reason === 'insufficient'
+              (pre as any).reason === 'insufficient'
                 ? 'Not enough free storage for this model'
                 : 'Could not check free storage',
             );

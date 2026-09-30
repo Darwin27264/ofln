@@ -21,7 +21,7 @@ import {
 export const MEDIA_MAX_EDGE = 1600;
 
 /** JPEG quality for picked/captured photos (0–1). */
-export const MEDIA_JPEG_QUALITY = 0.75;
+export const MEDIA_JPEG_QUALITY = 0.8;
 
 /** Hard cap on OCR text injected into the chat prompt (single source of truth). */
 export const MAX_OCR_CHARS = DOCUMENT_MAX_INJECT_CHARS;

@@ -304,7 +304,7 @@ async function runAnalysisCompletion(opts: {
     noop,
     opts.signal,
     {
-      heuristicMode: 'balanced',
+      heuristicMode: 'default',
       heuristicUserText: opts.heuristicUserText || opts.userContent,
     },
   );

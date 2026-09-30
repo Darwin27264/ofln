@@ -237,7 +237,7 @@ async function _runStream(
   let currentThought = '';
 
   try {
-    const { textStream } = streamText({
+    const { textStream } = (streamText as any)({
       model,
       messages: aiMessages as any, // AI SDK message type
       maxTokens,

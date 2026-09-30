@@ -136,7 +136,7 @@ export async function stopSpeaking(): Promise<void> {
 }
 
 export type SpeakResult =
-  | { ok: true; text: string }
+  | { ok: true; text: string; reason?: undefined }
   | { ok: false; reason: 'empty' | 'unavailable' | 'error' };
 
 /**

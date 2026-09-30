@@ -353,7 +353,7 @@ export const MessageMarkdown = React.memo(function MessageMarkdown({
   return (
     <View style={{ flexShrink: 1, width: '100%', maxWidth: '100%' }}>
       <Markdown
-        style={mdStyles}
+        style={mdStyles as any}
         rules={rules}
         markdownit={chatMarkdownIt}
         mergeStyle

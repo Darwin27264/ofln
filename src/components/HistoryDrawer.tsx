@@ -29,7 +29,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import { SolidChrome, frostedPanelSystemBarColor, SETTINGS_BLOCK } from './FrostedGlass';
 import { FloatingBackButton } from './FloatingBackButton';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme, type Theme } from '../context/ThemeContext';
 import type { ChatConversation, Message } from '../services/chatHistoryService';
 import {
   HISTORY_DATE_PERIODS,
@@ -153,7 +153,7 @@ function splitIntoColumns(chats: ChatConversation[]): [ChatConversation[], ChatC
 type ChatHistoryCardProps = {
   chat: ChatConversation;
   currentChatId: string | null;
-  theme: { mode: 'light' | 'dark'; colors: Record<string, string> };
+  theme: Theme;
   onPress: () => void;
   onLongPress: (event: any) => void;
   isEditing: boolean;

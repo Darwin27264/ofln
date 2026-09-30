@@ -39,7 +39,7 @@ export interface ThemeColors {
   glass: string;
 }
 
-interface Theme {
+export interface Theme {
   mode: ThemeMode;
   colors: ThemeColors;
 }

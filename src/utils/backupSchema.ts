@@ -268,8 +268,8 @@ export function mergePersonasById(
 }
 
 export type ParseBackupResult =
-  | { ok: true; payload: BackupPayloadV1 }
-  | { ok: false; error: string };
+  | { ok: true; payload: BackupPayloadV1; error?: undefined }
+  | { ok: false; error: string; payload?: undefined };
 
 /**
  * Validate a decoded backup object (single JSON chats or full payload).
@@ -315,7 +315,7 @@ export function parseBackupPayload(raw: unknown): ParseBackupResult {
       : 'unknown';
 
   const chatsIncluded = Array.isArray(o.chats);
-  const chatsRaw = chatsIncluded ? o.chats : [];
+  const chatsRaw = Array.isArray(o.chats) ? o.chats : [];
   const chats = chatsRaw
     .filter(isChatConversation)
     .map((c) => sanitizeChatForBackup(c));

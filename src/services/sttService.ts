@@ -45,7 +45,7 @@ export type ListeningStatus = {
 };
 
 export type StartListeningResult =
-  | { ok: true }
+  | { ok: true; reason?: undefined }
   | { ok: false; reason: 'permission' | 'unavailable' | 'error'; message?: string };
 
 type TranscriptListener = (composerText: string) => void;

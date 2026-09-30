@@ -15,6 +15,7 @@ import {
   StyleSheet,
 } from "react-native";
 import Slider from "@react-native-community/slider";
+const RNSlider = Slider as unknown as React.ComponentType<any>;
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
@@ -218,13 +219,13 @@ function MetricSlider({
         <Text style={[localStyles.rangeHint, { color: tertiaryColor }]}>
           {minLabel ?? String(min)}
         </Text>
-        <Slider
+        <RNSlider
           style={localStyles.slider}
           minimumValue={min}
           maximumValue={max}
           step={step}
           value={sliderValue}
-          onValueChange={(v) => {
+          onValueChange={(v: number) => {
             onSliderChange(v);
           }}
           minimumTrackTintColor={thumbColor}

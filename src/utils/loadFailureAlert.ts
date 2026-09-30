@@ -34,7 +34,7 @@ export type LoadFailureActions = {
 /** Drop n_ctx one discrete step. Returns new value or null if already at min. */
 export async function lowerModelContextOneStep(
   fileName: string,
-): Promise<{ ok: true; n_ctx: number } | { ok: false; reason: 'already_min' | 'error' }> {
+): Promise<{ ok: true; n_ctx: number; reason?: undefined } | { ok: false; reason: 'already_min' | 'error' }> {
   try {
     const settings = await getModelSettings(fileName);
     const values = SETTING_RANGES.n_ctx.values as readonly number[];

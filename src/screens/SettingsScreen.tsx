@@ -159,7 +159,7 @@ function SettingsTile({
                   fontSize: labelSize,
                   lineHeight: Math.round(labelSize * 1.22),
                 },
-                labelColor ? { color: labelColor } : null,
+                labelColor ? { color: labelColor as string } : null,
               ]}
               numberOfLines={2}
             >
@@ -173,7 +173,7 @@ function SettingsTile({
                   fontSize: labelSize,
                   lineHeight: Math.round(labelSize * 1.22),
                   color: labelColor,
-                } as TextStyle,
+                } as unknown as TextStyle,
               ]}
               numberOfLines={2}
             >

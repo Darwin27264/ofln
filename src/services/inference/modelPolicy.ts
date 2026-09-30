@@ -53,15 +53,15 @@ export interface ModelRuntimePolicy {
   schemaVersion: number;
 }
 
-const BASE_SAMPLING = {
+const BASE_SAMPLING: ModelRuntimePolicy['sampling'] = {
   temperature: 0.8,
   top_p: 0.95,
   top_k: 20,
   repeat_penalty: 1.05,
   n_predict: 256,
-} as const;
+};
 
-function samplingFor(familyId: ModelFamilyId, sizeTier: ModelSizeTier) {
+function samplingFor(familyId: ModelFamilyId, sizeTier: ModelSizeTier): ModelRuntimePolicy['sampling'] {
   const s = { ...BASE_SAMPLING };
 
   if (familyId === 'qwen3') {

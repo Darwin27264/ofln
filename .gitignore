@@ -49,6 +49,8 @@ gradle.properties
 # Artifacts generated locally
 *.apk
 *.aab
+*.tsbuildinfo
+tsconfig.tsbuildinfo
 
 # node.js
 #

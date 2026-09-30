@@ -74,6 +74,7 @@ import {
 import {
   checkDiskSpaceForDownload,
   diskPreflightAlertMessage,
+  type DiskPreflightResult,
   parseSizeToBytes,
 } from "../utils/diskPreflight";
 import {
@@ -258,7 +259,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       const sizeHint = quant?.size ?? model.size ?? null;
       const result = await checkDiskSpaceForDownload(sizeHint);
       if (result.ok) return true;
-      const uf = diskPreflightAlertMessage(result);
+      const uf = diskPreflightAlertMessage(result as Extract<DiskPreflightResult, { ok: false }>);
       showInfoSheet(uf.title, uf.message, "Storage");
       return false;
     },
@@ -686,12 +687,13 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
 
               // Handle different response formats
               let responseData: any[] = [];
-              if (Array.isArray(response.data)) {
-                responseData = response.data;
-              } else if (response.data && Array.isArray(response.data.models)) {
-                responseData = response.data.models;
-              } else if (response.data && response.data.results && Array.isArray(response.data.results)) {
-                responseData = response.data.results;
+              const rawData = response.data as any;
+              if (Array.isArray(rawData)) {
+                responseData = rawData;
+              } else if (rawData && Array.isArray(rawData.models)) {
+                responseData = rawData.models;
+              } else if (rawData && rawData.results && Array.isArray(rawData.results)) {
+                responseData = rawData.results;
               }
               
               // Filter to only models that actually belong to this author
@@ -1661,10 +1663,11 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         return;
       }
 
-      const siblings = response.data.siblings || [];
+      const respData = response.data as any;
+      const siblings = respData?.siblings || [];
       const revision =
         parsed.revision ||
-        (typeof response.data.sha === "string" ? response.data.sha : undefined);
+        (typeof respData?.sha === "string" ? respData.sha : undefined);
       const allGgufFiles = siblings.filter((f: any) =>
         f?.rfilename?.toLowerCase().endsWith('.gguf')
       );
