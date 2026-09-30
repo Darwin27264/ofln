@@ -2,7 +2,7 @@
  * Tasks library — Tasks / Results tabs; expand a card for Run / Edit / Delete.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   View,
   Text,
@@ -49,11 +49,14 @@ import {
   formatNextRun,
   formatScheduleSummary,
 } from "../utils/taskScheduleHelpers";
-import { isTaskRunnerBusy, runTaskById } from "../services/taskRunnerService";
 import {
-  checkNotificationPermission,
-  requestNotificationPermission,
-} from "../services/nativeTaskScheduler";
+  getRunningTaskId,
+  isTaskRunnerBusy,
+  requestCancelTask,
+  runTaskById,
+  subscribeTaskRunner,
+} from "../services/taskRunnerService";
+import { ensureEnabledTaskPermissions } from "../services/nativeTaskScheduler";
 import type { ChromeScale } from "../utils/chromeScale";
 
 const LIBRARY_TABS = [
@@ -115,6 +118,8 @@ function statusLabel(status: TaskLastStatus | TaskRun["status"]): string {
       return "Queued";
     case "skipped":
       return "Skipped";
+    case "cancelled":
+      return "Cancelled";
     default:
       return "Ready";
   }
@@ -242,6 +247,8 @@ function runCompleteMessage(run: TaskRun): string {
       return "Fetched. Finish analysis when the model is free, or tap View.";
     case "skipped":
       return "This run was skipped.";
+    case "cancelled":
+      return "This run was cancelled.";
     case "running":
       return "Still running…";
     default:
@@ -281,6 +288,11 @@ export default function TasksLibraryScreen({
   const [allRuns, setAllRuns] = useState<TaskRun[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [runningId, setRunningId] = useState<string | null>(null);
+  const activeTaskId = useSyncExternalStore(
+    subscribeTaskRunner,
+    getRunningTaskId,
+    getRunningTaskId,
+  );
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const { animatedIds } = useLibraryCardEnter();
 
@@ -307,9 +319,9 @@ export default function TasksLibraryScreen({
   const contentPadBottom =
     scrollPadBottom + TAB_BAR_H + TAB_ABOVE_BACK_GAP + 8;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     try {
-      setIsLoading(true);
+      if (!opts?.silent) setIsLoading(true);
       const [list, runsRaw] = await Promise.all([getTasks(), getAllTaskRuns()]);
       // Drop leftover UI-preview mock if it was seeded earlier.
       const runs = runsRaw.filter((r) => r.id !== "run_mock_failed_preview");
@@ -339,6 +351,14 @@ export default function TasksLibraryScreen({
   useEffect(() => {
     void load();
   }, [load]);
+
+  const prevActiveTaskId = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevActiveTaskId.current && prevActiveTaskId.current !== activeTaskId) {
+      void load({ silent: true });
+    }
+    prevActiveTaskId.current = activeTaskId;
+  }, [activeTaskId, load]);
 
   const runStats = useMemo(() => {
     let running = 0;
@@ -391,11 +411,7 @@ export default function TasksLibraryScreen({
         const saved = await setTaskEnabled(task.id, enabled);
         if (saved) {
           if (enabled) {
-            void checkNotificationPermission().then((granted) => {
-              if (!granted) {
-                void requestNotificationPermission();
-              }
-            });
+            void ensureEnabledTaskPermissions(showAlert);
           }
           setTasks((prev) =>
             prev.map((t) => (t.id === saved.id ? { ...t, ...saved } : t)),
@@ -439,6 +455,31 @@ export default function TasksLibraryScreen({
     [load],
   );
 
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  const handleCancelTask = useCallback(
+    async (task: ScheduledTask) => {
+      setCancellingId(task.id);
+      try {
+        const latest = latestByTask[task.id];
+        const res = await requestCancelTask(task.id, latest?.id);
+        if (runningId === task.id) {
+          setRunningId(null);
+        }
+        await load({ silent: true });
+        if (res !== "noop") {
+          showAlert("Task Cancelled", `“${task.name}” has been cancelled.`, [{ text: "OK" }]);
+        }
+      } catch (err) {
+        console.warn("Failed to cancel task", err);
+        showAlert("Error", "Could not cancel task.", [{ text: "OK" }]);
+      } finally {
+        setCancellingId(null);
+      }
+    },
+    [latestByTask, load, runningId],
+  );
+
   const handleRunNow = useCallback(
     async (task: ScheduledTask) => {
       if (isTaskRunnerBusy() || runningId) {
@@ -452,7 +493,10 @@ export default function TasksLibraryScreen({
           forceAnalysis: true,
           fallbackModelFileName,
         });
-        await load();
+        await load({ silent: true });
+        if (run?.status === "cancelled") {
+          return;
+        }
         if (run?.status === "failed") {
           showAlert(
             task.name,
@@ -581,6 +625,12 @@ export default function TasksLibraryScreen({
             : task.lastStatus;
         const chipColor = statusColor(chipStatus, theme.colors);
         const expanded = expandedId === task.id;
+        const isThisTaskRunning =
+          activeTaskId === task.id ||
+          runningId === task.id ||
+          (task.lastStatus === "running" && (!activeTaskId || activeTaskId === task.id)) ||
+          (latest?.status === "running" && (!activeTaskId || activeTaskId === task.id));
+        const isCancelling = cancellingId === task.id;
 
         return (
           <LibraryCardEnter
@@ -634,29 +684,71 @@ export default function TasksLibraryScreen({
                       marginTop: 8,
                     }}
                   >
-                    <View
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: 4,
-                        backgroundColor: chipColor,
-                      }}
-                    />
+                    {isThisTaskRunning ? (
+                      <ActivityIndicator size={12} color={theme.colors.warning} />
+                    ) : (
+                      <View
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 4,
+                          backgroundColor: chipColor,
+                        }}
+                      />
+                    )}
                     <Text
                       style={{
                         fontSize: 12,
-                        color: theme.colors.textTertiary,
+                        color: isThisTaskRunning ? theme.colors.warning : theme.colors.textTertiary,
                         fontFamily: "Poppins",
                         flex: 1,
                       }}
                       numberOfLines={1}
                     >
-                      {statusLabel(chipStatus)}
+                      {isThisTaskRunning ? "In progress…" : statusLabel(chipStatus)}
                       {task.enabled
                         ? ` · Next ${formatNextRun(task.nextRunAt)}`
                         : " · Paused"}
                       {` · ${taskKindLabel(task.kind)}`}
                     </Text>
+                    {isThisTaskRunning && (
+                      <TouchableOpacity
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          void handleCancelTask(task);
+                        }}
+                        disabled={isCancelling}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: 6,
+                          backgroundColor: `${theme.colors.error}20`,
+                          borderWidth: 1,
+                          borderColor: `${theme.colors.error}50`,
+                        }}
+                        accessibilityLabel="Cancel task in progress"
+                      >
+                        {isCancelling ? (
+                          <ActivityIndicator size={11} color={theme.colors.error} />
+                        ) : (
+                          <Icon name="close" size={13} color={theme.colors.error} />
+                        )}
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            fontWeight: "600",
+                            color: theme.colors.error,
+                            fontFamily: "Poppins",
+                          }}
+                        >
+                          Cancel
+                        </Text>
+                      </TouchableOpacity>
+                    )}
                     <Icon
                       name={expanded ? "expand-less" : "expand-more"}
                       size={22}
@@ -728,40 +820,81 @@ export default function TasksLibraryScreen({
                         Edit
                       </Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => void handleRunNow(task)}
-                      disabled={runningId === task.id}
-                      style={{
-                        flex: 1,
-                        minWidth: "45%",
-                        backgroundColor: theme.colors.accent,
-                        paddingVertical: 10,
-                        paddingHorizontal: 16,
-                        borderRadius: 8,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        opacity: runningId === task.id ? 0.6 : 1,
-                      }}
-                      activeOpacity={0.85}
-                    >
-                      <Icon
-                        name="play-arrow"
-                        size={18}
-                        color={theme.colors.accentText}
-                      />
-                      <Text
+                    {isThisTaskRunning ? (
+                      <TouchableOpacity
+                        onPress={() => void handleCancelTask(task)}
+                        disabled={isCancelling}
                         style={{
-                          color: theme.colors.accentText,
-                          fontSize: 14,
-                          fontWeight: "600",
-                          fontFamily: "Poppins",
-                          marginLeft: 6,
+                          flex: 1,
+                          minWidth: "45%",
+                          backgroundColor: theme.colors.error,
+                          paddingVertical: 10,
+                          paddingHorizontal: 16,
+                          borderRadius: 8,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          opacity: isCancelling ? 0.6 : 1,
                         }}
+                        activeOpacity={0.85}
                       >
-                        {runningId === task.id ? "Running…" : "Run"}
-                      </Text>
-                    </TouchableOpacity>
+                        {isCancelling ? (
+                          <ActivityIndicator size={16} color="#FFFFFF" />
+                        ) : (
+                          <Icon
+                            name="cancel"
+                            size={18}
+                            color="#FFFFFF"
+                          />
+                        )}
+                        <Text
+                          style={{
+                            color: "#FFFFFF",
+                            fontSize: 14,
+                            fontWeight: "600",
+                            fontFamily: "Poppins",
+                            marginLeft: 6,
+                          }}
+                        >
+                          {isCancelling ? "Cancelling…" : "Cancel"}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        onPress={() => void handleRunNow(task)}
+                        disabled={isTaskRunnerBusy() || runningId != null}
+                        style={{
+                          flex: 1,
+                          minWidth: "45%",
+                          backgroundColor: theme.colors.accent,
+                          paddingVertical: 10,
+                          paddingHorizontal: 16,
+                          borderRadius: 8,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          opacity: (isTaskRunnerBusy() || runningId != null) ? 0.6 : 1,
+                        }}
+                        activeOpacity={0.85}
+                      >
+                        <Icon
+                          name="play-arrow"
+                          size={18}
+                          color={theme.colors.accentText}
+                        />
+                        <Text
+                          style={{
+                            color: theme.colors.accentText,
+                            fontSize: 14,
+                            fontWeight: "600",
+                            fontFamily: "Poppins",
+                            marginLeft: 6,
+                          }}
+                        >
+                          Run
+                        </Text>
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity
                       onPress={() => void openHistory(task)}
                       style={{

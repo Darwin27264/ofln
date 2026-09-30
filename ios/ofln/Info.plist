@@ -32,8 +32,6 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a photo or screenshot to read text from in the chat.</string>
 	<key>NSCameraUsageDescription</key>

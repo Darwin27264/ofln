@@ -44,10 +44,7 @@ import {
   type ScheduledTask,
   type TaskKind,
 } from "../services/taskService";
-import {
-  checkNotificationPermission,
-  requestNotificationPermission,
-} from "../services/nativeTaskScheduler";
+import { ensureEnabledTaskPermissions } from "../services/nativeTaskScheduler";
 import { getPersonasEnsured, type Persona } from "../services/personaService";
 import { prettifyModelName } from "../utils/modelUtils";
 import {
@@ -633,11 +630,7 @@ export default function TaskEditorScreen({
     void saveTask(base)
       .then((saved) => {
         if (saved.enabled) {
-          void checkNotificationPermission().then((granted) => {
-            if (!granted) {
-              void requestNotificationPermission();
-            }
-          });
+          void ensureEnabledTaskPermissions(showAlert);
         }
         setDirty(false);
         onSave(saved);

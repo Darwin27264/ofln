@@ -30,6 +30,10 @@ import {
   formatLogEntryTime,
   formatLogsForClipboard,
 } from "../services/taskLogger";
+import {
+  requestCancelTask,
+  subscribeTaskRunner,
+} from "../services/taskRunnerService";
 
 interface Props {
   runId: string;
@@ -240,6 +244,27 @@ export default function TaskRunDetailScreen({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    return subscribeTaskRunner(() => {
+      void load();
+    });
+  }, [load]);
+
+  const [cancelling, setCancelling] = useState(false);
+  const handleCancelRun = useCallback(async () => {
+    if (!run) return;
+    setCancelling(true);
+    try {
+      await requestCancelTask(run.taskId, run.id);
+      showAlert("Task Cancelled", "This task run has been cancelled.", [{ text: "OK" }]);
+      await load();
+    } catch {
+      showAlert("Error", "Could not cancel task.", [{ text: "OK" }]);
+    } finally {
+      setCancelling(false);
+    }
+  }, [load, run]);
 
   useEffect(() => {
     setShowAllPrevious(false);
@@ -949,7 +974,42 @@ export default function TaskRunDetailScreen({
       <View style={{ position: "absolute", left: 15, bottom: backBottom }}>
         <FloatingBackButton onPress={onBack} />
       </View>
-      {(run.resultText || run.fetchedText) && (
+      {(run.status === "running" || run.status === "pending_analysis") ? (
+        <TouchableOpacity
+          onPress={() => void handleCancelRun()}
+          disabled={cancelling}
+          style={{
+            position: "absolute",
+            right: 15,
+            bottom: backBottom,
+            backgroundColor: theme.colors.error,
+            paddingHorizontal: 16,
+            paddingVertical: 9,
+            borderRadius: 24,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            opacity: cancelling ? 0.6 : 1,
+          }}
+          activeOpacity={0.85}
+        >
+          {cancelling ? (
+            <ActivityIndicator size={16} color="#FFFFFF" />
+          ) : (
+            <Icon name="cancel" size={18} color="#FFFFFF" />
+          )}
+          <Text
+            style={{
+              color: "#FFFFFF",
+              fontSize: 15,
+              fontWeight: "600",
+              fontFamily: "Poppins",
+            }}
+          >
+            {cancelling ? "Cancelling…" : "Cancel task"}
+          </Text>
+        </TouchableOpacity>
+      ) : (run.resultText || run.fetchedText) ? (
         <TouchableOpacity
           onPress={() => onUseInChat(run)}
           style={{
@@ -973,7 +1033,7 @@ export default function TaskRunDetailScreen({
             Use in chat
           </Text>
         </TouchableOpacity>
-      )}
+      ) : null}
     </View>
   );
 }

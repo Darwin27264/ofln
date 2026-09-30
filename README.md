@@ -9,7 +9,7 @@ Offline LLM chat for Android and iOS by **Evolvyn AI** (Darwin Chen). Download a
 | [`docs/PRIVACY.md`](./docs/PRIVACY.md) | What stays local, Hugging Face, tokens, backups |
 | [`SECURITY.md`](./SECURITY.md) | Vulnerability reporting; Android signing files stay local |
 | [`docs/TECHNICAL.md`](./docs/TECHNICAL.md) | Architecture, build/release, CI, Android 16KB, inference notes |
-| [`DESIGN.md`](./DESIGN.md) · [`styles.md`](./styles.md) | UI system |
+| [`DESIGN.md`](./DESIGN.md) | UI system |
 | [`docs/DEVICE_SMOKE.md`](./docs/DEVICE_SMOKE.md) | Maintainer device smoke checklist |
 | [`TRADEMARK.md`](./TRADEMARK.md) | Brand / fork rebranding policy |
 

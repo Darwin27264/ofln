@@ -11,6 +11,7 @@ interface TaskSchedulerNative {
   scheduleTaskAlarm(taskId: string, triggerAtMillis: number): Promise<boolean>;
   cancelTaskAlarm(taskId: string): Promise<boolean>;
   canScheduleExactAlarms(): Promise<boolean>;
+  openExactAlarmSettings(): Promise<boolean>;
   postNotification(
     title: string,
     message: string,
@@ -25,12 +26,41 @@ interface TaskSchedulerNative {
     taskId?: string;
     runId?: string;
   } | null>;
+  isIgnoringBatteryOptimizations(): Promise<boolean>;
+  openBatteryOptimizationSettings(): Promise<boolean>;
 }
 
 const NativeScheduler: TaskSchedulerNative | null =
   Platform.OS === 'android' && NativeModules.TaskScheduler
     ? (NativeModules.TaskScheduler as TaskSchedulerNative)
     : null;
+
+interface IosTaskNotifications {
+  checkPermission(): Promise<boolean>;
+  requestPermission(): Promise<boolean>;
+  postNotification(
+    title: string,
+    message: string,
+    taskId: string | null,
+    runId: string | null,
+    isSuccess: boolean,
+  ): Promise<boolean>;
+}
+
+const IosNotifications: IosTaskNotifications | null =
+  Platform.OS === 'ios' && NativeModules.TaskNotifications
+    ? (NativeModules.TaskNotifications as IosTaskNotifications)
+    : null;
+
+type PermissionAlert = (
+  title: string,
+  message: string,
+  buttons: Array<{
+    text: string;
+    style?: 'cancel' | 'destructive' | 'default';
+    onPress?: () => void;
+  }>,
+) => void;
 
 /**
  * Schedule a task with the native OS AlarmManager at exact timestamp `triggerAtMs`.
@@ -77,6 +107,38 @@ export async function canScheduleExactAlarms(): Promise<boolean> {
   }
 }
 
+/** Open the system Alarms & reminders screen for this app. */
+export async function openExactAlarmSettings(): Promise<boolean> {
+  if (!NativeScheduler) return false;
+  try {
+    return await NativeScheduler.openExactAlarmSettings();
+  } catch (err) {
+    console.warn('[nativeTaskScheduler] openExactAlarmSettings failed', err);
+    return false;
+  }
+}
+
+/** Check if battery optimizations are disabled for this app. */
+export async function isIgnoringBatteryOptimizations(): Promise<boolean> {
+  if (!NativeScheduler) return true;
+  try {
+    return await NativeScheduler.isIgnoringBatteryOptimizations();
+  } catch {
+    return true;
+  }
+}
+
+/** Open system battery optimization / background restrictions settings. */
+export async function openBatteryOptimizationSettings(): Promise<boolean> {
+  if (!NativeScheduler) return false;
+  try {
+    return await NativeScheduler.openBatteryOptimizationSettings();
+  } catch (err) {
+    console.warn('[nativeTaskScheduler] openBatteryOptimizationSettings failed', err);
+    return false;
+  }
+}
+
 /**
  * Sync all tasks in storage with the native Android AlarmManager.
  * Arms alarms for all enabled tasks and cancels any disabled ones.
@@ -115,6 +177,14 @@ export async function syncAllScheduledTasks(): Promise<number> {
  * Check if the app has permission to post notifications (Android 13+).
  */
 export async function checkNotificationPermission(): Promise<boolean> {
+  if (Platform.OS === 'ios') {
+    if (!IosNotifications) return false;
+    try {
+      return await IosNotifications.checkPermission();
+    } catch {
+      return false;
+    }
+  }
   if (Platform.OS !== 'android') return true;
   if (typeof Platform.Version === 'number' && Platform.Version < 33) return true;
 
@@ -135,6 +205,15 @@ export async function checkNotificationPermission(): Promise<boolean> {
  * Request notification permission from the user (Android 13+).
  */
 export async function requestNotificationPermission(): Promise<boolean> {
+  if (Platform.OS === 'ios') {
+    if (!IosNotifications) return false;
+    try {
+      return await IosNotifications.requestPermission();
+    } catch (err) {
+      console.warn('[nativeTaskScheduler] iOS notification request failed', err);
+      return false;
+    }
+  }
   if (Platform.OS !== 'android') return true;
   if (typeof Platform.Version === 'number' && Platform.Version < 33) return true;
 
@@ -158,8 +237,52 @@ export async function requestNotificationPermission(): Promise<boolean> {
 }
 
 /**
- * Post a native Android notification when a task completes or fails.
+ * Ask for task notifications, then for exact alarms on Android 12+ when they are off.
+ * Call this when a scheduled task is saved or turned on.
  */
+export async function ensureEnabledTaskPermissions(alert: PermissionAlert): Promise<void> {
+  const notificationsGranted = await checkNotificationPermission();
+  if (!notificationsGranted) {
+    await requestNotificationPermission();
+  }
+
+  if (Platform.OS !== 'android') return;
+  const exact = await canScheduleExactAlarms();
+  if (!exact) {
+    alert(
+      'Allow exact alarms',
+      'ofln needs Alarms & reminders so this task runs at the time you set. Without it, Android may delay the run.',
+      [
+        { text: 'Not now', style: 'cancel' },
+        {
+          text: 'Open settings',
+          onPress: () => {
+            void openExactAlarmSettings();
+          },
+        },
+      ],
+    );
+    return;
+  }
+
+  const ignoringBattery = await isIgnoringBatteryOptimizations();
+  if (!ignoringBattery) {
+    alert(
+      'Background execution',
+      'To ensure tasks run reliably when the app is closed or cleared from the background, set battery usage to Unrestricted in system settings.',
+      [
+        { text: 'Later', style: 'cancel' },
+        {
+          text: 'Settings',
+          onPress: () => {
+            void openBatteryOptimizationSettings();
+          },
+        },
+      ],
+    );
+  }
+}
+
 export async function postNativeTaskNotification(params: {
   title: string;
   message: string;
@@ -167,6 +290,20 @@ export async function postNativeTaskNotification(params: {
   runId?: string | null;
   isSuccess: boolean;
 }): Promise<boolean> {
+  if (IosNotifications) {
+    try {
+      return await IosNotifications.postNotification(
+        params.title,
+        params.message,
+        params.taskId || null,
+        params.runId || null,
+        params.isSuccess,
+      );
+    } catch (err) {
+      console.warn('[nativeTaskScheduler] iOS postNotification failed', err);
+      return false;
+    }
+  }
   if (!NativeScheduler) return false;
   try {
     return await NativeScheduler.postNotification(

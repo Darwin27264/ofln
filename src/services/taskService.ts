@@ -31,14 +31,16 @@ export type TaskLastStatus =
   | 'running'
   | 'success'
   | 'failed'
-  | 'skipped';
+  | 'skipped'
+  | 'cancelled';
 
 export type TaskRunStatus =
   | 'running'
   | 'success'
   | 'failed'
   | 'skipped'
-  | 'pending_analysis';
+  | 'pending_analysis'
+  | 'cancelled';
 
 export interface ScheduledTask {
   id: string;

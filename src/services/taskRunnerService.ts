@@ -22,7 +22,9 @@ import {
   generateTaskRunId,
   getAllTaskRuns,
   getDueTasks,
+  getRunsForTask,
   getTaskById,
+  getTasks,
   saveTask,
   saveTaskRun,
   type SourceMonitorTask,
@@ -38,8 +40,148 @@ const activeRunningTasks = new Set<string>();
 const recentRunTimestamps = new Map<string, number>();
 const DEBOUNCE_COOLDOWN_MS = 60_000;
 
+/** Set when Cancel is tapped before the run has registered its AbortController. */
+const cancelRequested = new Set<string>();
+
+type ActiveRun = {
+  taskId: string;
+  runId: string;
+  controller: AbortController;
+};
+
+let activeRun: ActiveRun | null = null;
+const runnerListeners = new Set<() => void>();
+
+export class TaskCancelledError extends Error {
+  readonly partialText?: string;
+  constructor(partialText?: string) {
+    super('Cancelled');
+    this.name = 'TaskCancelledError';
+    const trimmed = partialText?.trim();
+    this.partialText = trimmed ? trimmed : undefined;
+  }
+}
+
+export function isTaskCancelledError(error: unknown): boolean {
+  return (
+    error instanceof TaskCancelledError ||
+    (error instanceof Error && error.name === 'TaskCancelledError')
+  );
+}
+
+function emitRunnerChange(): void {
+  for (const listener of runnerListeners) {
+    try {
+      listener();
+    } catch {
+      /* ignore subscriber errors */
+    }
+  }
+}
+
+function setActiveRun(next: ActiveRun | null): void {
+  activeRun = next;
+  emitRunnerChange();
+}
+
 export function isTaskRunnerBusy(): boolean {
   return runnerBusy || activeRunningTasks.size > 0;
+}
+
+export function subscribeTaskRunner(listener: () => void): () => void {
+  runnerListeners.add(listener);
+  return () => {
+    runnerListeners.delete(listener);
+  };
+}
+
+/** Task id currently executing, or null when the runner is idle. */
+export function getRunningTaskId(): string | null {
+  if (activeRun) return activeRun.taskId;
+  if (activeRunningTasks.size === 1) {
+    return activeRunningTasks.values().next().value ?? null;
+  }
+  return null;
+}
+
+export function getRunningRunId(): string | null {
+  return activeRun?.runId ?? null;
+}
+
+/**
+ * Abort the in-memory run. Returns false when that task is not executing
+ * (a queued or stuck record must be cleared separately).
+ */
+export function cancelRunningTask(taskId?: string, runId?: string): boolean {
+  if (activeRun) {
+    if (taskId && activeRun.taskId !== taskId) return false;
+    if (runId && activeRun.runId !== runId) return false;
+    if (!activeRun.controller.signal.aborted) {
+      activeRun.controller.abort();
+    }
+    emitRunnerChange();
+    return true;
+  }
+  if (taskId && (activeRunningTasks.has(taskId) || runnerBusy)) {
+    cancelRequested.add(taskId);
+    emitRunnerChange();
+    return true;
+  }
+  return false;
+}
+
+function throwIfCancelled(signal: AbortSignal): void {
+  if (signal.aborted) throw new TaskCancelledError();
+}
+
+/**
+ * Stop a live run, or mark a stuck/queued run cancelled so it is not resumed.
+ * Does not delete the task or move its next scheduled time backward.
+ */
+export async function requestCancelTask(
+  taskId: string,
+  runId?: string,
+): Promise<'aborted' | 'cleared' | 'noop'> {
+  if (cancelRunningTask(taskId, runId)) {
+    emitRunnerChange();
+    return 'aborted';
+  }
+
+  const runs = await getRunsForTask(taskId);
+  const target = runId
+    ? runs.find((r) => r.id === runId)
+    : runs.find(
+        (r) => r.status === 'running' || r.status === 'pending_analysis',
+      );
+
+  const task = await getTaskById(taskId);
+  let changed = false;
+
+  if (target && (target.status === 'running' || target.status === 'pending_analysis')) {
+    await saveTaskRun({
+      ...target,
+      status: 'cancelled',
+      error: 'Cancelled by user',
+      finishedAt: Date.now(),
+    });
+    changed = true;
+  }
+
+  if (task && (task.lastStatus === 'running' || (target && target.status === 'running'))) {
+    await saveTask({
+      ...task,
+      lastStatus: 'cancelled',
+      updatedAt: Date.now(),
+    });
+    changed = true;
+  }
+
+  if (changed) {
+    emitRunnerChange();
+    return 'cleared';
+  }
+
+  return 'noop';
 }
 
 function wrapFetchedForPrompt(taskName: string, sourceUrl: string, text: string): string {
@@ -135,6 +277,7 @@ async function runAnalysisCompletion(opts: {
   persona: Persona | null;
   userContent: string;
   heuristicUserText?: string;
+  signal?: AbortSignal;
 }): Promise<string> {
   const settings = await getModelSettings(opts.modelFileName);
   const systemPrompt = buildPersonaSystemPrompt(
@@ -159,12 +302,16 @@ async function runAnalysisCompletion(opts: {
     opts.modelFileName,
     settings,
     noop,
-    undefined,
+    opts.signal,
     {
       heuristicMode: 'balanced',
       heuristicUserText: opts.heuristicUserText || opts.userContent,
     },
   );
+
+  if (opts.signal?.aborted) {
+    throw new TaskCancelledError(result?.text);
+  }
 
   const text = (result?.text || '').trim();
   if (!text) {
@@ -193,6 +340,13 @@ async function runOneTaskInternal(
   const trigger = options.trigger || 'manual';
   const logger = createTaskLogger();
   const nextOccurrence = computeNextRunAfter(task.schedule, startedAt);
+  const controller = new AbortController();
+  if (cancelRequested.has(task.id)) {
+    cancelRequested.delete(task.id);
+    controller.abort();
+  }
+  setActiveRun({ taskId: task.id, runId, controller });
+  const signal = controller.signal;
 
   logger.info(`Task execution started: "${task.name}"`, {
     taskId: task.id,
@@ -232,7 +386,8 @@ async function runOneTaskInternal(
     if (!isLlmOnly) {
       logger.info(`Fetching source text from ${task.sourceUrl}...`);
       const fetchStart = Date.now();
-      const fetched = await fetchSourceText(task.sourceUrl);
+      throwIfCancelled(signal);
+      const fetched = await fetchSourceText(task.sourceUrl, signal);
       fetchedText = fetched.text;
       const fetchDuration = Date.now() - fetchStart;
       logger.success(
@@ -276,6 +431,7 @@ async function runOneTaskInternal(
       return run;
     }
 
+    throwIfCancelled(signal);
     logger.info('Resolving persona and model configuration...');
     const persona = await resolvePersona(task.personaId);
     if (persona) {
@@ -294,6 +450,7 @@ async function runOneTaskInternal(
       : `${task.analysisPrompt.trim() || 'Summarize the important updates.'}\n\n` +
         wrapFetchedForPrompt(task.name, task.sourceUrl, fetchedText || '');
 
+    throwIfCancelled(signal);
     logger.info(`Starting LLM inference with model: ${fileName}...`);
     const inferStart = Date.now();
     const resultText = await runAnalysisCompletion({
@@ -301,6 +458,7 @@ async function runOneTaskInternal(
       persona,
       userContent,
       heuristicUserText: task.analysisPrompt,
+      signal,
     });
     const inferDuration = Date.now() - inferStart;
     logger.success(
@@ -334,6 +492,30 @@ async function runOneTaskInternal(
     void notifyTaskFinished(task, run);
     return run;
   } catch (e) {
+    if (isTaskCancelledError(e) || signal.aborted) {
+      const partial =
+        e instanceof TaskCancelledError ? e.partialText : undefined;
+      logger.warn('Cancelled by user.');
+      recentRunTimestamps.set(task.id, Date.now());
+      run = {
+        ...run,
+        status: 'cancelled',
+        resultText: partial || run.resultText || null,
+        error: 'Cancelled',
+        finishedAt: Date.now(),
+        logs: logger.getEntries(),
+      };
+      await saveTaskRun(run);
+      await saveTask({
+        ...task,
+        lastStatus: 'cancelled',
+        lastRunAt: Date.now(),
+        nextRunAt: nextOccurrence,
+        updatedAt: Date.now(),
+      });
+      return run;
+    }
+
     const message = e instanceof Error ? e.message : String(e);
     logger.error(`Task execution failed: ${message}`, e);
     recentRunTimestamps.set(task.id, Date.now());
@@ -372,6 +554,10 @@ async function runOneTaskInternal(
         /* ignore */
       }
     }
+    if (activeRun?.runId === runId) {
+      setActiveRun(null);
+    }
+    cancelRequested.delete(task.id);
   }
 }
 
@@ -459,6 +645,7 @@ export async function runTaskById(
 
   runnerBusy = true;
   activeRunningTasks.add(taskId);
+  emitRunnerChange();
   try {
     const exec = () => runOneTaskInternal(task, options);
     if (options.skipForegroundService || Platform.OS !== 'android') {
@@ -468,6 +655,8 @@ export async function runTaskById(
   } finally {
     runnerBusy = false;
     activeRunningTasks.delete(taskId);
+    cancelRequested.delete(taskId);
+    emitRunnerChange();
   }
 }
 
@@ -489,16 +678,26 @@ export async function finishPendingAnalysisRuns(
     // Source monitor needs fetched text; llm_prompt does not.
     if (task.kind !== 'llm_prompt' && !run.fetchedText) continue;
     runnerBusy = true;
+    activeRunningTasks.add(task.id);
+    const controller = new AbortController();
+    if (cancelRequested.has(task.id)) {
+      cancelRequested.delete(task.id);
+      controller.abort();
+    }
+    setActiveRun({ taskId: task.id, runId: run.id, controller });
+    const signal = controller.signal;
     const logger = createTaskLogger(run.logs || []);
     logger.info('Resuming deferred LLM analysis in foreground...');
 
     try {
+      throwIfCancelled(signal);
       const persona = await resolvePersona(task.personaId);
       const { fileName } = await ensureModelLoaded(
         task.modelFileName,
         options.fallbackModelFileName,
         logger,
       );
+      throwIfCancelled(signal);
       const userContent =
         task.kind === 'llm_prompt'
           ? task.analysisPrompt.trim()
@@ -513,6 +712,7 @@ export async function finishPendingAnalysisRuns(
         persona,
         userContent,
         heuristicUserText: task.analysisPrompt,
+        signal,
       });
 
       logger.success('Deferred analysis completed successfully.');
@@ -535,6 +735,26 @@ export async function finishPendingAnalysisRuns(
       void notifyTaskFinished(task, updatedRun);
       finished += 1;
     } catch (e) {
+      if (isTaskCancelledError(e) || signal.aborted) {
+        const partial =
+          e instanceof TaskCancelledError ? e.partialText : undefined;
+        logger.warn('Cancelled by user.');
+        const updatedRun: TaskRun = {
+          ...run,
+          status: 'cancelled',
+          resultText: partial || null,
+          error: 'Cancelled',
+          finishedAt: Date.now(),
+          logs: logger.getEntries(),
+        };
+        await saveTaskRun(updatedRun);
+        await saveTask({
+          ...task,
+          lastStatus: 'cancelled',
+          updatedAt: Date.now(),
+        });
+        continue;
+      }
       const message = e instanceof Error ? e.message : String(e);
       logger.error(`Deferred analysis failed: ${message}`, e);
       const updatedRun: TaskRun = {
@@ -553,10 +773,62 @@ export async function finishPendingAnalysisRuns(
       });
       void notifyTaskFinished(task, updatedRun);
     } finally {
+      if (activeRun?.runId === run.id) {
+        setActiveRun(null);
+      }
+      activeRunningTasks.delete(task.id);
+      cancelRequested.delete(task.id);
       runnerBusy = false;
+      emitRunnerChange();
     }
   }
   return finished;
+}
+
+/**
+ * Recover tasks left in 'running' state from a prior app termination/crash.
+ */
+export async function recoverStaleRunningTasks(): Promise<number> {
+  const allRuns = await getAllTaskRuns();
+  const staleRuns = allRuns.filter(
+    (r) =>
+      (r.status === 'running' || r.status === 'pending_analysis') &&
+      (!activeRun || activeRun.runId !== r.id),
+  );
+  let recovered = 0;
+  for (const r of staleRuns) {
+    if (r.status === 'running') {
+      await saveTaskRun({
+        ...r,
+        status: 'cancelled',
+        error: 'Interrupted (app was closed or cleared from background)',
+        finishedAt: Date.now(),
+      });
+      recovered += 1;
+    }
+  }
+
+  const allTasks = await getTasks();
+  for (const task of allTasks) {
+    if (
+      task.lastStatus === 'running' &&
+      !activeRunningTasks.has(task.id) &&
+      (!activeRun || activeRun.taskId !== task.id)
+    ) {
+      await saveTask({
+        ...task,
+        lastStatus: 'cancelled',
+        nextRunAt: computeNextRunAfter(task.schedule, Date.now()),
+        updatedAt: Date.now(),
+      });
+      recovered += 1;
+    }
+  }
+
+  if (recovered > 0) {
+    emitRunnerChange();
+  }
+  return recovered;
 }
 
 /**
@@ -566,6 +838,7 @@ export async function processDueTasks(
   options: RunTaskOptions = {},
 ): Promise<number> {
   if (runnerBusy) return 0;
+  await recoverStaleRunningTasks();
   const due = await getDueTasks();
   if (due.length === 0) {
     await finishPendingAnalysisRuns(options);

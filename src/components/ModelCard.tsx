@@ -93,6 +93,12 @@ interface ModelCardProps {
   animatedModelIds: React.MutableRefObject<Set<string>>;
   /** RAM fit vs device total memory (omit when unknown). */
   ramFit?: RamFitResult | null;
+  /** Highlight this card as the Android Share / Quick actions default. */
+  isQuickActionDefault?: boolean;
+  /** When set, the card can mark itself as the Quick actions default. */
+  onSetQuickActionDefault?: () => void;
+  /** Gray, not-yet-downloaded treatment (Quick actions catalog). */
+  muted?: boolean;
 }
 
 // Cache for quantization extraction to avoid repeated regex operations
@@ -177,6 +183,9 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
   isInitialAnimationPhase,
   animatedModelIds,
   ramFit = null,
+  isQuickActionDefault = false,
+  onSetQuickActionDefault,
+  muted = false,
 }) => {
   const { theme } = useTheme();
   
@@ -206,6 +215,18 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
   const showRamFitDetails = () => {
     if (!ramFit) return;
     setRamFitInfoOpen(true);
+  };
+
+  const quickActionGrid = Boolean(onSetQuickActionDefault);
+  const downloadedActionLayout = {
+    flex: 1,
+    minWidth: quickActionGrid ? ("45%" as const) : undefined,
+    paddingVertical: 10,
+    paddingHorizontal: quickActionGrid ? 12 : 16,
+    borderRadius: 8,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
   };
   
   // Animation values - use refs to avoid re-creation on re-renders
@@ -387,6 +408,12 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
             shadowOpacity: 0,
             elevation: 0,
           },
+          muted && !isDownloaded && {
+            backgroundColor: theme.mode === "dark" ? "#2C2C2C" : "#E6E6E6",
+            borderColor: theme.mode === "dark" ? "#3A3A3A" : "#D4D4D4",
+            shadowOpacity: 0,
+            elevation: 0,
+          },
         ]}
       >
         {/* Main card content */}
@@ -406,7 +433,9 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
               width: 60,
               height: 60,
               borderRadius: 12,
-              backgroundColor: theme.colors.surface,
+              backgroundColor: muted && !isDownloaded
+                ? theme.mode === "dark" ? "#3A3A3A" : "#D8D8D8"
+                : theme.colors.surface,
               marginRight: 12,
               alignItems: "center",
               justifyContent: "center",
@@ -415,7 +444,7 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
             <Icon 
               name={isThinkingModel(model) ? "psychology" : "chat"} 
               size={28} 
-              color={theme.colors.text} 
+              color={muted && !isDownloaded ? theme.colors.textTertiary : theme.colors.text} 
             />
           </View>
 
@@ -425,7 +454,7 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
               style={{
                 fontSize: 16,
                 fontWeight: "600",
-                color: theme.colors.text,
+                color: muted && !isDownloaded ? theme.colors.textSecondary : theme.colors.text,
                 fontFamily: "Poppins",
                 marginBottom: 2,
               }}
@@ -531,6 +560,33 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                     numberOfLines={1}
                   >
                     {model.shelfHint}
+                  </Text>
+                </View>
+              ) : null}
+              {isQuickActionDefault ? (
+                <View
+                  style={{
+                    backgroundColor: theme.colors.surface,
+                    paddingHorizontal: 6,
+                    paddingVertical: 2,
+                    borderRadius: 4,
+                    flexDirection: "row",
+                    alignItems: "center",
+                  }}
+                  accessibilityLabel="Default for Quick actions"
+                >
+                  <Icon name="star" size={11} color={theme.colors.accent} />
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      color: theme.colors.accent,
+                      fontFamily: "Poppins",
+                      fontWeight: "500",
+                      marginLeft: 3,
+                    }}
+                    numberOfLines={1}
+                  >
+                    Quick actions
                   </Text>
                 </View>
               ) : null}
@@ -723,11 +779,39 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
             ) : isLoading ? (
               <ActivityIndicator size="small" color={theme.colors.text} />
             ) : (
-              <Icon 
-                name={isExpanded ? "expand-less" : "expand-more"} 
-                size={24} 
-                color={theme.colors.textSecondary} 
-              />
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                {onSetQuickActionDefault ? (
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      if (!isQuickActionDefault) onSetQuickActionDefault();
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      isQuickActionDefault
+                        ? "Default for Quick actions"
+                        : "Set as Quick actions default"
+                    }
+                    style={{ padding: 4 }}
+                  >
+                    <Icon
+                      name={isQuickActionDefault ? "star" : "star-border"}
+                      size={22}
+                      color={
+                        isQuickActionDefault
+                          ? theme.colors.accent
+                          : theme.colors.textSecondary
+                      }
+                    />
+                  </TouchableOpacity>
+                ) : null}
+                <Icon
+                  name={isExpanded ? "expand-less" : "expand-more"}
+                  size={24}
+                  color={theme.colors.textSecondary}
+                />
+              </View>
             )}
           </View>
         </TouchableOpacity>
@@ -928,22 +1012,65 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
               </View>
             </View>
 
-            {/* Action buttons */}
-            <View style={{ flexDirection: "row", gap: 8 }}>
+            {/* Action buttons — Quick actions uses a 2×2 wrap like persona cards. */}
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: quickActionGrid ? "wrap" : "nowrap",
+                gap: 8,
+              }}
+            >
               {isDownloaded ? (
                 <>
+                  {onSetQuickActionDefault ? (
+                    <TouchableOpacity
+                      onPress={onSetQuickActionDefault}
+                      disabled={isQuickActionDefault}
+                      style={[
+                        downloadedActionLayout,
+                        {
+                          backgroundColor: isQuickActionDefault
+                            ? theme.colors.surface
+                            : theme.colors.secondary,
+                        },
+                      ]}
+                      accessibilityLabel={
+                        isQuickActionDefault
+                          ? "Default for Quick actions"
+                          : "Set as Quick actions default"
+                      }
+                    >
+                      <Icon
+                        name={isQuickActionDefault ? "star" : "star-border"}
+                        size={18}
+                        color={
+                          isQuickActionDefault
+                            ? theme.colors.accent
+                            : theme.colors.text
+                        }
+                      />
+                      <Text
+                        style={{
+                          color: isQuickActionDefault
+                            ? theme.colors.accent
+                            : theme.colors.text,
+                          fontSize: 13,
+                          fontWeight: "600",
+                          fontFamily: "Poppins",
+                          marginLeft: 6,
+                        }}
+                        numberOfLines={1}
+                      >
+                        {isQuickActionDefault ? "Default" : "Set default"}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
                   <TouchableOpacity
                     onPress={onSettings}
-                    style={{
-                      flex: 1,
-                      backgroundColor: theme.colors.primary,
-                      paddingVertical: 10,
-                      paddingHorizontal: 16,
-                      borderRadius: 8,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
+                    style={[
+                      downloadedActionLayout,
+                      { backgroundColor: theme.colors.primary },
+                    ]}
                   >
                     <Icon name="settings" size={18} color={theme.colors.primaryText} />
                     <Text
@@ -960,16 +1087,10 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={onDelete}
-                    style={{
-                      flex: 1,
-                      backgroundColor: theme.colors.error + "20",
-                      paddingVertical: 10,
-                      paddingHorizontal: 16,
-                      borderRadius: 8,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
+                    style={[
+                      downloadedActionLayout,
+                      { backgroundColor: theme.colors.error + "20" },
+                    ]}
                   >
                     <Icon name="delete" size={18} color={theme.colors.error} />
                     <Text
@@ -986,16 +1107,10 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={onDownload}
-                    style={{
-                      flex: 1,
-                      backgroundColor: theme.colors.accent,
-                      paddingVertical: 10,
-                      paddingHorizontal: 16,
-                      borderRadius: 8,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
+                    style={[
+                      downloadedActionLayout,
+                      { backgroundColor: theme.colors.accent },
+                    ]}
                   >
                     <Icon name="play-circle-filled" size={18} color={theme.colors.accentText} />
                     <Text
@@ -1086,7 +1201,10 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
     prevProps.model.needsAuth === nextProps.model.needsAuth &&
     prevProps.ramFit?.tier === nextProps.ramFit?.tier &&
     prevProps.ramFit?.fileBytes === nextProps.ramFit?.fileBytes &&
-    prevProps.ramFit?.totalMemoryBytes === nextProps.ramFit?.totalMemoryBytes
+    prevProps.ramFit?.totalMemoryBytes === nextProps.ramFit?.totalMemoryBytes &&
+    prevProps.isQuickActionDefault === nextProps.isQuickActionDefault &&
+    prevProps.onSetQuickActionDefault === nextProps.onSetQuickActionDefault &&
+    prevProps.muted === nextProps.muted
   );
 });
 

@@ -5,7 +5,7 @@
  * Backup export/import: chats JSON or full ZIP + model re-download queue.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -354,9 +354,12 @@ export default function StorageScreen({
     [exportBusy, importBusy],
   );
 
+  const importLockRef = useRef(false);
+
   const performImport = useCallback(
     async (mode: BackupImportMode) => {
-      if (exportBusy || importBusy) return;
+      if (exportBusy || importBusy || importLockRef.current) return;
+      importLockRef.current = true;
       setImportBusy(true);
       setImportStatus('Reading backup…');
       try {
@@ -418,6 +421,7 @@ export default function StorageScreen({
           [{ text: 'OK' }],
         );
       } finally {
+        importLockRef.current = false;
         setImportBusy(false);
         setImportStatus(null);
       }
@@ -665,34 +669,42 @@ export default function StorageScreen({
         />
         <SectionCard style={{ marginBottom: 16 }}>
           <View style={{ padding: SETTINGS_BLOCK.padding }}>
-            <Text
-              style={{
-                fontFamily: 'Poppins',
-                fontSize: 22,
-                fontWeight: '600',
-                color: theme.colors.text,
-              }}
-            >
-              {chatCountLoading
-                ? '…'
-                : chatCount === 0
-                  ? 'None'
-                  : `${chatCount}`}
-            </Text>
-            <Text
-              style={{
-                fontFamily: 'Poppins',
-                fontSize: 14,
-                color: theme.colors.textSecondary,
-                marginTop: 2,
-              }}
-            >
-              {chatCountLoading
-                ? 'Loading…'
-                : chatCount === 0
-                  ? 'No saved conversations'
-                  : `conversation${chatCount === 1 ? '' : 's'}`}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+              <Text
+                style={{
+                  fontFamily: 'Poppins',
+                  fontSize: 40,
+                  lineHeight: 46,
+                  fontWeight: '600',
+                  color: theme.colors.text,
+                  letterSpacing: -1,
+                  includeFontPadding: false,
+                }}
+              >
+                {chatCountLoading
+                  ? '…'
+                  : chatCount === 0
+                    ? 'None'
+                    : `${chatCount}`}
+              </Text>
+              <Text
+                style={{
+                  fontFamily: 'Poppins',
+                  fontSize: 15,
+                  lineHeight: 20,
+                  color: theme.colors.textSecondary,
+                  marginLeft: 8,
+                  flexShrink: 1,
+                  includeFontPadding: false,
+                }}
+              >
+                {chatCountLoading
+                  ? 'Loading…'
+                  : chatCount === 0
+                    ? 'No saved conversations'
+                    : `conversation${chatCount === 1 ? '' : 's'}`}
+              </Text>
+            </View>
             <Text
               style={{
                 fontFamily: 'Poppins',
@@ -710,7 +722,7 @@ export default function StorageScreen({
               accessibilityLabel="Clear all chat history"
               style={{
                 marginTop: 16,
-                alignSelf: 'flex-start',
+                alignSelf: 'flex-end',
                 flexDirection: 'row',
                 alignItems: 'center',
                 paddingVertical: 10,
@@ -738,7 +750,7 @@ export default function StorageScreen({
                       color: theme.colors.error,
                     }}
                   >
-                    Clear all history
+                    Clear all
                   </Text>
                 </>
               )}
@@ -847,7 +859,7 @@ export default function StorageScreen({
           }}
         >
           Merge keeps your data and updates matching items.{'\n'}
-          Replace overwrites chats and personas from the file.
+          Replace overwrites chats, personas, tasks, and settings that are in the file. Model files download again only from safe HTTPS links.
         </Text>
         <TouchableOpacity
           onPress={() => handleImportMode('merge')}

@@ -119,6 +119,43 @@ export function sanitizeChatForBackup(chat: ChatConversation): ChatConversation 
   };
 }
 
+/** Hosts that must never be fetched during restore (loopback, LAN, link-local, metadata). */
+function isBlockedRestoreHost(host: string): boolean {
+  if (
+    !host ||
+    host === 'localhost' ||
+    host === '0.0.0.0' ||
+    host === '::' ||
+    host === '::1' ||
+    host.endsWith('.local') ||
+    host.endsWith('.localhost') ||
+    host === 'metadata.google.internal'
+  ) {
+    return true;
+  }
+  if (/^\d+$/.test(host)) return true;
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (ipv4) {
+    const a = Number(ipv4[1]);
+    const b = Number(ipv4[2]);
+    if (a > 255 || b > 255 || Number(ipv4[3]) > 255 || Number(ipv4[4]) > 255) {
+      return true;
+    }
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+  }
+  if (
+    host.includes(':') &&
+    (host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd'))
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function isHttpDownloadUrl(url: string | null | undefined): boolean {
   if (!url || typeof url !== 'string') return false;
   try {
@@ -141,19 +178,8 @@ export function isSafeRestoreDownloadUrl(
     const u = new URL(url.trim());
     if (u.protocol !== 'https:') return false;
     if (u.username || u.password) return false;
-    const host = u.hostname.toLowerCase();
-    if (
-      host === 'localhost' ||
-      host === '127.0.0.1' ||
-      host === '0.0.0.0' ||
-      host === '::1' ||
-      host.endsWith('.local') ||
-      host.startsWith('10.') ||
-      host.startsWith('192.168.') ||
-      /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
-    ) {
-      return false;
-    }
+    const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (isBlockedRestoreHost(host)) return false;
     // Path must look like a GGUF fetch (HF resolve or direct .gguf); not open-ended.
     const path = u.pathname.toLowerCase();
     if (!path.endsWith('.gguf') && !/\/resolve\//.test(path)) {
@@ -288,12 +314,13 @@ export function parseBackupPayload(raw: unknown): ParseBackupResult {
       ? o.appVersion
       : 'unknown';
 
-  const chatsRaw = Array.isArray(o.chats) ? o.chats : [];
+  const chatsIncluded = Array.isArray(o.chats);
+  const chatsRaw = chatsIncluded ? o.chats : [];
   const chats = chatsRaw
     .filter(isChatConversation)
     .map((c) => sanitizeChatForBackup(c));
 
-  if (kind === 'chats' && chats.length === 0 && chatsRaw.length > 0) {
+  if (kind === 'chats' && (!chatsIncluded || (chats.length === 0 && chatsRaw.length > 0))) {
     return {
       ok: false,
       error: 'Chat backup contained no valid conversations',
@@ -380,7 +407,7 @@ export function parseBackupPayload(raw: unknown): ParseBackupResult {
       kind,
       exportedAt,
       appVersion,
-      chats,
+      chats: chatsIncluded ? chats : undefined,
       personas,
       perspectivePresets,
       tasks,

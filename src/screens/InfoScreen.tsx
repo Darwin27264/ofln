@@ -103,7 +103,24 @@ const GUIDE_SECTIONS: GuideSection[] = [
     title: "Choosing a model",
     icon: "cube-outline",
     body:
-      "Start here lists phone-friendly picks. Smaller models run faster; larger ones give better answers.\n\n" +
+      "Available Models lists phone-friendly picks. Smaller models run faster; larger ones give better answers.",
+  },
+  {
+    title: "Quick actions",
+    icon: "albums-outline",
+    body:
+      "Downloaded → Quick actions is always there — even before you have a small model. Downloaded picks sit at the top; gray cards are ones you can still download. Expand the list to browse them.",
+  },
+  {
+    title: "Share default",
+    icon: "share-outline",
+    body:
+      "Star a downloaded model to make it the Android Share default (summarize, rephrase, key points) so the overlay can run beside Chrome.",
+  },
+  {
+    title: "RAM & acceleration",
+    icon: "speedometer-outline",
+    body:
       "Tap a model’s RAM-fit dot to check your phone. On Android, Q4_0 and Q6_K can use GPU or NPU when supported.",
   },
   {
@@ -409,7 +426,7 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
         <FrostedPanel
           style={{
             padding: SETTINGS_BLOCK.padding,
-            marginTop: SETTINGS_BLOCK.gap,
+            marginTop: 16,
             marginBottom: 24,
             borderColor: theme.colors.warning,
           }}

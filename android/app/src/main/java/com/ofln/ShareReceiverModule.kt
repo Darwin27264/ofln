@@ -266,15 +266,21 @@ class ShareReceiverModule(private val reactContext: ReactApplicationContext) :
             }
 
             // Text or Link
-            val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: ""
+            val text = extractTextFromIntent(intent)
+            val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT) ?: ""
             val type = detectTextOrLink(text)
+            val foundUrl = extractUrl(text)
+            val hasValidUrl = foundUrl.startsWith("http://", ignoreCase = true) || foundUrl.startsWith("https://", ignoreCase = true)
 
             return Arguments.createMap().apply {
                 putString("action", "SEND")
-                putString("type", type)
+                putString("type", if (type == "link" || (hasValidUrl && (text.trim() == foundUrl || text.length < 120))) "link" else "text")
                 putString("text", text)
-                if (type == "link") {
-                    putString("url", extractUrl(text))
+                if (!subject.isBlank()) {
+                    putString("title", subject)
+                }
+                if (hasValidUrl) {
+                    putString("url", foundUrl)
                 }
                 putBoolean("isReadOnly", true)
                 if (!quickAction.isNullOrBlank()) {
@@ -361,6 +367,25 @@ class ShareReceiverModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
+    private fun extractTextFromIntent(intent: Intent): String {
+        val charSeq = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)
+        if (!charSeq.isNullOrBlank()) {
+            return charSeq.toString()
+        }
+        val str = intent.getStringExtra(Intent.EXTRA_TEXT)
+        if (!str.isNullOrBlank()) {
+            return str
+        }
+        val clipData = intent.clipData
+        if (clipData != null && clipData.itemCount > 0) {
+            val itemText = clipData.getItemAt(0)?.text
+            if (!itemText.isNullOrBlank()) {
+                return itemText.toString()
+            }
+        }
+        return ""
+    }
+
     private fun detectTextOrLink(raw: String): String {
         val trimmed = raw.trim()
         val isPureUrl = trimmed.startsWith("http://", ignoreCase = true) ||
@@ -372,6 +397,6 @@ class ShareReceiverModule(private val reactContext: ReactApplicationContext) :
         val trimmed = raw.trim()
         val urlRegex = Regex("""https?://[^\s]+""", RegexOption.IGNORE_CASE)
         val match = urlRegex.find(trimmed)
-        return match?.value ?: trimmed
+        return match?.value ?: ""
     }
 }

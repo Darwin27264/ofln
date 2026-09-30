@@ -123,6 +123,8 @@ export type ChatComposerProps = {
    * relaid out the blur/SVG chrome every frame and dropped frames.
    */
   composerLift: Animated.Value;
+  /** Optional enter fade (tutorial → chat). Omitted means fully visible. */
+  enterOpacity?: Animated.Value;
   /** Static resting gap below the input row (nav clearance). */
   restingBottomPadding: number;
   scaleAnim: Animated.Value;
@@ -168,6 +170,7 @@ export type ChatComposerProps = {
 export function ChatComposer({
   shellBackground,
   composerLift,
+  enterOpacity,
   restingBottomPadding,
   scaleAnim,
   onOverlayLayout,
@@ -367,7 +370,11 @@ export function ChatComposer({
       )}
 
       <Animated.View
-        style={[styles.bottomContainer, { transform: liftTransform }]}
+        style={[
+          styles.bottomContainer,
+          { transform: liftTransform },
+          enterOpacity != null ? { opacity: enterOpacity } : null,
+        ]}
         onLayout={(e) => {
           const h = e.nativeEvent.layout.height;
           if (h > 0 && Math.abs(h - fadeHeight) > 1) {
@@ -480,7 +487,7 @@ export function ChatComposer({
                 ]}
                 placeholder={
                   isGenerating
-                    ? 'Agents are responding…'
+                    ? 'Responding…'
                     : isListening
                       ? 'Listening…'
                       : 'Message...'

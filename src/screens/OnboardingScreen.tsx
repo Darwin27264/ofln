@@ -115,8 +115,9 @@ export default function OnboardingScreen({
   }, []);
 
   const finish = useCallback(
-    async (destination: OnboardingExit) => {
-      await markOnboardingComplete();
+    (destination: OnboardingExit) => {
+      // Persist in the background so the chat enter isn't waiting on storage.
+      void markOnboardingComplete();
       onFinished(destination);
     },
     [onFinished],

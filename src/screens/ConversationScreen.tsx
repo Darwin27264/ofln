@@ -734,6 +734,16 @@ export default function ConversationScreen({
   const quickActionsOpacityReadyRef = useRef(false);
   /** Empty-hero enter — greeting + presets fade/scale in over the hue. */
   const emptyHeroEnter = useRef(new Animated.Value(0)).current;
+  /**
+   * Tutorial handoff only: pills + composer ease in a beat after the canvas
+   * so the chat chrome doesn't snap on with the page.
+   */
+  const handoffChrome = useRef(ambientHueHandoff).current;
+  const chromeEnter = useRef(new Animated.Value(handoffChrome ? 0 : 1)).current;
+  const chromeEnterStyle = useMemo(
+    () => (handoffChrome ? { opacity: chromeEnter } : null),
+    [chromeEnter, handoffChrome],
+  );
   const [greetingLine, setGreetingLine] = useState(persistedGreetingLine);
   const hadMessagesRef = useRef(!noMessages);
 
@@ -755,19 +765,59 @@ export default function ConversationScreen({
     }
     emptyHeroEnter.setValue(0);
     // Read handoff at empty-enter time only — don't re-run when handoff flag clears.
-    const delay = ambientHueHandoff ? 320 : 100;
-    const anim = Animated.timing(emptyHeroEnter, {
-      toValue: 1,
-      duration: OVERLAY_MOTION.FADE_IN_MS,
-      delay,
-      easing: EASING.EASE_OUT,
-      useNativeDriver: true,
-    });
-    anim.start();
-    return () => anim.stop();
+    const fromTutorial = ambientHueHandoff;
+    let rafOuter = 0;
+    let rafInner = 0;
+    let anim: Animated.CompositeAnimation | null = null;
+    const start = () => {
+      anim = Animated.timing(emptyHeroEnter, {
+        toValue: 1,
+        duration: OVERLAY_MOTION.FADE_IN_MS,
+        delay: fromTutorial ? 140 : 100,
+        easing: EASING.EASE_OUT,
+        useNativeDriver: true,
+      });
+      anim.start();
+    };
+    if (fromTutorial) {
+      rafOuter = requestAnimationFrame(() => {
+        rafInner = requestAnimationFrame(start);
+      });
+    } else {
+      start();
+    }
+    return () => {
+      cancelAnimationFrame(rafOuter);
+      cancelAnimationFrame(rafInner);
+      anim?.stop();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handoff only sampled when noMessages flips on
   }, [noMessages, emptyHeroEnter]);
-  
+
+  useEffect(() => {
+    if (!handoffChrome) return;
+    let rafOuter = 0;
+    let rafInner = 0;
+    let anim: Animated.CompositeAnimation | null = null;
+    rafOuter = requestAnimationFrame(() => {
+      rafInner = requestAnimationFrame(() => {
+        anim = Animated.timing(chromeEnter, {
+          toValue: 1,
+          duration: 320,
+          delay: 60,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        });
+        anim.start();
+      });
+    });
+    return () => {
+      cancelAnimationFrame(rafOuter);
+      cancelAnimationFrame(rafInner);
+      anim?.stop();
+    };
+  }, [chromeEnter, handoffChrome]);
+
   // Animation for temporary mode content transitions
   const presetMessagesAnim = useRef(new Animated.Value(1)).current;
   const tempModeExplanationAnim = useRef(new Animated.Value(0)).current;
@@ -2925,7 +2975,9 @@ export default function ConversationScreen({
 
         {/* Top-left pills for slide-out panel and model selector */}
         {/* Keep buttons mounted but behind panel when open */}
-        <View style={{ zIndex: 10, pointerEvents: isPanelOpen ? 'none' : 'auto' }}>
+        <Animated.View
+          style={[{ zIndex: 10, pointerEvents: isPanelOpen ? 'none' : 'auto' }, chromeEnterStyle]}
+        >
           <TouchableOpacity style={styles.topLeftPill} onPress={togglePanel} activeOpacity={0.85}>
             <FrostedGlass style={StyleSheet.absoluteFillObject} />
             <Ionicons name="reorder-two-outline" size={23} color={theme.colors.text} />
@@ -3031,11 +3083,11 @@ export default function ConversationScreen({
               Temporary Mode
             </Text>
           )}
-        </View>
+        </Animated.View>
 
         {/* Top-right container for temporary mode/new chat and settings buttons */}
         {/* Keep buttons mounted but behind panel when open */}
-        <View style={[styles.topRightButtons, { pointerEvents: isPanelOpen ? 'none' : 'auto' }]}>
+        <Animated.View style={[styles.topRightButtons, { pointerEvents: isPanelOpen ? 'none' : 'auto' }, chromeEnterStyle]}>
           {!hasStartedChat ? (
             isPerspectiveMode ? (
               // Perspective armed but idle — New Chat cancels / resets Perspective
@@ -3091,7 +3143,7 @@ export default function ConversationScreen({
             <FrostedGlass style={StyleSheet.absoluteFillObject} />
             <Ionicons name="settings-outline" size={23} color={theme.colors.text} />
           </TouchableOpacity>
-        </View>
+        </Animated.View>
 
         <HistoryDrawer
           isPanelOpen={isPanelOpen}
@@ -3206,6 +3258,7 @@ export default function ConversationScreen({
         <ChatComposer
           shellBackground={shellBackground}
           composerLift={composerLift}
+          enterOpacity={handoffChrome ? chromeEnter : undefined}
           restingBottomPadding={restingComposerPadding}
           scaleAnim={scaleAnim}
           onOverlayLayout={(h) => {

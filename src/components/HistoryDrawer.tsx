@@ -27,7 +27,7 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
-import { SolidChrome, frostedPanelSystemBarColor } from './FrostedGlass';
+import { SolidChrome, frostedPanelSystemBarColor, SETTINGS_BLOCK } from './FrostedGlass';
 import { FloatingBackButton } from './FloatingBackButton';
 import { useTheme } from '../context/ThemeContext';
 import type { ChatConversation, Message } from '../services/chatHistoryService';
@@ -49,10 +49,10 @@ export type GroupedChatHistory = {
   groupedUnpinned: Map<string, ChatConversation[]>;
 };
 
-/** Matches conversation cards / message menus (12), not hub tiles (30). */
-const CARD_RADIUS = 12;
+/** Matches hub tiles / floating buttons (`SETTINGS_BLOCK.radius` = 30). */
+const CARD_RADIUS = SETTINGS_BLOCK.radius;
 /** Nested media — slightly tighter than the card shell. */
-const CARD_MEDIA_RADIUS = 8;
+const CARD_MEDIA_RADIUS = 16;
 const GAP = 10;
 /** Cards mounted while the panel translates — roughly one screenful per column. */
 const SLIDE_CARD_BUDGET = 12;
@@ -166,9 +166,18 @@ type ChatHistoryCardProps = {
   onToggleSelect?: () => void;
 };
 
-/** Current-chat fill — lighter than `card` so the active thread reads clearly. */
+/**
+ * Idle history fill. Dark `card` (#1A1A1A) sits on the panel (#181818) and
+ * disappears — lift a step, stay below the current-chat highlight.
+ */
+function historyCardBackground(theme: ChatHistoryCardProps['theme']): string {
+  if (theme.mode === 'dark') return '#252525';
+  // Panel is #E8E8E8; a touch brighter than `card` so tiles read as tiles.
+  return '#F8F8F8';
+}
+
+/** Current-chat fill — lighter than idle so the active thread reads clearly. */
 function currentChatBackground(theme: ChatHistoryCardProps['theme']): string {
-  // Dark: secondary (#2A2A2A) is too close to card (#1A1A1A); lift further.
   if (theme.mode === 'dark') return '#3A3A3A';
   return theme.colors.secondary;
 }
@@ -198,7 +207,7 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(
       return (
         <View
           style={{
-            backgroundColor: theme.colors.card,
+            backgroundColor: historyCardBackground(theme),
             borderRadius: CARD_RADIUS,
             borderWidth: 1,
             borderColor: theme.colors.border,
@@ -233,7 +242,7 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(
         style={{
           backgroundColor: isCurrentChat
             ? currentChatBackground(theme)
-            : theme.colors.card,
+            : historyCardBackground(theme),
           borderRadius: CARD_RADIUS,
           borderWidth: 1,
           borderColor: isSelected
@@ -242,7 +251,7 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(
               ? theme.mode === 'dark'
                 ? '#5A5A5A'
                 : theme.colors.border
-              : theme.colors.borderLight,
+              : theme.colors.border,
           padding: 16,
           marginBottom: GAP,
           overflow: 'hidden',

@@ -22,6 +22,8 @@ export async function notifyTaskFinished(
   task: ScheduledTask,
   run: TaskRun,
 ): Promise<boolean> {
+  if (run.status === 'cancelled') return false;
+
   const isSuccess = run.status === 'success';
   const isPending = run.status === 'pending_analysis';
 

@@ -84,7 +84,7 @@ import {
   getFullAppHandoff,
   publishDirectShareShortcuts,
 } from "./src/services/shareReceiverService";
-import { processDueTasks } from "./src/services/taskRunnerService";
+import { processDueTasks, recoverStaleRunningTasks } from "./src/services/taskRunnerService";
 import { chatHistoryService } from "./src/services/chatHistoryService";
 import { ModelInfo } from "./src/components/ModelCard";
 
@@ -219,6 +219,37 @@ function AppContent(): React.JSX.Element {
   const [onboardingSkipTo, setOnboardingSkipTo] = useState<"conversation" | "info">("conversation");
   /** One-shot: gather onboarding hue into the chat center after tutorial ends. */
   const [ambientHueHandoff, setAmbientHueHandoff] = useState(false);
+  /**
+   * Tutorial stays painted over chat for the mount hitch, then fades out as
+   * the chat page fades in — avoids a blank gap and a single pop.
+   */
+  const [onboardingCover, setOnboardingCover] = useState(false);
+  const onboardingCoverOpacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (!onboardingCover || currentPage === "onboarding") return;
+    let rafOuter = 0;
+    let rafInner = 0;
+    let anim: Animated.CompositeAnimation | null = null;
+    rafOuter = requestAnimationFrame(() => {
+      rafInner = requestAnimationFrame(() => {
+        anim = Animated.timing(onboardingCoverOpacity, {
+          toValue: 0,
+          duration: OVERLAY_MOTION.FADE_IN_MS,
+          easing: EASING.EASE_OUT,
+          useNativeDriver: true,
+        });
+        anim.start(({ finished }) => {
+          if (finished) setOnboardingCover(false);
+        });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(rafOuter);
+      cancelAnimationFrame(rafInner);
+      anim?.stop();
+    };
+  }, [onboardingCover, currentPage, onboardingCoverOpacity]);
   /**
    * Keep ConversationScreen mounted while visiting Settings so Back does not
    * remount the chat (AmbientHue + MessageList) under PageFadeIn — that remount
@@ -367,6 +398,7 @@ function AppContent(): React.JSX.Element {
         await initBackgroundTaskScheduling();
         if (!cancelled) {
           await scheduleBackgroundFetch();
+          await recoverStaleRunningTasks();
           await syncAllScheduledTasks();
           await publishDirectShareShortcuts();
           const initialNotif = await getInitialTaskNotification();
@@ -920,17 +952,36 @@ function AppContent(): React.JSX.Element {
           backgroundColor: "transparent",
         }}
       >
-        {!bootstrapped ? null : currentPage === "onboarding" ? (
-          <OnboardingScreen
-            downloadedModels={downloadedModels}
-            skipDestination={onboardingSkipTo}
-            onFinished={(destination) => {
-              if (destination === "conversation") {
-                setAmbientHueHandoff(true);
-              }
-              setCurrentPage(destination);
-            }}
-          />
+        {!bootstrapped ? null : currentPage === "onboarding" || onboardingCover ? (
+          <Animated.View
+            pointerEvents={currentPage === "onboarding" ? "auto" : "none"}
+            style={
+              currentPage === "onboarding"
+                ? { flex: 1 }
+                : {
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    zIndex: 40,
+                    opacity: onboardingCoverOpacity,
+                  }
+            }
+          >
+            <OnboardingScreen
+              downloadedModels={downloadedModels}
+              skipDestination={onboardingSkipTo}
+              onFinished={(destination) => {
+                if (destination === "conversation") {
+                  onboardingCoverOpacity.setValue(1);
+                  setOnboardingCover(true);
+                  setAmbientHueHandoff(true);
+                }
+                setCurrentPage(destination);
+              }}
+            />
+          </Animated.View>
         ) : null}
 
         {bootstrapped && currentPage === "modelSelection" && (
@@ -964,7 +1015,7 @@ function AppContent(): React.JSX.Element {
           // Settings is then a visibility flip, not a ConversationScreen remount.
           style={conversationVisible ? { flex: 1 } : ({ display: "none" } as const)}
         >
-          <PageFadeIn key="conversation">
+          <PageFadeIn key="conversation" deferEnter={ambientHueHandoff}>
             <ConversationScreen
           conversation={conversation}
           setConversation={setConversation}

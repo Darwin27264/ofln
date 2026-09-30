@@ -4,7 +4,9 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import com.facebook.react.bridge.*
 
 class TaskSchedulerModule(private val reactContext: ReactApplicationContext) :
@@ -99,6 +101,28 @@ class TaskSchedulerModule(private val reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun openExactAlarmSettings(promise: Promise) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            promise.resolve(false)
+            return
+        }
+        val activity = currentActivity
+        if (activity == null) {
+            promise.resolve(false)
+            return
+        }
+        try {
+            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                data = Uri.parse("package:${reactContext.packageName}")
+            }
+            activity.startActivity(intent)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("E_EXACT_ALARM_SETTINGS", e.message, e)
+        }
+    }
+
+    @ReactMethod
     fun canScheduleExactAlarms(promise: Promise) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val manager = alarmManager
@@ -169,6 +193,43 @@ class TaskSchedulerModule(private val reactContext: ReactApplicationContext) :
             promise.resolve(map)
         } else {
             promise.resolve(null)
+        }
+    }
+
+    @ReactMethod
+    fun isIgnoringBatteryOptimizations(promise: Promise) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = reactContext.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            promise.resolve(powerManager?.isIgnoringBatteryOptimizations(reactContext.packageName) ?: true)
+        } else {
+            promise.resolve(true)
+        }
+    }
+
+    @ReactMethod
+    fun openBatteryOptimizationSettings(promise: Promise) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val activity = currentActivity ?: run {
+                promise.resolve(false)
+                return
+            }
+            try {
+                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                activity.startActivity(intent)
+                promise.resolve(true)
+            } catch (e: Exception) {
+                try {
+                    val fallbackIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:${reactContext.packageName}")
+                    }
+                    activity.startActivity(fallbackIntent)
+                    promise.resolve(true)
+                } catch (fallbackErr: Exception) {
+                    promise.reject("E_BATTERY_SETTINGS", fallbackErr.message, fallbackErr)
+                }
+            }
+        } else {
+            promise.resolve(false)
         }
     }
 }

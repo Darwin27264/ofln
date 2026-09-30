@@ -3,12 +3,17 @@ import {
   STARTER_SHELF_TITLE,
   STARTER_SHELF_SUBTITLE,
   STARTER_SHELF_TABS,
+  DOWNLOADED_SHELF_TABS,
   getAvailableStarterModels,
   getStarterShelfCatalog,
   findStarterByFileName,
+  isShareSheetModelFile,
+  pickQuickActionsModelFile,
+  splitQuickActionsCatalog,
   ONBOARDING_STARTER_IDS,
   PERSONA_ROLEPLAY_MODELS,
   CODING_STARTER_MODELS,
+  SHARE_SHEET_MODELS,
 } from '../src/services/starterModels';
 
 describe('starterModels shelf', () => {
@@ -66,10 +71,57 @@ describe('starterModels shelf', () => {
   });
 
   it('start here tabs map to catalogs', () => {
-    expect(STARTER_SHELF_TABS.map((t) => t.id)).toEqual(['general', 'personas', 'coding']);
+    expect(STARTER_SHELF_TABS.map((t) => t.id)).toEqual([
+      'general',
+      'personas',
+      'coding',
+    ]);
     expect(getStarterShelfCatalog('general')).toBe(STARTER_MODELS);
     expect(getStarterShelfCatalog('personas')).toBe(PERSONA_ROLEPLAY_MODELS);
     expect(getStarterShelfCatalog('coding')).toBe(CODING_STARTER_MODELS);
+  });
+
+  it('downloaded tabs split all vs quick-actions models', () => {
+    expect(DOWNLOADED_SHELF_TABS.map((t) => t.id)).toEqual(['all', 'quickActions']);
+    expect(DOWNLOADED_SHELF_TABS[1].label.toLowerCase()).toContain('quick');
+    expect(isShareSheetModelFile(SHARE_SHEET_MODELS[0].fileName)).toBe(true);
+    expect(isShareSheetModelFile('not-a-share-model.gguf')).toBe(false);
+  });
+
+  it('picks the Quick actions default when that file is on disk', () => {
+    const share = SHARE_SHEET_MODELS[0].fileName;
+    const other = 'Huge-70B-Q4_K_M.gguf';
+    expect(pickQuickActionsModelFile([], share)).toBeNull();
+    expect(pickQuickActionsModelFile([other, share], share)).toBe(share);
+    expect(pickQuickActionsModelFile([other, share], other)).toBe(other);
+    expect(pickQuickActionsModelFile([other, share], 'gone.gguf')).toBe(share);
+    expect(pickQuickActionsModelFile([other], null)).toBe(other);
+  });
+
+  it('splits Quick actions catalog into downloaded vs downloadable', () => {
+    const have = SHARE_SHEET_MODELS[0].fileName;
+    const split = splitQuickActionsCatalog([have, 'other.gguf']);
+    expect(split.downloaded.map((m) => m.fileName)).toEqual([have]);
+    expect(split.downloadable.map((m) => m.fileName)).toEqual(
+      SHARE_SHEET_MODELS.slice(1).map((m) => m.fileName),
+    );
+    expect(splitQuickActionsCatalog([]).downloaded).toEqual([]);
+    expect(splitQuickActionsCatalog([]).downloadable).toHaveLength(SHARE_SHEET_MODELS.length);
+  });
+
+  it('share-from-apps picks stay light Q4_0 instruct for Android overlay', () => {
+    expect(SHARE_SHEET_MODELS.length).toBeGreaterThanOrEqual(3);
+    expect(SHARE_SHEET_MODELS.length).toBeLessThanOrEqual(4);
+    const generalIds = new Set(STARTER_MODELS.map((m) => m.id));
+    for (const m of SHARE_SHEET_MODELS) {
+      expect(generalIds.has(m.id)).toBe(true);
+      expect(m.fileName.toLowerCase().endsWith('.gguf')).toBe(true);
+      expect(m.fileName.toLowerCase()).toContain('q4_0');
+      expect(m.repoId).toContain('/');
+      expect(m.shelfHint.toLowerCase()).toContain('share');
+      expect(m.tags.map((t) => t.toLowerCase())).toContain('share');
+      expect(m.sizeBytes).toBeLessThan(1.5 * 1024 * 1024 * 1024);
+    }
   });
 
   it('finds starters across all shelves', () => {
@@ -79,11 +131,15 @@ describe('starterModels shelf', () => {
     expect(findStarterByFileName(CODING_STARTER_MODELS[0].fileName)?.id).toBe(
       CODING_STARTER_MODELS[0].id,
     );
+    expect(findStarterByFileName(SHARE_SHEET_MODELS[0].fileName)?.id).toBe(
+      SHARE_SHEET_MODELS[0].id,
+    );
   });
 
   it('all starter models define valid 64-char hex SHA-256 digests', () => {
     const all = [
       ...STARTER_MODELS,
+      ...SHARE_SHEET_MODELS,
       ...PERSONA_ROLEPLAY_MODELS,
       ...CODING_STARTER_MODELS,
     ];
@@ -96,6 +152,7 @@ describe('starterModels shelf', () => {
   it('all starter models define exact positive byte counts (sizeBytes)', () => {
     const all = [
       ...STARTER_MODELS,
+      ...SHARE_SHEET_MODELS,
       ...PERSONA_ROLEPLAY_MODELS,
       ...CODING_STARTER_MODELS,
     ];

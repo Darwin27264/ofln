@@ -46,6 +46,7 @@ import { pick, isErrorWithCode, errorCodes } from "@react-native-documents/picke
 import { saveLocalModel, removeLocalModel, LocalModelInfo } from "../services/localModelService";
 import { llamaProvider } from "../providers/llamaProvider";
 import { ModelCard, ModelInfo } from "../components/ModelCard";
+import { StaggerFadeIn } from "../components/StaggerFadeIn";
 import { useModelFilter } from "../hooks/useModelFilter";
 import { prettifyModelName, getQuantRecommendLabel } from "../utils/modelUtils";
 import {
@@ -78,9 +79,13 @@ import {
 import {
   STARTER_SHELF_TITLE,
   STARTER_SHELF_TABS,
+  DOWNLOADED_SHELF_TABS,
   findStarterByFileName,
   getAvailableStarterModels,
   getStarterShelfCatalog,
+  splitQuickActionsCatalog,
+  isShareSheetModelFile,
+  type DownloadedShelfTabId,
   type StarterShelfTabId,
 } from "../services/starterModels";
 import { formatDownloadProgressLine } from "../utils/downloadProgressFormat";
@@ -89,6 +94,11 @@ import {
   DEFAULT_CHROME_SCALE,
   type ChromeScale,
 } from "../utils/chromeScale";
+import {
+  clearQuickActionsDefaultIfMatch,
+  getQuickActionsDefaultModel,
+  setQuickActionsDefaultModel,
+} from "../services/quickActionsDefaultService";
 
 const ADD_MODEL_TILE_HEIGHT = 96;
 const ADD_MODEL_TILE_GAP = SETTINGS_BLOCK.gap;
@@ -194,7 +204,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                 lineHeight: Math.round(addModelLabelSize * 1.2),
               },
             ]}
-            numberOfLines={2}
+            numberOfLines={1}
           >
             {label}
           </Text>
@@ -272,12 +282,27 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   /** Device total RAM for fit chips (null until read / unavailable). */
   const [totalMemoryBytes, setTotalMemoryBytes] = useState<number | null>(null);
   const [starterShelfTab, setStarterShelfTab] = useState<StarterShelfTabId>("general");
+  const [downloadedTab, setDownloadedTab] = useState<DownloadedShelfTabId>("all");
+  const [quickActionsDefault, setQuickActionsDefault] = useState<string | null>(null);
+  const [qaCatalogOpen, setQaCatalogOpen] = useState(false);
 
   useEffect(() => {
     if (!initialStarterShelfTab) return;
     setStarterShelfTab(initialStarterShelfTab);
     onStarterShelfTabConsumed?.();
   }, [initialStarterShelfTab, onStarterShelfTabConsumed]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getQuickActionsDefaultModel()
+      .then((name) => {
+        if (!cancelled) setQuickActionsDefault(name);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const starterShelfFrost = useMemo(() => {
     const dark = theme.mode === "dark";
@@ -310,6 +335,12 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const activeStarterShelfTab = useMemo(
     () => STARTER_SHELF_TABS.find((tab) => tab.id === starterShelfTab) ?? STARTER_SHELF_TABS[0],
     [starterShelfTab],
+  );
+  const activeDownloadedTab = useMemo(
+    () =>
+      DOWNLOADED_SHELF_TABS.find((tab) => tab.id === downloadedTab) ??
+      DOWNLOADED_SHELF_TABS[0],
+    [downloadedTab],
   );
 
   useEffect(() => {
@@ -1104,6 +1135,8 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
               }
               await RNFS.unlink(filePath);
               await checkDownloadedModels();
+              await clearQuickActionsDefaultIfMatch(file);
+              setQuickActionsDefault((prev) => (prev === file ? null : prev));
               // Close dropdown if this model was expanded
               setExpandedModelId(null);
             } catch (error) {
@@ -1716,11 +1749,23 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     }
   }, [customUrlInput, closeCustomUrlModal, closeInfoSheet, handleModelDownload, setCurrentPage, showInfoSheet]);
 
+  const handleSetQuickActionDefault = useCallback(async (fileName: string) => {
+    await setQuickActionsDefaultModel(fileName);
+    setQuickActionsDefault(fileName);
+  }, []);
+
   /**
    * Render a model card with proper props
    * Uses the extracted ModelCard component for better performance
    */
-  const renderModelCard = useCallback((model: ModelInfo, isDownloaded: boolean, index: number) => {
+  const renderModelCard = useCallback((
+    model: ModelInfo,
+    isDownloaded: boolean,
+    index: number,
+    skipEnter = false,
+    quickAction?: { isDefault: boolean; onSetDefault?: () => void },
+    muted = false,
+  ) => {
     const isDownloading = downloadProgress[model.fileName] !== undefined;
     const isPaused = !isDownloading && pausedDownloads[model.fileName] !== undefined;
     const progress = isDownloading
@@ -1750,9 +1795,12 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         onSettings={() => handleOpenSettings(model)}
         isExpanded={isExpanded}
         onToggleExpand={() => setExpandedModelId(isExpanded ? null : modelKey)}
-        isInitialAnimationPhase={isInitialAnimationPhase.current}
+        isInitialAnimationPhase={skipEnter ? false : isInitialAnimationPhase.current}
         animatedModelIds={animatedModelIds}
         ramFit={ramFit}
+        isQuickActionDefault={quickAction?.isDefault}
+        onSetQuickActionDefault={quickAction?.onSetDefault}
+        muted={muted}
       />
     );
   }, [downloadProgress, downloadProgressDetail, pausedDownloads, loadingModelFile, isLoadingModel, expandedModelId, handleModelDownload, handleDeleteModel, handleCancelDownload, handleDiscardPausedDownload, handleOpenSettings, isInitialAnimationPhase, animatedModelIds, totalMemoryBytes]);
@@ -1775,12 +1823,43 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
       .filter((m) => m !== null) as ModelInfo[];
   }, [downloadedModels]);
 
+  const visibleDownloadedModels = useMemo(() => {
+    if (downloadedTab === "quickActions") {
+      return downloadedModelsInfo.filter((m) => isShareSheetModelFile(m.fileName));
+    }
+    return downloadedModelsInfo;
+  }, [downloadedModelsInfo, downloadedTab]);
+
+  const quickActionsCatalog = useMemo(
+    () => splitQuickActionsCatalog(downloadedModels),
+    [downloadedModels],
+  );
+
+  const qaDownloadableVisible = useMemo(() => {
+    if (qaCatalogOpen) return quickActionsCatalog.downloadable;
+    return quickActionsCatalog.downloadable.filter(
+      (m) =>
+        downloadProgress[m.fileName] !== undefined ||
+        pausedDownloads[m.fileName] !== undefined,
+    );
+  }, [
+    qaCatalogOpen,
+    quickActionsCatalog.downloadable,
+    downloadProgress,
+    pausedDownloads,
+  ]);
+
+  const qaDownloadableHiddenCount =
+    quickActionsCatalog.downloadable.length - qaDownloadableVisible.length;
+
   // Memoize filtered starter shelf models for the active tab
   const availableStarterShelfModels = useMemo(() => {
-    return getAvailableStarterModels(
-      downloadedModels,
-      getStarterShelfCatalog(starterShelfTab),
-    );
+    const catalog = getStarterShelfCatalog(starterShelfTab);
+    const available = getAvailableStarterModels(downloadedModels, catalog);
+    if (starterShelfTab === "general") {
+      return available.filter((m) => !isShareSheetModelFile(m.fileName));
+    }
+    return available;
   }, [downloadedModels, starterShelfTab]);
 
   return (
@@ -1924,9 +2003,8 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
           </View>
         )}
 
-        {/* Downloaded Section */}
-        {downloadedModelsInfo.length > 0 && (
-          <View style={{ marginBottom: 24 }}>
+        {/* Downloaded Section — always visible so Quick actions can catalog small models */}
+        <View style={{ marginBottom: 24 }}>
             <Text
               style={{
                 fontSize: 20,
@@ -1938,13 +2016,203 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
             >
               Downloaded
             </Text>
-            {downloadedModelsInfo.map((model, index) => (
-              <View key={`${model.id}:${model.fileName}:${index}`}>
-                {renderModelCard(model, true, index)}
-              </View>
-            ))}
-          </View>
-        )}
+
+            <SegmentedTabBar
+              tabs={DOWNLOADED_SHELF_TABS}
+              activeId={downloadedTab}
+              onChange={(id) => {
+                const next = id as DownloadedShelfTabId;
+                setDownloadedTab(next);
+                if (next !== "quickActions") setQaCatalogOpen(false);
+              }}
+              chromeOuter={[
+                starterShelfChromeOuter,
+                { marginBottom: 12 },
+              ]}
+              chromeInner={starterShelfChromeInner}
+              chromeScale={density}
+              activeLabelColor={theme.colors.primaryText}
+              inactiveLabelColor={theme.colors.text}
+              activePillColor={theme.colors.primary}
+            />
+
+            <View key={downloadedTab}>
+              {!!activeDownloadedTab.subtitle && (
+                <StaggerFadeIn index={0} active offset={8} staggerMs={16}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      marginBottom: 12,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        flex: 1,
+                        fontSize: 13,
+                        color: theme.colors.textSecondary,
+                        fontFamily: "Poppins",
+                        lineHeight: 20,
+                      }}
+                      numberOfLines={1}
+                    >
+                      {activeDownloadedTab.subtitle}
+                    </Text>
+                    {activeDownloadedTab.infoMessage ? (
+                      <TouchableOpacity
+                        onPress={() =>
+                          showInfoSheet(
+                            activeDownloadedTab.infoTitle || activeDownloadedTab.label,
+                            activeDownloadedTab.infoMessage || "",
+                            "Android Share",
+                          )
+                        }
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={{ marginLeft: 8, padding: 2 }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Quick actions info"
+                        accessibilityHint="Explains Android Share overlay models"
+                      >
+                        <Ionicons
+                          name="information-circle-outline"
+                          size={20}
+                          color={theme.colors.textSecondary}
+                        />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </StaggerFadeIn>
+              )}
+
+              {downloadedTab === "quickActions" ? (
+                <>
+                  {quickActionsCatalog.downloaded.map((model, index) => (
+                    <StaggerFadeIn
+                      key={`${model.id}:${model.fileName}`}
+                      index={index}
+                      active
+                      offset={12}
+                      staggerMs={20}
+                    >
+                      {renderModelCard(model, true, index, true, {
+                        isDefault: quickActionsDefault === model.fileName,
+                        onSetDefault: () => {
+                          void handleSetQuickActionDefault(model.fileName);
+                        },
+                      })}
+                    </StaggerFadeIn>
+                  ))}
+
+                  {qaDownloadableVisible.map((model, index) => (
+                    <StaggerFadeIn
+                      key={`${model.id}:${model.fileName}`}
+                      index={quickActionsCatalog.downloaded.length + index}
+                      active
+                      offset={12}
+                      staggerMs={20}
+                    >
+                      {renderModelCard(
+                        model,
+                        false,
+                        quickActionsCatalog.downloaded.length + index,
+                        true,
+                        undefined,
+                        true,
+                      )}
+                    </StaggerFadeIn>
+                  ))}
+
+                  {quickActionsCatalog.downloadable.length > 0 &&
+                  (qaCatalogOpen || qaDownloadableHiddenCount > 0) ? (
+                    <TouchableOpacity
+                      onPress={() => setQaCatalogOpen((open) => !open)}
+                      activeOpacity={0.85}
+                      style={{ marginTop: 4, marginBottom: 8 }}
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: qaCatalogOpen }}
+                      accessibilityLabel={
+                        qaCatalogOpen
+                          ? "Hide models you can download"
+                          : "Show more models you can download"
+                      }
+                    >
+                      <FrostedPanel
+                        style={{
+                          paddingVertical: 12,
+                          paddingHorizontal: SETTINGS_BLOCK.padding,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Icon
+                          name={qaCatalogOpen ? "expand-less" : "expand-more"}
+                          size={20}
+                          color={theme.colors.text}
+                        />
+                        <Text
+                          style={{
+                            color: theme.colors.text,
+                            fontSize: 14,
+                            fontWeight: "600",
+                            fontFamily: "Poppins",
+                            marginLeft: 8,
+                          }}
+                        >
+                          {qaCatalogOpen
+                            ? "Show less"
+                            : "Show more to download"}
+                        </Text>
+                      </FrostedPanel>
+                    </TouchableOpacity>
+                  ) : quickActionsCatalog.downloaded.length === 0 ? (
+                    <StaggerFadeIn index={0} active offset={8} staggerMs={16}>
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          color: theme.colors.textSecondary,
+                          fontFamily: "Poppins",
+                          lineHeight: 20,
+                          marginBottom: 8,
+                        }}
+                      >
+                        No small models in the Quick actions catalog.
+                      </Text>
+                    </StaggerFadeIn>
+                  ) : null}
+                </>
+              ) : visibleDownloadedModels.length === 0 ? (
+                <StaggerFadeIn index={0} active offset={8} staggerMs={16}>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      color: theme.colors.textSecondary,
+                      fontFamily: "Poppins",
+                      lineHeight: 20,
+                      marginBottom: 8,
+                    }}
+                  >
+                    No models downloaded yet.
+                  </Text>
+                </StaggerFadeIn>
+              ) : (
+                visibleDownloadedModels.map((model, index) => (
+                  <StaggerFadeIn
+                    key={`${model.id}:${model.fileName}`}
+                    index={index}
+                    active
+                    offset={12}
+                    staggerMs={20}
+                  >
+                    {renderModelCard(model, true, index, true, {
+                      isDefault: quickActionsDefault === model.fileName,
+                      onSetDefault: undefined,
+                    })}
+                  </StaggerFadeIn>
+                ))
+              )}
+            </View>
+        </View>
 
         {/* Available Models — curated shelf */}
         <View>
@@ -1975,44 +2243,54 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
             activePillColor={theme.colors.primary}
           />
 
-          <View>
+          <View key={starterShelfTab}>
             {!!activeStarterShelfTab.subtitle && (
-              <Text
-                style={{
-                  fontSize: 13,
-                  color: theme.colors.textSecondary,
-                  fontFamily: "Poppins",
-                  lineHeight: 20,
-                  marginBottom: 12,
-                }}
-              >
-                {activeStarterShelfTab.subtitle}
-              </Text>
+              <StaggerFadeIn index={0} active offset={8} staggerMs={16}>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: theme.colors.textSecondary,
+                    fontFamily: "Poppins",
+                    lineHeight: 20,
+                    marginBottom: 12,
+                  }}
+                >
+                  {activeStarterShelfTab.subtitle}
+                </Text>
+              </StaggerFadeIn>
             )}
 
             {availableStarterShelfModels.length === 0 ? (
-              <Text
-                style={{
-                  fontSize: 14,
-                  color: theme.colors.textSecondary,
-                  fontFamily: "Poppins",
-                  lineHeight: 20,
-                  marginBottom: 8,
-                }}
-              >
-                All models in this tab are already downloaded. See Downloaded above.
-              </Text>
+              <StaggerFadeIn index={0} active offset={8} staggerMs={16}>
+                <Text
+                  style={{
+                    fontSize: 14,
+                    color: theme.colors.textSecondary,
+                    fontFamily: "Poppins",
+                    lineHeight: 20,
+                    marginBottom: 8,
+                  }}
+                >
+                  All models in this tab are already downloaded. See Downloaded above.
+                </Text>
+              </StaggerFadeIn>
             ) : (
               availableStarterShelfModels.map((model, index) => (
-                <View key={`${model.id}:${model.fileName}:${downloadedModelsInfo.length + index}`}>
-                  {renderModelCard(model, false, downloadedModelsInfo.length + index)}
-                </View>
+                <StaggerFadeIn
+                  key={`${model.id}:${model.fileName}`}
+                  index={index}
+                  active
+                  offset={12}
+                  staggerMs={20}
+                >
+                  {renderModelCard(model, false, index, true)}
+                </StaggerFadeIn>
               ))
             )}
           </View>
         </View>
 
-        {/* Add models — 2×2 settings-style tiles */}
+        {/* Add models — Hugging Face 65% left, HF token 35% right */}
         <View style={{ marginBottom: ADD_MODEL_TILE_GAP }}>
           <View
             style={{
@@ -2022,31 +2300,31 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
             }}
           >
             {renderAddModelTile(
-              "Hugging\nFace",
+              "Hugging Face",
               "cloud-download-outline",
               openHFPanel,
-              { flex: 1, marginRight: ADD_MODEL_TILE_GUTTER },
+              { flex: 65, marginRight: ADD_MODEL_TILE_GUTTER },
             )}
+            {renderAddModelTile(
+              "HF token",
+              "key-outline",
+              () => setCurrentPage("hfToken"),
+              { flex: 35, marginLeft: ADD_MODEL_TILE_GUTTER },
+            )}
+          </View>
+          <View style={{ flexDirection: "row", height: ADD_MODEL_TILE_HEIGHT }}>
             {renderAddModelTile(
               "Local",
               "folder-outline",
               () => {
                 void handlePickLocalModel();
               },
-              { flex: 1, marginLeft: ADD_MODEL_TILE_GUTTER },
+              { flex: 1, marginRight: ADD_MODEL_TILE_GUTTER },
             )}
-          </View>
-          <View style={{ flexDirection: "row", height: ADD_MODEL_TILE_HEIGHT }}>
             {renderAddModelTile(
               "Repo URL",
               "link-outline",
               () => setShowCustomUrlModal(true),
-              { flex: 1, marginRight: ADD_MODEL_TILE_GUTTER },
-            )}
-            {renderAddModelTile(
-              "HF token",
-              "key-outline",
-              () => setCurrentPage("hfToken"),
               { flex: 1, marginLeft: ADD_MODEL_TILE_GUTTER },
             )}
           </View>

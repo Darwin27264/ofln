@@ -5,6 +5,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Platform STT (S30) — OS speech recognition. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
@@ -15,7 +16,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <!-- Android 11+ package visibility for OS TTS / STT engines (S29 / S30). -->
     <queries>
@@ -102,6 +102,7 @@
 
       <service
         android:name=".tasks.TaskHeadlessService"
+        android:foregroundServiceType="dataSync"
         android:exported="false" />
 
       <!-- react-native-background-actions foreground service -->

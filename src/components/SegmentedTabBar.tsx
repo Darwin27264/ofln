@@ -188,6 +188,7 @@ export const SegmentedTabBar: React.FC<SegmentedTabBarProps> = ({
                   },
                   { color: active ? activeLabelColor : inactiveLabelColor },
                 ]}
+                numberOfLines={1}
               >
                 {tab.label}
               </Text>

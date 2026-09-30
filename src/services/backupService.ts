@@ -600,7 +600,7 @@ export async function importBackup(opts: {
     let settingsApplied = false;
     let themeMode: 'light' | 'dark' | null = null;
 
-    if (payload.chats && payload.chats.length > 0) {
+    if (payload.chats && (mode === 'replace' || payload.chats.length > 0)) {
       chatsImported = await chatHistoryService.importChats(payload.chats, mode);
       for (const chat of payload.chats) {
         if (chat.isPerspective && chat.perspectivePresetSnapshot) {

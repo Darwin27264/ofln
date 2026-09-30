@@ -210,6 +210,8 @@ export function AmbientHue({
   const opacityB = useRef(new Animated.Value(0)).current;
   const readyRef = useRef(false);
   const handoffPlayed = useRef(false);
+  const onHandoffConsumedRef = useRef(onHandoffConsumed);
+  onHandoffConsumedRef.current = onHandoffConsumed;
   /** Which slot is the settled (visible) front after the last completed fade. */
   const frontIsA = useRef(true);
   const targetModeRef = useRef(mode);
@@ -368,13 +370,15 @@ export function AmbientHue({
     ]).start();
   }, [active, keyboardActive, handoff, opacity, slideY]);
 
-  // Onboarding → chat: gather edge energy into the middle
+  // Onboarding → chat: gather edge energy into the middle.
+  // Callback is read from a ref so a parent re-render cannot cancel this run
+  // and leave `focus` parked at the edges.
   useEffect(() => {
     if (!handoff || handoffPlayed.current) return;
     handoffPlayed.current = true;
     focus.setValue(0);
     bloom.setValue(1.2);
-    Animated.parallel([
+    const anim = Animated.parallel([
       Animated.timing(focus, {
         toValue: 1,
         duration: 900,
@@ -393,10 +397,14 @@ export function AmbientHue({
         easing: EASING.EASE_OUT,
         useNativeDriver: true,
       }),
-    ]).start(({ finished }) => {
-      if (finished) onHandoffConsumed?.();
+    ]);
+    anim.start(({ finished }) => {
+      if (finished) onHandoffConsumedRef.current?.();
     });
-  }, [handoff, focus, bloom, opacity, onHandoffConsumed]);
+    return () => {
+      anim.stop();
+    };
+  }, [handoff, focus, bloom, opacity]);
 
   const [mounted, setMounted] = useState(active || handoff);
   useEffect(() => {

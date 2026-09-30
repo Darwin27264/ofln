@@ -396,7 +396,7 @@ class ChatHistoryService {
         .filter(isChatConversation)
         .map((c) => sanitizeChatForBackup(c)),
     );
-    if (valid.length === 0) return 0;
+    if (valid.length === 0 && mode !== 'replace') return 0;
 
     if (this.backend === 'async') {
       if (mode === 'replace') {

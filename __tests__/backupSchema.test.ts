@@ -198,6 +198,11 @@ describe('backupSchema', () => {
       false,
     );
     expect(isSafeRestoreDownloadUrl('https://127.0.0.1/x.gguf')).toBe(false);
+    expect(isSafeRestoreDownloadUrl('https://127.0.0.2/x.gguf')).toBe(false);
+    expect(isSafeRestoreDownloadUrl('https://169.254.169.254/latest/x.gguf')).toBe(
+      false,
+    );
+    expect(isSafeRestoreDownloadUrl('https://10.0.0.5/model.gguf')).toBe(false);
     expect(isSafeRestoreDownloadUrl('https://evil.com/not-a-model')).toBe(false);
     expect(
       isSafeRestoreDownloadUrl('https://user:pass@host.com/a.gguf'),

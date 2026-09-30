@@ -47,6 +47,7 @@ import {
   type SharedPayload,
 } from '../services/shareReceiverService';
 import { extractTextFromImage } from '../services/ocrService';
+import { fetchSourceText } from '../services/sourceFetchService';
 import { llamaProvider } from '../providers/llamaProvider';
 import { validateLocalModels } from '../services/localModelService';
 import { streamChat, nativeCompletion } from '../services/aiChatService';
@@ -54,6 +55,11 @@ import { getModelSettings, DEFAULT_SETTINGS } from '../services/modelSettingsSer
 import { MessageMarkdown } from '../components/MessageMarkdown';
 import { chatHistoryService, type Message } from '../services/chatHistoryService';
 import { prettifyModelName } from '../utils/modelUtils';
+import { getQuickActionsDefaultModel } from '../services/quickActionsDefaultService';
+import {
+  isShareSheetModelFile,
+  pickQuickActionsModelFile,
+} from '../services/starterModels';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SIDE_INSET = 14;
@@ -134,22 +140,54 @@ async function getAvailableModelsList(): Promise<{ fileName: string; filePath: s
     console.warn('[ShareOverlay] Error scanning local models', err);
   }
 
-  return list;
+  return list.filter((m) => isShareSheetModelFile(m.fileName));
 }
+
+function pickOverlayModel(
+  models: { fileName: string; filePath: string }[],
+  preferred: string | null | undefined,
+): { fileName: string; filePath: string } | undefined {
+  const name = pickQuickActionsModelFile(
+    models.map((m) => m.fileName),
+    preferred,
+  );
+  if (!name) return undefined;
+  return models.find((m) => m.fileName === name) ?? models[0];
+}
+
+function extractUrlFromText(text: string): string | null {
+  const match = (text || '').match(/https?:\/\/[^\s]+/i);
+  return match ? match[0] : null;
+}
+
+function isBareUrl(text: string): boolean {
+  const trimmed = (text || '').trim();
+  return (
+    (trimmed.startsWith('http://') || trimmed.startsWith('https://')) &&
+    !trimmed.includes(' ') &&
+    !trimmed.includes('\n')
+  );
+}
+
+const SHARE_SYSTEM_PROMPT =
+  'You are ofln, an expert on-device text processing assistant. ' +
+  'Directly perform the requested transformation (summarize, rephrase, extract key points, or simplify) ' +
+  'on the provided source text. Output the result directly without conversational preamble, pleasantries, ' +
+  'or asking for confirmation.';
 
 function buildPromptText(action: ActionType, sourceText: string, custom?: string): string {
   const trimmed = sourceText.trim();
   switch (action) {
     case 'summarize':
-      return `Please summarize the following content clearly and concisely in key bullet points:\n\n${trimmed}`;
+      return `Summarize the following content into concise, clear bullet points:\n\n"""\n${trimmed}\n"""\n\nKey Summary:`;
     case 'rephrase':
-      return `Please rephrase the following content to be polished, clear, and natural while preserving the original meaning:\n\n${trimmed}`;
+      return `Rewrite the following text to be polished, clear, and natural while preserving its original meaning:\n\n"""\n${trimmed}\n"""\n\nPolished Version:`;
     case 'key_points':
-      return `Extract the key takeaways, core facts, and action items from this content:\n\n${trimmed}`;
+      return `Extract the key takeaways, core facts, and action items from the following content:\n\n"""\n${trimmed}\n"""\n\nKey Takeaways:`;
     case 'simplify':
-      return `Explain this in simple terms so anyone can easily understand it:\n\n${trimmed}`;
+      return `Explain the following content in simple, easy-to-understand terms:\n\n"""\n${trimmed}\n"""\n\nSimplified Explanation:`;
     case 'custom':
-      return `${(custom || '').trim()}\n\nContent:\n${trimmed}`;
+      return `${(custom || '').trim()}\n\nSource Content:\n"""\n${trimmed}\n"""`;
   }
 }
 
@@ -162,6 +200,8 @@ function ShareOverlayContent() {
   const [contentLoading, setContentLoading] = useState(true);
   const [extractedText, setExtractedText] = useState('');
   const [ocrRunning, setOcrRunning] = useState(false);
+  const [webFetching, setWebFetching] = useState(false);
+  const [webFetchError, setWebFetchError] = useState<string | null>(null);
 
   // Prompt & Generation state
   const [activeAction, setActiveAction] = useState<ActionType | null>(null);
@@ -186,12 +226,13 @@ function ShareOverlayContent() {
   const scaleAnim = useRef(new Animated.Value(0.96)).current;
   const translateYAnim = useRef(new Animated.Value(24)).current;
   const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const modelLoadSeqRef = useRef<number>(0);
+  const activeLoadPromiseRef = useRef<Promise<boolean> | null>(null);
 
   // Micro-interaction animated values for subtle sub-element motion
   const pickerAnim = useRef(new Animated.Value(0)).current;
   const responseAnim = useRef(new Animated.Value(0)).current;
   const customInputAnim = useRef(new Animated.Value(0)).current;
-  const warmupAnim = useRef(new Animated.Value(0)).current;
 
   const [toastMounted, setToastMounted] = useState(false);
   const toastAnim = useRef(new Animated.Value(0)).current;
@@ -329,33 +370,83 @@ function ShareOverlayContent() {
 
         if (!data) return;
 
-        // Image OCR extraction
+        const rawText = data.text || '';
+        const detectedUrl = data.url || extractUrlFromText(rawText);
+
+        // 1. Image OCR extraction
         if ((data.type === 'image' || data.type === 'multiple_images') && data.uris && data.uris.length > 0) {
           setOcrRunning(true);
           try {
             const ocr = await extractTextFromImage(data.uris[0]);
             if (isMounted) {
-              setExtractedText(ocr.trim() || data.text || '');
+              const textResult = ocr.trim() || rawText;
+              setExtractedText(textResult);
+              if (data.quickAction === 'summarize' && textResult) {
+                autoRunTimeout = setTimeout(() => {
+                  if (isMounted) executePrompt('summarize', textResult);
+                }, 300);
+              } else if (data.quickAction === 'rephrase' && textResult) {
+                autoRunTimeout = setTimeout(() => {
+                  if (isMounted) executePrompt('rephrase', textResult);
+                }, 300);
+              }
             }
           } catch (e) {
             console.warn('[ShareOverlay] OCR error', e);
-            if (isMounted) setExtractedText(data.text || '');
+            if (isMounted) setExtractedText(rawText);
           } finally {
             if (isMounted) setOcrRunning(false);
           }
-        } else {
-          setExtractedText(data.text || '');
         }
+        // 2. Web link extraction (e.g. from Chrome, Twitter, Reddit, or shared URL)
+        else if (data.type === 'link' || detectedUrl) {
+          const targetUrl = detectedUrl || rawText.trim();
+          setExtractedText(rawText || targetUrl);
 
-        // Auto-run if quickAction was specified (e.g. from Direct Share shortcut)
-        if (data.quickAction === 'summarize') {
-          autoRunTimeout = setTimeout(() => {
-            if (isMounted) executePrompt('summarize', data.text || '');
-          }, 350);
-        } else if (data.quickAction === 'rephrase') {
-          autoRunTimeout = setTimeout(() => {
-            if (isMounted) executePrompt('rephrase', data.text || '');
-          }, 350);
+          if (targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://'))) {
+            setWebFetching(true);
+            setWebFetchError(null);
+            try {
+              const fetchRes = await fetchSourceText(targetUrl);
+              if (isMounted && fetchRes?.text && fetchRes.text.trim()) {
+                const articleText = fetchRes.text.trim();
+                setExtractedText(articleText);
+                if (data.quickAction === 'summarize') {
+                  autoRunTimeout = setTimeout(() => {
+                    if (isMounted) executePrompt('summarize', articleText);
+                  }, 300);
+                } else if (data.quickAction === 'rephrase') {
+                  autoRunTimeout = setTimeout(() => {
+                    if (isMounted) executePrompt('rephrase', articleText);
+                  }, 300);
+                }
+              } else {
+                if (isMounted) {
+                  setWebFetchError('Could not extract readable article text.');
+                }
+              }
+            } catch (err: any) {
+              console.warn('[ShareOverlay] Web fetch error', err);
+              if (isMounted) {
+                setWebFetchError('Could not fetch webpage content (offline or site protected).');
+              }
+            } finally {
+              if (isMounted) setWebFetching(false);
+            }
+          }
+        }
+        // 3. Plain text / text selection
+        else {
+          setExtractedText(rawText);
+          if (data.quickAction === 'summarize' && rawText.trim()) {
+            autoRunTimeout = setTimeout(() => {
+              if (isMounted) executePrompt('summarize', rawText);
+            }, 300);
+          } else if (data.quickAction === 'rephrase' && rawText.trim()) {
+            autoRunTimeout = setTimeout(() => {
+              if (isMounted) executePrompt('rephrase', rawText);
+            }, 300);
+          }
         }
       } catch (err) {
         console.warn('[ShareOverlay] Error loading payload', err);
@@ -382,29 +473,51 @@ function ShareOverlayContent() {
 
         if (llamaProvider.isReady()) {
           const status = llamaProvider.getStatus();
-          const name = status.modelPath ? status.modelPath.split(/[/\\]/).pop() : 'Local Model';
-          if (isMounted) setModelName(name || 'Local Model');
-          return;
+          const name = status.modelPath
+            ? status.modelPath.split(/[/\\]/).pop()
+            : null;
+          if (name && isShareSheetModelFile(name)) {
+            if (isMounted) setModelName(name);
+            return;
+          }
         }
 
         if (models.length === 0) {
           return;
         }
 
+        const seq = ++modelLoadSeqRef.current;
         setModelLoading(true);
-        const first = models[0];
-        if (isMounted) setModelName(first.fileName);
+        const preferred = await getQuickActionsDefaultModel();
+        const target = pickOverlayModel(models, preferred);
+        if (!target || !isMounted || modelLoadSeqRef.current !== seq) {
+          if (isMounted && modelLoadSeqRef.current === seq) {
+            animatePanelLayout(200);
+            setModelLoading(false);
+          }
+          return;
+        }
+        if (isMounted) setModelName(target.fileName);
 
-        const ok = await llamaProvider.loadModel({ modelPath: first.filePath });
-        if (isMounted) {
+        const loadPromise = llamaProvider.loadModel({ modelPath: target.filePath });
+        activeLoadPromiseRef.current = loadPromise;
+        const ok = await loadPromise;
+
+        if (isMounted && modelLoadSeqRef.current === seq) {
+          activeLoadPromiseRef.current = null;
+          animatePanelLayout(200);
           setModelLoading(false);
           if (ok) {
-            setModelName(first.fileName);
+            setModelName(target.fileName);
           }
         }
       } catch (err) {
         console.warn('[ShareOverlay] Autoload first model failed', err);
-        if (isMounted) setModelLoading(false);
+        if (isMounted) {
+          activeLoadPromiseRef.current = null;
+          animatePanelLayout(200);
+          setModelLoading(false);
+        }
       }
     }
 
@@ -416,21 +529,24 @@ function ShareOverlayContent() {
 
   // Ensure local model is resident in RAM
   const ensureModelLoaded = async (): Promise<string | null> => {
-    if (llamaProvider.isReady()) {
-      const status = llamaProvider.getStatus();
-      const name = status.modelPath ? status.modelPath.split(/[/\\]/).pop() : 'Local Model';
-      setModelName(name || 'Local Model');
-      return name || 'Local Model';
+    if (activeLoadPromiseRef.current) {
+      await activeLoadPromiseRef.current;
     }
 
-    animatePanelLayout(220);
+    if (llamaProvider.isReady()) {
+      const status = llamaProvider.getStatus();
+      const name = status.modelPath
+        ? status.modelPath.split(/[/\\]/).pop()
+        : modelName;
+      if (name && isShareSheetModelFile(name)) {
+        setModelName(name);
+        return name;
+      }
+    }
+
+    const seq = ++modelLoadSeqRef.current;
+    animatePanelLayout(200);
     setModelLoading(true);
-    Animated.timing(warmupAnim, {
-      toValue: 1,
-      duration: 200,
-      easing: EASING.STANDARD,
-      useNativeDriver: true,
-    }).start();
 
     try {
       const validModels =
@@ -441,28 +557,27 @@ function ShareOverlayContent() {
         setAvailableModels(validModels);
       }
       if (validModels.length === 0) {
-        showToast('No local models found. Open ofln to download one.');
-        animatePanelLayout(220);
+        showToast('No Quick actions models found. Open ofln and download a small pick.');
+        animatePanelLayout(200);
         setModelLoading(false);
-        Animated.timing(warmupAnim, {
-          toValue: 0,
-          duration: 180,
-          easing: EASING.STANDARD,
-          useNativeDriver: true,
-        }).start();
         return null;
       }
 
-      const target = validModels[0];
-      const ok = await llamaProvider.loadModel({ modelPath: target.filePath });
-      animatePanelLayout(220);
+      let target = validModels.find((m) => m.fileName === modelName);
+      if (!target) {
+        const preferred = await getQuickActionsDefaultModel();
+        target = pickOverlayModel(validModels, preferred) ?? validModels[0];
+      }
+
+      setModelName(target.fileName);
+      const loadPromise = llamaProvider.loadModel({ modelPath: target.filePath });
+      activeLoadPromiseRef.current = loadPromise;
+      const ok = await loadPromise;
+
+      if (modelLoadSeqRef.current !== seq) return null;
+      activeLoadPromiseRef.current = null;
+      animatePanelLayout(200);
       setModelLoading(false);
-      Animated.timing(warmupAnim, {
-        toValue: 0,
-        duration: 180,
-        easing: EASING.STANDARD,
-        useNativeDriver: true,
-      }).start();
 
       if (ok) {
         setModelName(target.fileName);
@@ -473,14 +588,11 @@ function ShareOverlayContent() {
       }
     } catch (e) {
       console.warn('[ShareOverlay] Model load failed', e);
-      animatePanelLayout(220);
-      setModelLoading(false);
-      Animated.timing(warmupAnim, {
-        toValue: 0,
-        duration: 180,
-        easing: EASING.STANDARD,
-        useNativeDriver: true,
-      }).start();
+      if (modelLoadSeqRef.current === seq) {
+        activeLoadPromiseRef.current = null;
+        animatePanelLayout(200);
+        setModelLoading(false);
+      }
       showToast('Model loading error.');
       return null;
     }
@@ -518,25 +630,22 @@ function ShareOverlayContent() {
     if (isGenerating && abortRef.current) {
       abortRef.current();
     }
-    animatePanelLayout(220);
+
+    const seq = ++modelLoadSeqRef.current;
+    animatePanelLayout(200);
     setModelLoading(true);
-    Animated.timing(warmupAnim, {
-      toValue: 1,
-      duration: 200,
-      easing: EASING.STANDARD,
-      useNativeDriver: true,
-    }).start();
     setModelName(item.fileName);
+
     try {
-      const ok = await llamaProvider.loadModel({ modelPath: item.filePath });
-      animatePanelLayout(220);
+      const loadPromise = llamaProvider.loadModel({ modelPath: item.filePath });
+      activeLoadPromiseRef.current = loadPromise;
+      const ok = await loadPromise;
+
+      if (modelLoadSeqRef.current !== seq) return;
+      activeLoadPromiseRef.current = null;
+      animatePanelLayout(200);
       setModelLoading(false);
-      Animated.timing(warmupAnim, {
-        toValue: 0,
-        duration: 180,
-        easing: EASING.STANDARD,
-        useNativeDriver: true,
-      }).start();
+
       if (ok) {
         setModelName(item.fileName);
         showToast(`Switched to ${prettifyModelName(item.fileName)}`);
@@ -545,14 +654,11 @@ function ShareOverlayContent() {
       }
     } catch (err) {
       console.warn('[ShareOverlay] Error switching model', err);
-      animatePanelLayout(220);
-      setModelLoading(false);
-      Animated.timing(warmupAnim, {
-        toValue: 0,
-        duration: 180,
-        easing: EASING.STANDARD,
-        useNativeDriver: true,
-      }).start();
+      if (modelLoadSeqRef.current === seq) {
+        activeLoadPromiseRef.current = null;
+        animatePanelLayout(200);
+        setModelLoading(false);
+      }
       showToast('Model loading error.');
     }
   };
@@ -597,6 +703,11 @@ function ShareOverlayContent() {
     const textToProcess = (textOverride !== undefined ? textOverride : extractedText).trim();
     if (!textToProcess) {
       showToast('No text available to process.');
+      return;
+    }
+
+    if (isBareUrl(textToProcess)) {
+      showToast('Cannot summarize a link without content. Please copy the article text directly.');
       return;
     }
 
@@ -645,8 +756,7 @@ function ShareOverlayContent() {
           [
             {
               role: 'system',
-              content:
-                'You are ofln, a private on-device AI assistant. Provide concise, clear, and structured answers.',
+              content: SHARE_SYSTEM_PROMPT,
             },
             {
               role: 'user',
@@ -688,8 +798,7 @@ function ShareOverlayContent() {
             messages: [
               {
                 role: 'system',
-                content:
-                  'You are ofln, a private on-device AI assistant. Provide concise, clear, and structured answers.',
+                content: SHARE_SYSTEM_PROMPT,
               },
               {
                 role: 'user',
@@ -830,6 +939,27 @@ function ShareOverlayContent() {
                 />
               </Animated.View>
             </TouchableOpacity>
+
+            {modelLoading && (
+              <View
+                style={[
+                  styles.loadingPill,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <ActivityIndicator
+                  size="small"
+                  color={colors.accent}
+                  style={{ marginRight: 5, transform: [{ scale: 0.7 }] }}
+                />
+                <Text style={[styles.loadingPillText, { color: colors.textSecondary }]}>
+                  Loading...
+                </Text>
+              </View>
+            )}
           </View>
 
           <TouchableOpacity
@@ -885,10 +1015,10 @@ function ShareOverlayContent() {
               {availableModels.length === 0 ? (
                 <View style={styles.emptyModelContainer}>
                   <Text style={[styles.emptyModelText, { color: colors.textSecondary }]}>
-                    No local models found
+                    No Quick actions models found
                   </Text>
                   <Text style={[styles.emptyModelSubtext, { color: colors.textTertiary }]}>
-                    Open ofln to download a model.
+                    Download a small 0.8B–2B pick in ofln → Models.
                   </Text>
                 </View>
               ) : (
@@ -939,7 +1069,11 @@ function ShareOverlayContent() {
                         </View>
                       </View>
                       {isSelected && (
-                        <Ionicons name="checkmark" size={16} color={colors.accent} />
+                        modelLoading ? (
+                          <ActivityIndicator size="small" color={colors.accent} />
+                        ) : (
+                          <Ionicons name="checkmark" size={16} color={colors.accent} />
+                        )
                       )}
                     </TouchableOpacity>
                   );
@@ -989,13 +1123,37 @@ function ShareOverlayContent() {
                 </View>
               )}
 
-              {/* Web Link Preview */}
-              {payload?.type === 'link' && payload.url && (
-                <View style={styles.linkPreviewRow}>
-                  <Ionicons name="globe-outline" size={14} color={colors.accent} style={{ marginRight: 6 }} />
-                  <Text style={[styles.linkPreviewText, { color: colors.text }]} numberOfLines={1}>
-                    {payload.url}
-                  </Text>
+              {/* Web Link Preview & Web Fetch status */}
+              {(payload?.type === 'link' || payload?.url || (payload?.text && extractUrlFromText(payload.text))) && (
+                <View style={{ marginBottom: 6 }}>
+                  <View style={styles.linkPreviewRow}>
+                    <Ionicons name="globe-outline" size={14} color={colors.accent} style={{ marginRight: 6 }} />
+                    <Text style={[styles.linkPreviewText, { color: colors.text }]} numberOfLines={1}>
+                      {payload.url || (payload.text ? extractUrlFromText(payload.text) : '')}
+                    </Text>
+                  </View>
+                  {webFetching ? (
+                    <View style={styles.ocrStatusRow}>
+                      <ActivityIndicator size="small" color={colors.accent} style={{ marginRight: 6 }} />
+                      <Text style={[styles.ocrStatusText, { color: colors.textSecondary }]}>
+                        Extracting webpage content...
+                      </Text>
+                    </View>
+                  ) : webFetchError ? (
+                    <View style={styles.ocrStatusRow}>
+                      <Ionicons name="alert-circle-outline" size={13} color={colors.textTertiary} style={{ marginRight: 4 }} />
+                      <Text style={[styles.ocrStatusText, { color: colors.textTertiary }]}>
+                        {webFetchError}
+                      </Text>
+                    </View>
+                  ) : extractedText && !isBareUrl(extractedText) ? (
+                    <View style={styles.ocrStatusRow}>
+                      <Ionicons name="checkmark-circle-outline" size={13} color={colors.accent} style={{ marginRight: 4 }} />
+                      <Text style={[styles.ocrStatusText, { color: colors.textSecondary }]}>
+                        Webpage content ready
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
               )}
 
@@ -1033,7 +1191,7 @@ function ShareOverlayContent() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillsScrollInner}>
               {ACTION_PILLS.map((pill) => {
                 const isActive = activeAction === pill.id;
-                const isPillDisabled = isGenerating || ocrRunning;
+                const isPillDisabled = isGenerating || ocrRunning || webFetching;
 
                 return (
                   <TouchableOpacity
@@ -1138,33 +1296,6 @@ function ShareOverlayContent() {
             </Animated.View>
           )}
 
-          {/* Model Warm-up Banner (Subtle animated slide & fade) */}
-          {modelLoading && (
-            <Animated.View
-              style={[
-                styles.modelWarmupBox,
-                {
-                  backgroundColor: colors.card,
-                  borderColor: colors.border,
-                  opacity: warmupAnim,
-                  transform: [
-                    {
-                      translateY: warmupAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [-4, 0],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            >
-              <ActivityIndicator size="small" color={colors.accent} style={{ marginRight: 8 }} />
-              <Text style={[styles.modelWarmupText, { color: colors.textSecondary }]}>
-                Warming up local AI model...
-              </Text>
-            </Animated.View>
-          )}
-
           {/* Streaming Result Container (Subtle animated rise, scale & fade) */}
           {hasResponse && (
             <Animated.View
@@ -1209,7 +1340,7 @@ function ShareOverlayContent() {
               </View>
 
               <MessageMarkdown
-                content={streamedText || 'Thinking...'}
+                content={streamedText || (modelLoading ? 'Warming up model...' : 'Thinking...')}
                 color={colors.text}
                 fontSize={14}
                 lineHeight={21}
@@ -1336,6 +1467,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 7,
   },
   modelSelectorPill: {
     flexDirection: 'row',
@@ -1344,7 +1476,8 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 16,
     borderWidth: 1,
-    maxWidth: '90%',
+    maxWidth: '72%',
+    flexShrink: 1,
   },
   modelSelectorText: {
     fontSize: 13,
@@ -1352,6 +1485,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: -0.2,
     flexShrink: 1,
+  },
+  loadingPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4.5,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexShrink: 0,
+  },
+  loadingPillText: {
+    fontSize: 11,
+    fontFamily: 'Poppins',
+    fontWeight: '500',
+    letterSpacing: -0.2,
   },
   modelPickerCard: {
     marginHorizontal: 14,
@@ -1543,19 +1691,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginLeft: 8,
   },
-  modelWarmupBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 10,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    marginBottom: 10,
-  },
-  modelWarmupText: {
-    fontSize: 12,
-    fontFamily: 'Poppins',
-    fontWeight: '500',
-  },
+
   resultCard: {
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,

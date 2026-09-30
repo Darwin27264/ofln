@@ -27,6 +27,7 @@ export type StarterModelInfo = {
  * Selection principles:
  *  • Q4_0 preferred for Android accel allowlist (Q4_0 / Q6_K).
  *  • Distinct tiers: ultra-light → balanced → flagship → specialist.
+ *  • Quick actions (Downloaded): 0.8B–2B only (Android overlay RAM / cold-load budget).
  *  • Community mirrors (Unsloth / bartowski) so downloads work without an HF token.
  *  • Repos/filenames verified against Hugging Face — re-check before renaming.
  */
@@ -172,6 +173,79 @@ export const STARTER_SHELF_TABS: {
   },
 ];
 
+/** Downloaded list: every file vs the small models used by Android Share. */
+export type DownloadedShelfTabId = 'all' | 'quickActions';
+
+export const DOWNLOADED_SHELF_TABS: {
+  id: DownloadedShelfTabId;
+  label: string;
+  subtitle: string;
+  infoTitle?: string;
+  infoMessage?: string;
+}[] = [
+  {
+    id: 'all',
+    label: 'All',
+    subtitle: '',
+  },
+  {
+    id: 'quickActions',
+    label: 'Quick actions',
+    subtitle: 'Small models for sharing from other apps.',
+    infoTitle: 'Quick actions',
+    infoMessage:
+      'These run in the Android Share overlay when you share text from Chrome or other apps — summarize, rephrase, key points, and simplify.\n\n' +
+      'Downloaded picks sit at the top. Gray cards are still downloadable — expand the list to browse them without crowding Available Models.\n\n' +
+      'Star a downloaded model to load it first. You can still pick a different model in the overlay.\n\n' +
+      'Prefer 0.8B–2B Q4_0 picks so the overlay can sit beside Chrome without running out of RAM.',
+  },
+];
+
+function withShareShelf(
+  id: string,
+  description: string,
+  shelfHint: string,
+): StarterModelInfo {
+  const base = STARTER_MODELS.find((m) => m.id === id);
+  if (!base) {
+    throw new Error(`starterModels: unknown id ${id}`);
+  }
+  return {
+    ...base,
+    description,
+    shelfHint,
+    tags: base.tags.includes('share') ? base.tags : [...base.tags, 'share'],
+  };
+}
+
+/**
+ * Light instruct GGUFs for the Android share overlay (summarize / key points /
+ * rephrase / simplify). Same files as General — 0.8B–2B Q4_0 so the overlay
+ * can sit on Chrome without the LMK killing the host app.
+ */
+export const SHARE_SHEET_MODELS: StarterModelInfo[] = [
+  withShareShelf(
+    'qwen35-08b-q40',
+    'Fastest share-sheet load. Text transforms with a tiny RAM footprint.',
+    'Share sheet · fastest',
+  ),
+  withShareShelf(
+    'gemma3-1b-q40',
+    'Tiny Google instruct for on-device share actions.',
+    'Share sheet · light',
+  ),
+  withShareShelf(
+    'llama32-1b-q40',
+    'Compact Meta instruct — quick summaries beside the host app.',
+    'Share sheet · fast',
+  ),
+  withShareShelf(
+    'qwen35-2b-q40',
+    'More capable share-sheet pick; still light enough for most phones.',
+    'Share sheet · more capable',
+  ),
+];
+
 /**
  * Curated roleplay / persona shelf — uncensored or abliterated instruct GGUFs.
  * Prefer Q4_0 when available (Android OpenCL/Hexagon allowlist). Filenames verified on HF.
@@ -270,6 +344,41 @@ const STARTER_SHELF_CATALOGS: Record<StarterShelfTabId, StarterModelInfo[]> = {
   coding: CODING_STARTER_MODELS,
 };
 
+const SHARE_SHEET_FILE_NAMES = new Set(
+  SHARE_SHEET_MODELS.map((m) => m.fileName),
+);
+
+/** True when this GGUF is a curated Android Share overlay pick (0.8B–2B). */
+export function isShareSheetModelFile(fileName: string): boolean {
+  return SHARE_SHEET_FILE_NAMES.has(fileName);
+}
+
+/** Pick which on-disk file Quick actions / Share overlay should load. */
+export function pickQuickActionsModelFile(
+  fileNames: string[],
+  preferred: string | null | undefined,
+): string | null {
+  if (fileNames.length === 0) return null;
+  if (preferred && fileNames.includes(preferred)) return preferred;
+  const share = fileNames.find((name) => isShareSheetModelFile(name));
+  return share ?? fileNames[0];
+}
+
+/** Split the Quick actions catalog into on-disk vs still-downloadable. */
+export function splitQuickActionsCatalog(downloadedFileNames: string[]): {
+  downloaded: StarterModelInfo[];
+  downloadable: StarterModelInfo[];
+} {
+  const have = new Set(downloadedFileNames);
+  const downloaded: StarterModelInfo[] = [];
+  const downloadable: StarterModelInfo[] = [];
+  for (const model of SHARE_SHEET_MODELS) {
+    if (have.has(model.fileName)) downloaded.push(model);
+    else downloadable.push(model);
+  }
+  return { downloaded, downloadable };
+}
+
 /** Catalog for a Start here tab. */
 export function getStarterShelfCatalog(tab: StarterShelfTabId): StarterModelInfo[] {
   return STARTER_SHELF_CATALOGS[tab];
@@ -290,7 +399,7 @@ export function findStarterByFileName(
 ): StarterModelInfo | undefined {
   const catalogs = catalog
     ? [catalog]
-    : [STARTER_MODELS, PERSONA_ROLEPLAY_MODELS, CODING_STARTER_MODELS];
+    : [STARTER_MODELS, SHARE_SHEET_MODELS, PERSONA_ROLEPLAY_MODELS, CODING_STARTER_MODELS];
   for (const shelf of catalogs) {
     const found = shelf.find((m) => m.fileName === fileName);
     if (found) return found;

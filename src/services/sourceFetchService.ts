@@ -136,14 +136,23 @@ export function buildFormattedSourceDocument(
 /**
  * GET the URL and return clean, structured plain text suitable for LLM analysis.
  */
-export async function fetchSourceText(url: string): Promise<SourceFetchResult> {
+export async function fetchSourceText(
+  url: string,
+  signal?: AbortSignal,
+): Promise<SourceFetchResult> {
   const parsed = assertSafeSourceUrl(url);
+  if (signal?.aborted) {
+    const cancelled = new Error('Cancelled');
+    cancelled.name = 'TaskCancelledError';
+    throw cancelled;
+  }
 
   let response;
   try {
     response = await axios.get<ArrayBuffer>(parsed.toString(), {
       timeout: SOURCE_FETCH_TIMEOUT_MS,
       responseType: 'arraybuffer',
+      signal,
       maxContentLength: SOURCE_FETCH_MAX_BYTES,
       maxBodyLength: SOURCE_FETCH_MAX_BYTES,
       maxRedirects: 5,
@@ -180,6 +189,15 @@ export async function fetchSourceText(url: string): Promise<SourceFetchResult> {
         throw new Error(
           `Request timed out after ${Math.round(SOURCE_FETCH_TIMEOUT_MS / 1000)} seconds.`,
         );
+      }
+      if (
+        axiosErr.code === 'ERR_CANCELED' ||
+        signal?.aborted ||
+        axios.isCancel(err)
+      ) {
+        const cancelled = new Error('Cancelled');
+        cancelled.name = 'TaskCancelledError';
+        throw cancelled;
       }
       if (axiosErr.code === 'ENOTFOUND' || axiosErr.code === 'ECONNREFUSED') {
         throw new Error(`Unable to connect to source server: ${parsed.hostname}`);

@@ -20,6 +20,7 @@ export interface SharedPayload {
   type: SharedContentType;
   text?: string;
   url?: string;
+  title?: string;
   quickAction?: 'summarize' | 'rephrase' | string;
   isReadOnly?: boolean;
   uris?: string[];

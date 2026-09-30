@@ -20,6 +20,12 @@ object TaskNotificationHelper {
     private const val CHANNEL_NAME = "Task Notifications"
     private const val CHANNEL_DESCRIPTION = "Notifications when scheduled tasks complete or fail"
 
+    const val FOREGROUND_CHANNEL_ID = "ofln_task_foreground_channel"
+    private const val FOREGROUND_CHANNEL_NAME = "Active Tasks"
+    private const val FOREGROUND_CHANNEL_DESCRIPTION = "Shows while scheduled tasks are running in background"
+
+    const val FOREGROUND_SERVICE_NOTIFICATION_ID = 9901
+
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -34,6 +40,48 @@ object TaskNotificationHelper {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             manager?.createNotificationChannel(channel)
         }
+    }
+
+    fun createForegroundNotificationChannel(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                FOREGROUND_CHANNEL_ID,
+                FOREGROUND_CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = FOREGROUND_CHANNEL_DESCRIPTION
+                enableLights(false)
+                enableVibration(false)
+            }
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            manager?.createNotificationChannel(channel)
+        }
+    }
+
+    fun buildForegroundNotification(context: Context, contentText: String = "Running scheduled task…"): android.app.Notification {
+        createForegroundNotificationChannel(context)
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("openPage", "tasks")
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            1001,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        return NotificationCompat.Builder(context, FOREGROUND_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("OFLN")
+            .setContentText(contentText)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setColor(0xFFC9A227.toInt())
+            .build()
     }
 
     fun hasNotificationPermission(context: Context): Boolean {

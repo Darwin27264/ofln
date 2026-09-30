@@ -3,6 +3,7 @@ package com.ofln.tasks
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import androidx.core.content.ContextCompat
 import com.facebook.react.HeadlessJsTaskService
 
 class TaskBootReceiver : BroadcastReceiver() {
@@ -18,9 +19,9 @@ class TaskBootReceiver : BroadcastReceiver() {
             }
 
             try {
-                context.startService(serviceIntent)
-            } catch (_: Exception) {
-                // Ignore if device power manager denies start
+                ContextCompat.startForegroundService(context, serviceIntent)
+            } catch (e: Exception) {
+                android.util.Log.w("TaskBootReceiver", "Could not start TaskHeadlessService on boot: ${e.message}", e)
             }
         }
     }
