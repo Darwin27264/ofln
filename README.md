@@ -6,12 +6,23 @@ Offline LLM chat for Android and iOS by **Evolvyn AI** (Darwin Chen). Download a
 
 | Doc | Purpose |
 |-----|---------|
+| [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Dev build setup, code style, and PR guidelines |
 | [`docs/PRIVACY.md`](./docs/PRIVACY.md) | What stays local, Hugging Face, tokens, backups |
 | [`SECURITY.md`](./SECURITY.md) | Vulnerability reporting; Android signing files stay local |
 | [`docs/TECHNICAL.md`](./docs/TECHNICAL.md) | Architecture, build/release, CI, Android 16KB, inference notes |
 | [`DESIGN.md`](./DESIGN.md) | UI system |
 | [`docs/DEVICE_SMOKE.md`](./docs/DEVICE_SMOKE.md) | Maintainer device smoke checklist |
 | [`TRADEMARK.md`](./TRADEMARK.md) | Brand / fork rebranding policy |
+
+## Screenshots
+
+| Curated Model Shelf | Chat & Ambient Hue | Personas Library |
+| :---: | :---: | :---: |
+| <img src="./assets/screenshots/01_model_shelf.png" width="240" alt="Curated Model Shelf" /> | <img src="./assets/screenshots/02_chat_screen.png" width="240" alt="Chat Screen" /> | <img src="./assets/screenshots/03_personas.png" width="240" alt="Personas Library" /> |
+
+| Scheduled Tasks | Performance Metrics | Perspective Debates |
+| :---: | :---: | :---: |
+| <img src="./assets/screenshots/04_scheduled_tasks.png" width="240" alt="Scheduled Tasks" /> | <img src="./assets/screenshots/05_performance_stages.png" width="240" alt="Performance Metrics" /> | <img src="./assets/screenshots/06_perspectives.png" width="240" alt="Perspective Debates" /> |
 
 ## Features
 
@@ -24,6 +35,7 @@ Offline LLM chat for Android and iOS by **Evolvyn AI** (Darwin Chen). Download a
 - **Tasks** (Settings): scheduled **LLM prompts** or **Source Monitor** (fetch URL + analyze) — results stay local
 - **Perspective** debates: multiple on-device speakers take turns on a topic
 - Image / PDF attachments (on-device OCR / text extraction; multimodal when supported)
+- Voice input (speech-to-text) and spoken readout (text-to-speech)
 - Light / dark theme
 - Performance (Stages) metrics from on-device usage logs — private, not a leaderboard
 - Backup & restore: chats JSON or full profile ZIP (models re-download via catalog; secrets never exported)
@@ -127,10 +139,18 @@ Unit tests live under `__tests__/`. Prefer pure helpers that do not require nati
 
 ## Contributing
 
+Contributions are welcome! Please see [`CONTRIBUTING.md`](./CONTRIBUTING.md) for local development setup, code style pointers, and PR guidelines:
 - Prefer focused PRs; match existing TypeScript / React Native patterns.
 - Visual or interaction changes: follow [`DESIGN.md`](./DESIGN.md) and keep it current.
 - New user-durable data: update backup export/import, schema/tests, and the Backup section above.
 - Read [`docs/PRIVACY.md`](./docs/PRIVACY.md) before claiming offline / zero-network behavior.
+
+## Support
+
+ofln is free and open source, built for fun — if it saves you a download or a smile, a coffee is appreciated but never expected.
+
+- [GitHub Sponsors](https://github.com/sponsors/Darwin27264)
+- [Ko-fi](https://ko-fi.com/darwin27)
 
 ## License
 

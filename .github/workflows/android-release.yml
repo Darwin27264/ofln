@@ -1,0 +1,70 @@
+name: Build Android Release APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: release-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-release:
+    name: Assemble Release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Java (Temurin 17)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure Gradle & Signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MYAPP_UPLOAD_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.MYAPP_UPLOAD_KEY_ALIAS }}
+          STORE_PASS: ${{ secrets.MYAPP_UPLOAD_STORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.MYAPP_UPLOAD_KEY_PASSWORD }}
+        run: |
+          cp android/gradle.properties.example android/gradle.properties
+          
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Configuring official release keystore from GitHub Secrets..."
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/upload.keystore
+            printf "\nMYAPP_UPLOAD_STORE_FILE=upload.keystore\nMYAPP_UPLOAD_KEY_ALIAS=%s\nMYAPP_UPLOAD_STORE_PASSWORD=%s\nMYAPP_UPLOAD_KEY_PASSWORD=%s\n" \
+              "$KEY_ALIAS" "$STORE_PASS" "$KEY_PASS" >> android/gradle.properties
+          else
+            echo "No release keystore secret found — falling back to debug keystore for installable APK build..."
+            printf "\nMYAPP_UPLOAD_STORE_FILE=debug.keystore\nMYAPP_UPLOAD_KEY_ALIAS=androiddebugkey\nMYAPP_UPLOAD_STORE_PASSWORD=android\nMYAPP_UPLOAD_KEY_PASSWORD=android\n" >> android/gradle.properties
+          fi
+
+      - name: Make Gradlew executable
+        working-directory: android
+        run: chmod +x gradlew
+
+      - name: Assemble Release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Upload Release APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ofln-release-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          retention-days: 14
