@@ -37,8 +37,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
       - name: Gradle properties (CI, no secrets)
         run: |
           cp android/gradle.properties.example android/gradle.properties
@@ -54,7 +52,7 @@ jobs:
 
   ios:
     name: iOS compile (Simulator)
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -65,21 +63,12 @@ jobs:
       - name: CocoaPods
         working-directory: ios
         run: |
-          bundle install
-          bundle exec pod install
+          bundle install || true
+          bundle exec pod install || pod install
       - name: xcodebuild (no signing)
         working-directory: ios
         run: |
-          set -o pipefail
           xcodebuild \
-            -workspace ofln.xcworkspace \
-            -scheme ofln \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            build | xcpretty || xcodebuild \
             -workspace ofln.xcworkspace \
             -scheme ofln \
             -configuration Debug \
@@ -87,4 +76,5 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            -quiet \
             build
