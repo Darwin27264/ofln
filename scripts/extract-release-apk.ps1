@@ -1,28 +1,47 @@
-# Copy the release APK into releaseAPK/ as ofln_{date}.apk (keeps prior builds).
-# Run from the ofln/ directory:
-#   powershell -ExecutionPolicy Bypass -File .\scripts\extract-release-apk.ps1
+param(
+  [string]$Flavor = ''
+)
 
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
-$releaseDir = Join-Path $repoRoot 'android\app\build\outputs\apk\release'
+$apkBaseDir = Join-Path $repoRoot 'android\app\build\outputs\apk'
 $outDir = Join-Path $repoRoot 'releaseAPK'
 
-if (-not (Test-Path -LiteralPath $releaseDir)) {
-  Write-Error "Release APK folder not found: $releaseDir`nBuild first: cd android; .\gradlew.bat assembleRelease"
+if (-not (Test-Path -LiteralPath $apkBaseDir)) {
+  Write-Error "APK outputs folder not found: $apkBaseDir`nBuild first: npm run android:build-release"
 }
 
-$apk = Get-ChildItem -LiteralPath $releaseDir -Filter 'ofln-release.apk' -File -ErrorAction SilentlyContinue |
-  Select-Object -First 1
+# Search candidate release directories
+$candidates = @()
+if ($Flavor) {
+  $candidates += Join-Path $apkBaseDir "$Flavor\release"
+} else {
+  $candidates += Join-Path $apkBaseDir 'play\release'
+  $candidates += Join-Path $apkBaseDir 'release'
+  $candidates += Join-Path $apkBaseDir 'foss\release'
+}
+
+$apk = $null
+foreach ($dir in $candidates) {
+  if (Test-Path -LiteralPath $dir) {
+    $apk = Get-ChildItem -LiteralPath $dir -Filter '*.apk' -File |
+      Sort-Object LastWriteTime -Descending |
+      Select-Object -First 1
+    if ($apk) { break }
+  }
+}
 
 if (-not $apk) {
-  $apk = Get-ChildItem -LiteralPath $releaseDir -Filter '*.apk' -File |
+  # Fallback: search any release folder recursively
+  $apk = Get-ChildItem -LiteralPath $apkBaseDir -Filter '*.apk' -Recurse -File |
+    Where-Object { $_.DirectoryName -like '*release*' } |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 }
 
 if (-not $apk) {
-  Write-Error "No APK found in $releaseDir`nBuild first: cd android; .\gradlew.bat assembleRelease"
+  Write-Error "No release APK found in $apkBaseDir`nBuild first: npm run android:build-release or npm run android:build-foss"
 }
 
 if (-not (Test-Path -LiteralPath $outDir)) {

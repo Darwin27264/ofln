@@ -1,7 +1,7 @@
 {
   "name": "ofln",
   "version": "1.1",
-  "description": "Offline on-device local LLM assistant for mobile (Android & iOS)",
+  "description": "Private AI that runs fully offline on your phone, with no account and no cloud (Android & iOS)",
   "private": true,
   "license": "GPL-3.0-or-later",
   "author": "Darwin Chen",
@@ -38,6 +38,8 @@
     "android:check-storage": "adb shell df -h",
     "android:install": "node scripts/gradle.js installDebug",
     "android:build-release": "node scripts/gradle.js assembleRelease",
+    "android:build-foss": "node scripts/gradle.js assembleFossRelease",
+    "android:build-play": "node scripts/gradle.js assemblePlayRelease",
     "android:install-release": "adb install -r android/app/build/outputs/apk/release/ofln-release.apk",
     "android:test-release": "npm run android:build-release && npm run android:install-release",
     "android:extract-release": "powershell -ExecutionPolicy Bypass -File .\\scripts\\extract-release-apk.ps1"

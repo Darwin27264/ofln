@@ -1,0 +1,9 @@
+• Initial v1.1 open-source launch release.
+• On-device local LLM inference powered by llama.cpp.
+• Curated model shelf with SHA-256 integrity verification.
+• Automated scheduled tasks and Source Monitor webpage summaries.
+• Perspective multi-persona debates.
+• On-device document and image text OCR (ML Kit).
+• Voice input (STT) and spoken audio readout (TTS).
+• Complete light and dark themes with ambient hue accents.
+• Safe Mode recovery and offline storage backup/restore.

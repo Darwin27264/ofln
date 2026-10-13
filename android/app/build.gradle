@@ -57,6 +57,7 @@ react {
     // hermesFlags = ["-O", "-output-source-map"]
 
     /* Autolinking */
+    debuggableVariants = ["fossDebug", "playDebug"]
     autolinkLibrariesWithApp()
 }
 
@@ -101,6 +102,15 @@ android {
             }
         }
     }
+    flavorDimensions "distribution"
+    productFlavors {
+        foss {
+            dimension "distribution"
+        }
+        play {
+            dimension "distribution"
+        }
+    }
     packaging {
         jniLibs {
             useLegacyPackaging = false
@@ -121,7 +131,11 @@ android {
     }
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
-            output.outputFileName = "ofln-${variant.buildType.name}.apk"
+            if (variant.flavorName) {
+                output.outputFileName = "ofln-${variant.flavorName}-${variant.buildType.name}.apk"
+            } else {
+                output.outputFileName = "ofln-${variant.buildType.name}.apk"
+            }
         }
     }
     buildTypes {

@@ -4,6 +4,7 @@
  * Always runs URIs through mediaNormalizeService first so Android
  * content:// picks become real files — ML Kit is unreliable otherwise.
  */
+import { NativeModules } from 'react-native';
 import TextRecognition from '@react-native-ml-kit/text-recognition';
 import {
   normalizeMediaToFile,
@@ -14,6 +15,18 @@ import {
   type NormalizedMedia,
 } from './mediaNormalizeService';
 import { withOcrRamHeadroom } from './ocrRamGuard';
+
+/**
+ * Check if native OCR module is available.
+ * Returns false in pure FOSS builds where ML Kit binary blobs are omitted.
+ */
+export function isOcrSupported(): boolean {
+  try {
+    return Boolean(NativeModules && NativeModules.TextRecognition);
+  } catch {
+    return false;
+  }
+}
 
 /** Collapse 3+ newlines to at most two. */
 function collapseBlankLines(text: string): string {
@@ -32,6 +45,11 @@ export async function extractTextFromImage(
   const trimmed = (uri || '').trim();
   if (!trimmed) {
     console.warn('[ocrService] Empty or invalid image URI');
+    return '';
+  }
+
+  if (!isOcrSupported()) {
+    console.info('[ocrService] OCR is not available in this build (e.g. FOSS build flavor)');
     return '';
   }
 

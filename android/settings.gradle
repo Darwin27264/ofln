@@ -1,6 +1,31 @@
 pluginManagement { includeBuild("../node_modules/@react-native/gradle-plugin") }
 plugins { id("com.facebook.react.settings")
     id 'org.gradle.toolchains.foojay-resolver-convention' version '0.10.0' }
+
+// Support for official F-Droid pure FOSS builds:
+// Signal react-native.config.js to disable ML Kit binary blobs
+def isFossBuild = (
+    System.getenv("OFLN_BUILD_FOSS") == "1" ||
+    System.getenv("BUILD_FOSS") == "true" ||
+    (settings.hasProperty("foss") && settings.property("foss") != "false") ||
+    (settings.hasProperty("distribution") && settings.property("distribution") == "foss") ||
+    gradle.startParameter.taskNames.any { it.toLowerCase().contains("foss") }
+)
+
+File fossMarker = file('.foss')
+boolean previousFoss = fossMarker.exists()
+if (isFossBuild != previousFoss) {
+    file("build/generated/autolinking").deleteDir()
+}
+
+if (isFossBuild) {
+    if (!fossMarker.exists()) {
+        fossMarker.createNewFile()
+    }
+} else if (fossMarker.exists()) {
+    fossMarker.delete()
+}
+
 extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
 rootProject.name = 'ofln'
 include ':app'

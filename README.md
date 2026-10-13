@@ -1,55 +1,126 @@
 # ofln™
 
-Offline LLM chat for Android and iOS by **Evolvyn AI** (Darwin Chen). Download a GGUF model once, then run inference on-device via [llama.cpp](https://github.com/ggerganov/llama.cpp) through [`llama.rn`](https://github.com/mybigday/llama.rn). No account and no cloud LLM for replies.
+A private AI that runs fully offline on your phone, with no account and no cloud.
 
-**In the app:** Settings → About for tips · Settings → Storage for backup.
+<p align="center">
+  <img src="./assets/demo.gif" alt="ofln offline demo: download model and chat in airplane mode" width="600" />
+  <br />
+  <em><strong>Demo:</strong> On-device LLM workflow from curated shelf to 100% offline private execution.</em>
+</p>
 
-| Doc | Purpose |
-|-----|---------|
-| [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Dev build setup, code style, and PR guidelines |
-| [`docs/PRIVACY.md`](./docs/PRIVACY.md) | What stays local, Hugging Face, tokens, backups |
-| [`SECURITY.md`](./SECURITY.md) | Vulnerability reporting; Android signing files stay local |
-| [`docs/TECHNICAL.md`](./docs/TECHNICAL.md) | Architecture, build/release, CI, Android 16KB, inference notes |
-| [`DESIGN.md`](./DESIGN.md) | UI system |
-| [`docs/DEVICE_SMOKE.md`](./docs/DEVICE_SMOKE.md) | Maintainer device smoke checklist |
-| [`TRADEMARK.md`](./TRADEMARK.md) | Brand / fork rebranding policy |
+---
+
+### 📲 Download & Platform Status
+
+> ### [⬇️ **Download APK (v1.1)**](https://github.com/Darwin27264/ofln/releases/tag/v1.1)
+> Grab the latest installable Android package directly from [GitHub Releases](https://github.com/Darwin27264/ofln/releases/latest).
+
+| Platform | Current Status | How to Install |
+|:---|:---|:---|
+| **Android** | 🟢 **APK Available** | Download and install [`ofln-release.apk`](https://github.com/Darwin27264/ofln/releases/tag/v1.1) directly on any 64-bit ARM device (Android 7.0+ / API 24+). |
+| **iOS** | 🟡 **Build from Source** | Currently requires building from source with Xcode on macOS (see [Setup](#setup) below). App Store / TestFlight build in preparation. |
+
+---
+
+## Why ofln
+
+Most mobile AI apps are thin wrappers around remote cloud APIs that log your prompts, track your habits, and require paid subscriptions. **ofln** is different: it executes open-weights GGUF models directly on your phone's processor using [llama.cpp](https://github.com/ggerganov/llama.cpp) via [`llama.rn`](https://github.com/mybigday/llama.rn).
+
+Here is what sets ofln apart:
+
+- **Automated Scheduled Tasks & Source Monitor:** Schedule recurring local LLM prompts, or have ofln fetch a webpage URL (like news or documentation) and generate an executive summary entirely on-device on a timer. Raw data and summaries never leave your phone.
+- **Perspective Debates:** Pit multiple AI personas against each other in structured, multi-turn debates (e.g., Pragmatist vs. Skeptic) to explore complex questions from opposing angles.
+- **AI Personas Library:** Create custom system identities, adjust tone and thinking style, and isolate context per persona.
+- **On-Device PDF & Image OCR:** Attach photos or documents; ofln uses local on-device OCR (ML Kit) to extract text before passing it to the model—never streaming your photos to an external vision API.
+- **Voice Input & Spoken Replies:** Talk directly to your local model with speech-to-text input and listen to replies via text-to-speech output.
+- **Curated Shelf of Phone-Sized Models:** No guessing which weights fit your hardware. The **Start here** shelf recommends verified Q4_0 quantized models tailored to phone RAM limits with SHA-256 integrity verification, plus full Hugging Face search and local GGUF file imports.
+
+---
 
 ## Screenshots
 
-| Curated Model Shelf | Chat & Ambient Hue | Personas Library |
-| :---: | :---: | :---: |
-| <img src="./assets/screenshots/01_model_shelf.png" width="240" alt="Curated Model Shelf" /> | <img src="./assets/screenshots/02_chat_screen.png" width="240" alt="Chat Screen" /> | <img src="./assets/screenshots/03_personas.png" width="240" alt="Personas Library" /> |
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="50%">
+        <img src="./assets/screenshots/01_model_shelf.png" width="260" alt="Curated Starter Model Shelf" />
+        <br />
+        <strong>Curated starter shelf with phone-sized Q4_0 models & RAM badges</strong>
+      </td>
+      <td align="center" width="50%">
+        <img src="./assets/screenshots/02_chat_screen.png" width="260" alt="Private Multi-Turn Chat" />
+        <br />
+        <strong>Private on-device chat with ambient hue & quick action chips</strong>
+      </td>
+    </tr>
+    <tr>
+      <td align="center" width="50%">
+        <img src="./assets/screenshots/03_personas.png" width="260" alt="Personas Library" />
+        <br />
+        <strong>Personas library with custom system identities and prompts</strong>
+      </td>
+      <td align="center" width="50%">
+        <img src="./assets/screenshots/04_scheduled_tasks.png" width="260" alt="Scheduled Tasks & Source Monitor" />
+        <br />
+        <strong>Source Monitor: automated webpage fetch and on-device summary</strong>
+      </td>
+    </tr>
+    <tr>
+      <td align="center" width="50%">
+        <img src="./assets/screenshots/05_performance_stages.png" width="260" alt="Hardware Acceleration & Performance" />
+        <br />
+        <strong>Hardware acceleration monitor & OpenCL GPU backend verification</strong>
+      </td>
+      <td align="center" width="50%">
+        <img src="./assets/screenshots/06_perspectives.png" width="260" alt="Perspective Debates" />
+        <br />
+        <strong>Perspective debate between AI personas conversing turn-by-turn</strong>
+      </td>
+    </tr>
+  </table>
+</div>
 
-| Scheduled Tasks | Performance Metrics | Perspective Debates |
-| :---: | :---: | :---: |
-| <img src="./assets/screenshots/04_scheduled_tasks.png" width="240" alt="Scheduled Tasks" /> | <img src="./assets/screenshots/05_performance_stages.png" width="240" alt="Performance Metrics" /> | <img src="./assets/screenshots/06_perspectives.png" width="240" alt="Perspective Debates" /> |
+> ### 📷 Production Screen Captures
+> Captured directly from a Google Pixel 8 running the v1.1 release build on Android:
+> 1. [x] **Model Shelf (`01_model_shelf.png`):** Curated phone-sized models with RAM guidance & SHA-256 verification.
+> 2. [x] **Private Chat (`02_chat_screen.png`):** On-device inference with ambient hue and prompt suggestions.
+> 3. [x] **Personas Library (`03_personas.png`):** Custom system prompts and persona identities.
+> 4. [x] **Source Monitor (`04_scheduled_tasks.png`):** Automated webpage monitoring and recurring analysis setup.
+> 5. [x] **Hardware Performance (`05_performance_stages.png`):** Hardware backend detection with OpenCL acceleration.
+> 6. [x] **Perspective Debates (`06_perspectives.png`):** Multi-seat AI persona debate configuration (*Idealist vs. Pragmatist*).
+
+---
 
 ## Features
 
-- Browse / download GGUF models from Hugging Face (optional token for gated repos)
-- Curated **Start here** shelf (Q4_0 phone-friendly picks) with SHA-256 integrity verification plus full HF browse / local import
-- Download progress with percent and speed/ETA when measurable; resumable pause/resume
-- Import local GGUF files; per-model settings (temperature, context, GPU layers)
-- Streaming chat with optional reasoning/`<think>` parsing; calm per-turn tok/s
-- Personas, temporary chats, pin/rename history
-- **Tasks** (Settings): scheduled **LLM prompts** or **Source Monitor** (fetch URL + analyze) — results stay local
-- **Perspective** debates: multiple on-device speakers take turns on a topic
-- Image / PDF attachments (on-device OCR / text extraction; multimodal when supported)
-- Voice input (speech-to-text) and spoken readout (text-to-speech)
-- Light / dark theme
-- Performance (Stages) metrics from on-device usage logs — private, not a leaderboard
-- Backup & restore: chats JSON or full profile ZIP (models re-download via catalog; secrets never exported)
-- Safe Mode recovery if a previous launch crashed during model load
+- **Hugging Face Hub:** Browse and download GGUF models directly (optional token for gated repos, stored securely in Keychain).
+- **Curated Starter Shelf:** Verified Q4_0 phone-friendly picks with SHA-256 integrity verification.
+- **Download Management:** Resumable downloads with percentage, live transfer rate, and ETA calculation.
+- **Local File Import:** Import any `.gguf` file stored on device storage; configure temperature, context window, and GPU acceleration.
+- **Streaming Inference:** Native token streaming via `llama.cpp` with optional `<think>` reasoning block parsing and per-turn tok/s metrics.
+- **Personas & Chat Management:** Custom personas, temporary chats, conversation pinning, and renaming.
+- **Scheduled Tasks:** Periodic LLM prompts or Source Monitor (fetch webpage content and summarize on-device).
+- **Perspective Debates:** Multi-speaker round-robin discussions between AI personas.
+- **Document & Image Attachments:** On-device OCR and document text extraction prior to prompting.
+- **Voice Input & TTS:** Local speech recognition input and spoken text playback.
+- **Appearance:** High-contrast light and dark themes with ambient hue accents.
+- **Usage & Performance (Stages):** Private, on-device metrics tracking token speeds and memory utilization.
+- **Durable Backup & Restore:** Export chats as JSON or full profile as ZIP; restore seamlessly without exporting tokens or GGUF files.
+- **Safe Mode Boot Guard:** Automatic detection and recovery if a model load or boot previously crashed.
+
+---
 
 ## Requirements
 
 | Requirement | Notes |
 |-------------|--------|
-| Node.js ≥ 18 | |
-| JDK 17+ (prefer 21) | Android builds (Gradle 8.12). Prefer Android Studio’s bundled JBR and set `JAVA_HOME` |
-| Android Studio / SDK | Android |
-| Xcode + CocoaPods | iOS (macOS) |
-| New Architecture | Required by current `llama.rn` (enabled in project configs) |
+| **Node.js** | ≥ 18 |
+| **JDK** | JDK 17+ (prefer 21) for Android builds (Gradle 8.12). Set `JAVA_HOME`. |
+| **Android Studio / SDK** | Android NDK `27.1.12297006` and CMake 3.22.1+ |
+| **Xcode & CocoaPods** | iOS builds (macOS only) |
+| **New Architecture** | Enabled in project configs (required by `llama.rn`) |
+
+---
 
 ## Setup
 
@@ -69,103 +140,118 @@ bundle exec pod install
 cd ..
 ```
 
-**Run:**
+**Run Development Build:**
 
 ```bash
-npm start          # Metro
-npm run android    # Android device/emulator
-npm run ios        # iOS simulator/device
+npm start          # Start Metro bundler
+npm run android    # Launch on Android emulator or connected device
+npm run ios        # Launch on iOS simulator or device
 ```
 
-No cloud LLM API keys are required. Hugging Face tokens (optional) are stored in Keychain and used only for `huggingface.co` downloads. See [`docs/PRIVACY.md`](./docs/PRIVACY.md).
+*Note: No cloud LLM API keys are required. Optional Hugging Face tokens are stored in the device Keychain and used only for gated downloads on `huggingface.co`. See [`docs/PRIVACY.md`](./docs/PRIVACY.md).*
 
-Copy `.env.example` only if you add local tooling variables — the app runtime does not read a `.env` for inference.
+---
 
-## Privacy (short)
+## Privacy (Summary)
 
-| Leaves device? | What |
-|----------------|------|
-| Only when you download/browse models | Hugging Face |
-| Stays local | Chats, personas, Tasks results, Stages metrics |
-| Never in backups | HF tokens, GGUF files |
+| Destination | Details |
+|---|---|
+| **Leaves Device** | Only when downloading or browsing models from Hugging Face, or fetching user-specified URLs in Source Monitor tasks. |
+| **Stays Local** | All chats, prompts, model weights, personas, task schedules, OCR processing, and performance metrics. |
+| **Never Exported** | Hugging Face tokens and downloaded GGUF weights are excluded from backup archives. |
 
-Inference does not use an ofln cloud API. There is no account system.
+Inference never communicates with an ofln cloud server. There are no tracking scripts, analytics, or user accounts.
 
-## Backup & restore
+---
 
-**UI:** Settings → Storage
+## Backup & Restore
 
-| Action | Output |
-|--------|--------|
-| Export chats | `ofln-chats-*.json` |
-| Export full backup | `ofln-backup-*.zip` |
-| Import | Merge or replace |
+**Navigation:** Settings → Storage
 
-Full backups include chats, personas, perspective presets, tasks / recent runs, settings, and model catalog — not GGUF files or HF tokens. Models re-download on restore.
+| Action | Format | Description |
+|---|---|---|
+| **Export Chats** | `ofln-chats-*.json` | Exports chat conversations and message history. |
+| **Export Full Backup** | `ofln-backup-*.zip` | Exports chats, personas, perspective presets, tasks, and settings. |
+| **Import** | JSON or ZIP | Restore data by merging with existing data or replacing it. |
 
-## Development scripts
+*Full backups do not bundle heavy GGUF files or API tokens. Models re-download on restore via catalog metadata.*
 
-| Script | Purpose |
-|--------|---------|
-| `npm start` | Metro bundler |
-| `npm run android` / `npm run ios` | Build & run |
-| `npm test` | Jest unit test suite |
-| `npm run lint:ci` | ESLint (launch-critical paths) |
-| `npm run typecheck` | Launch-critical path typecheck |
-| `npm run typecheck:full` | Full-project `tsc --noEmit` |
-| `npm run android:build-release` | Build release APK (`assembleRelease`) |
-| `npm run android:extract-release` | Copy release APK into `releaseAPK/ofln_{date}.apk` |
+---
 
-Direct Windows build & extract commands:
+## Development & Build Scripts
+
+| Script | Command | Purpose |
+|---|---|---|
+| **Start Metro** | `npm start` | Launches Metro bundler. |
+| **Run Android** | `npm run android` | Builds and installs debug app on Android device/emulator. |
+| **Run iOS** | `npm run ios` | Builds and installs debug app on iOS device/simulator. |
+| **Unit Tests** | `npm test` | Runs Jest unit test suite (`__tests__/`). |
+| **Lint CI** | `npm run lint:ci` | Runs ESLint on critical service and guard paths. |
+| **Typecheck** | `npm run typecheck` | Checks critical path TypeScript types. |
+| **Full Typecheck** | `npm run typecheck:full` | Runs project-wide `tsc --noEmit`. |
+| **Build Release APK** | `npm run android:build-release` | Assembles all release APKs via Gradle (`assembleRelease`). |
+| **Build FOSS Release** | `npm run android:build-foss` | Pure FOSS APK for F-Droid without Google ML Kit blobs (`assembleFossRelease`). |
+| **Build Play Release** | `npm run android:build-play` | Standard release APK with on-device ML Kit OCR (`assemblePlayRelease`). |
+| **Extract Release APK** | `npm run android:extract-release` | Copies release APK to `releaseAPK/ofln_{date}.apk`. |
+
+**Direct Windows PowerShell Build Commands:**
 ```powershell
-# Build release APK:
-cd android; .\gradlew.bat assembleRelease; cd ..
+# Build F-Droid compliant pure FOSS release APK:
+cd android; .\gradlew.bat assembleFossRelease; cd ..
 
-# Extract to releaseAPK/:
+# Build standard Play release APK:
+cd android; .\gradlew.bat assemblePlayRelease; cd ..
+
+# Extract release APK:
 powershell -ExecutionPolicy Bypass -File .\scripts\extract-release-apk.ps1
 ```
 
-More build/release detail: [`docs/TECHNICAL.md`](./docs/TECHNICAL.md).
+---
 
-## Testing
+## Project & Documentation
 
-```bash
-npm run typecheck
-npm run lint:ci
-npm test
-```
+Created and maintained by **Evolvyn AI** (Darwin Chen).
 
-Unit tests live under `__tests__/`. Prefer pure helpers that do not require native modules. Manual smoke: [`docs/DEVICE_SMOKE.md`](./docs/DEVICE_SMOKE.md).
+| Document | Purpose |
+|---|---|
+| [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Development setup, code guidelines, and pull request workflow |
+| [`NOTICE`](./NOTICE) | Project copyright statement and licensing notice |
+| [`docs/PRIVACY.md`](./docs/PRIVACY.md) | Deep dive on local data boundaries, tokens, and storage |
+| [`docs/TECHNICAL.md`](./docs/TECHNICAL.md) | Architecture, inference pipeline, memory ladders, and 16KB pages |
+| [`docs/DISTRIBUTION.md`](./docs/DISTRIBUTION.md) | Store readiness, F-Droid / IzzyOnDroid criteria, and Play Store / TestFlight steps |
+| [`DESIGN.md`](./DESIGN.md) | Design tokens, typography, monochrome palette, and motion guidelines |
+| [`docs/DEVICE_SMOKE.md`](./docs/DEVICE_SMOKE.md) | Maintainer device smoke checklist |
+| [`TRADEMARK.md`](./TRADEMARK.md) | Trademark guidelines and fork rebranding policy |
+| [`SECURITY.md`](./SECURITY.md) | Vulnerability disclosure policy |
+
+---
 
 ## Contributing
 
-Contributions are welcome! Please see [`CONTRIBUTING.md`](./CONTRIBUTING.md) for local development setup, code style pointers, and PR guidelines:
-- Prefer focused PRs; match existing TypeScript / React Native patterns.
-- Visual or interaction changes: follow [`DESIGN.md`](./DESIGN.md) and keep it current.
-- New user-durable data: update backup export/import, schema/tests, and the Backup section above.
-- Read [`docs/PRIVACY.md`](./docs/PRIVACY.md) before claiming offline / zero-network behavior.
+Contributions are warmly welcomed! Please see [`CONTRIBUTING.md`](./CONTRIBUTING.md) for step-by-step setup, guidelines, and available starter issues in [`docs/issues/`](./docs/issues/).
+
+---
 
 ## Support
 
-ofln is free and open source, built for fun — if it saves you a download or a smile, a coffee is appreciated but never expected.
+ofln is free and open source. If it saves you time or data, your support is deeply appreciated:
 
 - [GitHub Sponsors](https://github.com/sponsors/Darwin27264)
 - [Ko-fi](https://ko-fi.com/darwin27)
 
+---
+
 ## License
 
-GNU General Public License v3.0 — see [`LICENSE`](./LICENSE).
+GNU General Public License v3.0 — see [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
 
 Copyright © 2026 Darwin Chen / Evolvyn AI.
 
-Third-party libraries (including llama.cpp / llama.rn) retain their upstream licenses; GPLv3 applies to this project’s combined distribution terms.
+*Third-party libraries (including llama.cpp and llama.rn) retain their upstream licenses; GPLv3 applies to this project's combined distribution terms.*
 
-## Trademark
+---
 
-**ofln™** and related branding are trademarks of Evolvyn AI. The GPLv3 license does **not** grant trademark rights. Forks that redistribute modified binaries must rebrand. See [`TRADEMARK.md`](./TRADEMARK.md).
+## Trademark & Security
 
-## Security
-
-Report vulnerabilities privately — see [`SECURITY.md`](./SECURITY.md).
-
-Android release signing stays in gitignored `android/gradle.properties` (template: `android/gradle.properties.example`). Do not commit upload keystores or passwords.
+- **Trademark:** **ofln™** and associated branding are trademarks of Evolvyn AI. Forks that redistribute modified binaries must rebrand. See [`TRADEMARK.md`](./TRADEMARK.md).
+- **Security:** Report vulnerabilities privately according to [`SECURITY.md`](./SECURITY.md).

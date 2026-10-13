@@ -89,13 +89,19 @@ zipalign -c -P 16 -v 4 app-release.apk
 ```bash
 cd android
 .\gradlew.bat clean
-.\gradlew.bat assembleRelease
+
+# Option A: Pure FOSS release (F-Droid compliant, no ML Kit binary blobs):
+.\gradlew.bat assembleFossRelease
+
+# Option B: Standard Play release (includes Google ML Kit OCR):
+.\gradlew.bat assemblePlayRelease
+
 cd ..
 powershell -ExecutionPolicy Bypass -File .\scripts\extract-release-apk.ps1
 ```
 
-Gradle output: `android/app/build/outputs/apk/release/ofln-release.apk`.  
-The extract script copies it to `releaseAPK/ofln_{date}.apk`.
+Gradle output: `android/app/build/outputs/apk/foss/release/ofln-foss-release.apk` (or `play/release/ofln-play-release.apk`).  
+The extract script copies the latest release APK to `releaseAPK/ofln_{date}.apk`.
 
 **Signing:** copy `android/gradle.properties.example` → `android/gradle.properties` and fill upload keystore placeholders locally. Never commit real passwords or upload keystores. See [`SECURITY.md`](../SECURITY.md).
 

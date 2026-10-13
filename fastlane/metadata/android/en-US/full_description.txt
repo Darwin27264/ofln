@@ -1,0 +1,24 @@
+ofln is a private, fully offline AI assistant that runs open-weights language models directly on your phone's hardware.
+
+Unlike traditional AI apps that send your sensitive questions, documents, and code to remote cloud servers, ofln executes models locally using llama.cpp. Once you download a model, turn on Airplane Mode: ofln never needs an internet connection to think, generate, or summarize.
+
+No accounts. No subscriptions. No cloud tracking.
+
+KEY FEATURES:
+
+• 100% On-Device Inference: Powered by llama.cpp and llama.rn for high-performance mobile execution on ARM64 processors.
+• Automated Tasks & Source Monitor: Schedule recurring local LLM prompts, or have ofln fetch a webpage URL and extract an executive summary entirely on-device on a timer.
+• Perspective Debates: Pit multiple AI personas against each other in structured, multi-turn debates to explore questions from diverse points of view.
+• Custom Personas: Tailor system prompts, tone, and reasoning depth for specialized tasks like coding, creative writing, or technical research.
+• On-Device OCR & Document Reading: Attach photos or PDF documents; ofln uses local OCR to extract text directly on your device before prompting the model—never uploading your files to a cloud vision API.
+• Voice Input & Spoken Readout: Talk directly to your model with speech-to-text input and listen to replies via text-to-speech output.
+• Curated Starter Shelf: Start immediately with verified Q4_0 quantized models chosen for mobile RAM budgets, with SHA-256 integrity verification.
+• Hugging Face & Local Import: Download any compatible GGUF model directly from Hugging Face or import local files from your storage.
+• Clean Monochrome Design: Thoughtfully designed high-contrast Light and Dark themes with subtle ambient accents.
+• Safe Mode Boot Guard: Automatic crash detection and safety recovery prevents boot-loops if an experimental model exceeds hardware limits.
+• Full Backup & Restore: Export chats as JSON or save full application configurations to a zip archive without exposing private tokens.
+
+PRIVACY GUARANTEE:
+Your prompts, replies, documents, OCR extracts, and settings never leave your device. The only network requests made by ofln are when you explicitly browse or download models from Hugging Face or configure a URL to fetch in Source Monitor. There are zero tracking scripts, zero ads, and zero analytics.
+
+ofln is free and open source software licensed under the GNU General Public License v3.0 (GPL-3.0).
