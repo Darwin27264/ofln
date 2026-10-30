@@ -178,6 +178,10 @@ export function formatNextRun(nextRunAt: number, nowMs: number = Date.now()): st
 export function isValidHttpUrl(url: string): boolean {
   const t = (url || '').trim();
   if (!t) return false;
+  // Fast regex check for Hermes where new URL() constructor can fail or behave differently
+  if (/^https?:\/\/[a-zA-Z0-9\-._~%]+(:[0-9]+)?([/?#][^\s]*)?$/i.test(t)) {
+    return true;
+  }
   try {
     const u = new URL(t);
     return u.protocol === 'https:' || u.protocol === 'http:';
