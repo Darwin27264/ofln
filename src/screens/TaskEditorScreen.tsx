@@ -41,6 +41,8 @@ import {
   generateTaskId,
   removeTask,
   saveTask,
+  MORNING_BRIEF_DEFAULT_URL,
+  MORNING_BRIEF_DEFAULT_PROMPT,
   type ScheduledTask,
   type TaskKind,
 } from "../services/taskService";
@@ -501,6 +503,17 @@ export default function TaskEditorScreen({
 
   const markDirty = useCallback(() => setDirty(true), []);
 
+  const handleApplyMorningBriefTemplate = useCallback(() => {
+    setName("Morning Brief");
+    setKind("source_monitor");
+    setSourceUrl(MORNING_BRIEF_DEFAULT_URL);
+    setAnalysisPrompt(MORNING_BRIEF_DEFAULT_PROMPT);
+    setCadence("daily");
+    setHour(7);
+    setMinute(30);
+    markDirty();
+  }, [markDirty]);
+
   const schedulePreview = useMemo(() => {
     const schedule = normalizeSchedule({
       cadence,
@@ -753,6 +766,35 @@ export default function TaskEditorScreen({
       >
         <View style={{ marginBottom: 24 }}>
           <Text style={sectionTitle}>Basics</Text>
+          {!isEditMode && (
+            <TouchableOpacity
+              onPress={handleApplyMorningBriefTemplate}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+                borderWidth: 1,
+                borderRadius: 12,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                marginBottom: 12,
+                gap: 8,
+              }}
+            >
+              <Ionicons name="sunny-outline" size={18} color={theme.colors.warning} />
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontFamily: "Poppins",
+                  color: theme.colors.text,
+                  fontWeight: "600",
+                }}
+              >
+                Use template: Morning Brief (7:30 AM News)
+              </Text>
+            </TouchableOpacity>
+          )}
           <Text style={fieldLabel}>
             Name <Text style={{ color: theme.colors.error }}>*</Text>
           </Text>

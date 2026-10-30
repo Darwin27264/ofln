@@ -1,5 +1,9 @@
 import {
   applyConversationTrim,
+  buildSummarizationPrompt,
+  consolidateWithSummary,
+  formatPinnedEarlierSummary,
+  partitionForSummarization,
   trimConversation,
 } from '../../src/services/inference/contextTrim';
 
@@ -88,3 +92,68 @@ describe('applyConversationTrim', () => {
     expect(result.droppedCount).toBe(2);
   });
 });
+
+describe('context summarization helpers', () => {
+  const sampleMessages = [
+    { role: 'system', content: 'You are ofln.' },
+    { role: 'user', content: 'My favorite color is green.' },
+    { role: 'assistant', content: 'Noted that your favorite color is green.' },
+    { role: 'user', content: 'I am planning a trip to Kyoto.' },
+    { role: 'assistant', content: 'Kyoto has beautiful shrines.' },
+    { role: 'user', content: 'Recommend 3 hotels.' },
+    { role: 'assistant', content: '1. Hotel Granvia\n2. The Thousand\n3. Ace Hotel' },
+    { role: 'user', content: 'What about budget options?' },
+    { role: 'assistant', content: 'For budget, consider Piece Hostel Kyoto.' },
+  ];
+
+  it('returns null if conversation does not have enough turns to summarize', () => {
+    const shortList = sampleMessages.slice(0, 5);
+    expect(partitionForSummarization(shortList, 6)).toBeNull();
+  });
+
+  it('partitions earlier turns and preserves recent turns', () => {
+    const partition = partitionForSummarization(sampleMessages, 4);
+    expect(partition).not.toBeNull();
+    if (!partition) return;
+
+    expect(partition.systemMessage.content).toBe('You are ofln.');
+    expect(partition.earlierTurnsToSummarize.length).toBe(4);
+    expect(partition.recentTurnsToKeep.length).toBe(4);
+    expect(partition.recentTurnsToKeep[partition.recentTurnsToKeep.length - 1].content).toContain('Piece Hostel');
+  });
+
+  it('builds a clean on-device summarization prompt', () => {
+    const turns = [
+      { role: 'user', content: 'My dog is named Buster.' },
+      { role: 'assistant', content: 'Great name!' },
+    ];
+    const prompt = buildSummarizationPrompt(turns);
+    expect(prompt).toContain('User: My dog is named Buster.');
+    expect(prompt).toContain('Assistant: Great name!');
+    expect(prompt).toContain('Context Summary:');
+  });
+
+  it('formats pinned earlier summary and consolidates transcript correctly', () => {
+    const sys = { role: 'system', content: 'System instruction.' };
+    const recent = [
+      { role: 'user', content: 'What is my dog name?' },
+      { role: 'assistant', content: 'Your dog is Buster.' },
+    ];
+    const summary = '- User has a dog named Buster.';
+    const formatted = formatPinnedEarlierSummary(summary);
+    expect(formatted).toBe('Earlier in this chat:\n- User has a dog named Buster.');
+
+    const consolidated = consolidateWithSummary(sys, summary, recent, (c) => ({
+      role: 'system',
+      content: c,
+    }));
+
+    expect(consolidated.length).toBe(4);
+    expect(consolidated[0]).toEqual(sys);
+    expect(consolidated[1].content).toContain('Earlier in this chat:');
+    expect(consolidated[1].content).toContain('Buster');
+    expect(consolidated[2]).toEqual(recent[0]);
+    expect(consolidated[3]).toEqual(recent[1]);
+  });
+});
+

@@ -43,8 +43,10 @@ export const RAM_FIT_BUCKETS: DeviceRamBucket[] = [
   { minDeviceRam: 4 * GB, fitsMaxFile: 1.9 * GB, tightMaxFile: 2.8 * GB },
   // 6–8 GB
   { minDeviceRam: 6 * GB, fitsMaxFile: 2.8 * GB, tightMaxFile: 4.0 * GB },
-  // 8 GB+
+  // 8–12 GB
   { minDeviceRam: 8 * GB, fitsMaxFile: 4.2 * GB, tightMaxFile: 6.0 * GB },
+  // 12 GB+
+  { minDeviceRam: 12 * GB, fitsMaxFile: 6.5 * GB, tightMaxFile: 9.0 * GB },
 ];
 
 export const RAM_FIT_LABELS: Record<RamFitTier, string> = {

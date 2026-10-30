@@ -1,0 +1,52 @@
+Categories:
+  - System
+  - Office
+License: GPL-3.0-or-later
+AuthorName: Darwin Chen
+AuthorWebSite: https://github.com/Darwin27264
+SourceCode: https://github.com/Darwin27264/ofln
+IssueTracker: https://github.com/Darwin27264/ofln/issues
+Changelog: https://github.com/Darwin27264/ofln/releases
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: '1.2'
+CurrentCode: 3
+
+AutoName: ofln
+Summary: Private AI that runs fully offline on your phone
+Description: |-
+  A private AI that runs fully offline on your phone, with no account and no cloud.
+  Executes open-weights GGUF models directly on device using llama.cpp via llama.rn.
+
+  Features:
+  * 100% Offline: Prompts, chats, and weights remain on your device.
+  * Curated Starter Shelf: Verified Q4_0 quantized models tailored to phone RAM limits.
+  * Personas & Perspective Debates: Create custom system prompts or pit AI personas against each other in structured debates.
+  * Source Monitor: Periodic on-device content analysis of saved web sources and feeds.
+  * Share Sheet & Quick Actions: Highlight text in any app to summarize, rewrite, translate, or ask ofln directly.
+  * No Trackers, No Cloud, No Telemetry.
+
+RepoType: git
+Repo: https://github.com/Darwin27264/ofln.git
+
+Builds:
+  - versionName: '1.1'
+    versionCode: 2
+    commit: v1.1
+    subdir: android
+    gradle:
+      - assembleFossRelease
+    ndk: r27c
+    prebuild:
+      - npm ci
+
+  - versionName: '1.2'
+    versionCode: 3
+    commit: v1.2
+    subdir: android
+    gradle:
+      - assembleFossRelease
+    ndk: r27c
+    prebuild:
+      - npm ci

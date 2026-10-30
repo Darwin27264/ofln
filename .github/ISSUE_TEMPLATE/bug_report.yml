@@ -1,0 +1,68 @@
+name: Bug Report
+description: File a problem or unexpected behavior in ofln
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! ofln is 100% offline with zero telemetry.
+        Please provide the hardware and model details below to help reproduce.
+  - type: input
+    id: device
+    attributes:
+      label: Device & OS
+      description: What phone model and Android version are you using?
+      placeholder: e.g. Google Pixel 8 (Android 14) or Samsung Galaxy S23 (One UI 6.1)
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: ofln Version & Install Method
+      description: Version of the app and where you got it.
+      placeholder: e.g. v1.1.0 via GitHub APK / Obtainium / F-Droid
+    validations:
+      required: true
+  - type: input
+    id: model-gguf
+    attributes:
+      label: Model File (GGUF)
+      description: Which model file was loaded when the issue occurred?
+      placeholder: e.g. SmolLM2-1.7B-Instruct-Q4_K_M.gguf / Llama-3.2-3B-Instruct-Q4_K_M.gguf
+    validations:
+      required: true
+  - type: dropdown
+    id: acceleration
+    attributes:
+      label: Acceleration Mode
+      description: Which acceleration backend was active? (Check Settings → Performance / Diagnostics)
+      options:
+        - "OpenCL (GPU)"
+        - "Vulkan (GPU)"
+        - "NPU / HTP"
+        - "CPU only"
+        - "Unknown / Not sure"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What Happened?
+      description: Describe what you observed and what you expected instead.
+      placeholder: |
+        Steps to reproduce:
+        1. Open ofln
+        2. Load model ...
+        3. Send message ...
+        4. See crash / unexpected response
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics-logs
+    attributes:
+      label: Sanitized Diagnostics / Error Log
+      description: In ofln, tap Settings → Diagnostics → "Copy Diagnostics" (or "View Logs" → "Copy Log"). Note that ofln automatically redacts user prompts and chats.
+      render: text
+    validations:
+      required: false

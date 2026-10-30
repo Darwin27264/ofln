@@ -60,14 +60,14 @@
         android:exported="true">
 
         <!-- 1. Text & Links via Share Sheet -->
-        <intent-filter android:label="Summarize with ofln">
+        <intent-filter android:label="Ask ofln">
           <action android:name="android.intent.action.SEND" />
           <category android:name="android.intent.category.DEFAULT" />
           <data android:mimeType="text/plain" />
         </intent-filter>
 
         <!-- 2. Photos & Images via Share Sheet -->
-        <intent-filter android:label="OCR &amp; Summarize with ofln">
+        <intent-filter android:label="OCR &amp; Ask ofln">
           <action android:name="android.intent.action.SEND" />
           <action android:name="android.intent.action.SEND_MULTIPLE" />
           <category android:name="android.intent.category.DEFAULT" />
@@ -75,7 +75,7 @@
         </intent-filter>
 
         <!-- 3. Direct Highlighted Text Menu (PROCESS_TEXT) -->
-        <intent-filter android:label="Summarize with ofln">
+        <intent-filter android:label="Ask ofln">
           <action android:name="android.intent.action.PROCESS_TEXT" />
           <category android:name="android.intent.category.DEFAULT" />
           <data android:mimeType="text/plain" />

@@ -84,6 +84,7 @@ import {
   findStarterByFileName,
   getAvailableStarterModels,
   getStarterShelfCatalog,
+  pickRecommendedStarterModel,
   splitQuickActionsCatalog,
   isShareSheetModelFile,
   type DownloadedShelfTabId,
@@ -501,6 +502,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
 
   // Dropdown state for model cards
   const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
+  const [showWontFitModels, setShowWontFitModels] = useState(false);
   
 
   // Animation state - tracks whether we're in the initial animation phase
@@ -1768,6 +1770,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     skipEnter = false,
     quickAction?: { isDefault: boolean; onSetDefault?: () => void },
     muted = false,
+    isRecommended = false,
   ) => {
     const isDownloading = downloadProgress[model.fileName] !== undefined;
     const isPaused = !isDownloading && pausedDownloads[model.fileName] !== undefined;
@@ -1801,6 +1804,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         isInitialAnimationPhase={skipEnter ? false : isInitialAnimationPhase.current}
         animatedModelIds={animatedModelIds}
         ramFit={ramFit}
+        isDeviceRecommended={isRecommended}
         isQuickActionDefault={quickAction?.isDefault}
         onSetQuickActionDefault={quickAction?.onSetDefault}
         muted={muted}
@@ -1864,6 +1868,26 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     }
     return available;
   }, [downloadedModels, starterShelfTab]);
+
+  // Hardware-informed recommendation based on phone RAM
+  const deviceRecommendedStarter = useMemo(() => {
+    return pickRecommendedStarterModel(availableStarterShelfModels, totalMemoryBytes);
+  }, [availableStarterShelfModels, totalMemoryBytes]);
+
+  // Partition models by RAM fit so wont_fit models are collapsed by default
+  const { fittingStarterModels, wontFitStarterModels } = useMemo(() => {
+    const fitting: typeof availableStarterShelfModels = [];
+    const wontFit: typeof availableStarterShelfModels = [];
+    for (const m of availableStarterShelfModels) {
+      const fit = classifyRamFitFromSize(m.size, totalMemoryBytes);
+      if (fit?.tier === "wont_fit") {
+        wontFit.push(m);
+      } else {
+        fitting.push(m);
+      }
+    }
+    return { fittingStarterModels: fitting, wontFitStarterModels: wontFit };
+  }, [availableStarterShelfModels, totalMemoryBytes]);
 
   return (
     <View style={[styles.container, { padding: 20, flex: 1, backgroundColor: theme.colors.background }]}>
@@ -2278,17 +2302,89 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                 </Text>
               </StaggerFadeIn>
             ) : (
-              availableStarterShelfModels.map((model, index) => (
-                <StaggerFadeIn
-                  key={`${model.id}:${model.fileName}`}
-                  index={index}
-                  active
-                  offset={12}
-                  staggerMs={20}
-                >
-                  {renderModelCard(model, false, index, true)}
-                </StaggerFadeIn>
-              ))
+              <>
+                {fittingStarterModels.map((model, index) => {
+                  const isRec = deviceRecommendedStarter?.fileName === model.fileName;
+                  return (
+                    <StaggerFadeIn
+                      key={`${model.id}:${model.fileName}`}
+                      index={index}
+                      active
+                      offset={12}
+                      staggerMs={20}
+                    >
+                      {renderModelCard(model, false, index, true, undefined, false, isRec)}
+                    </StaggerFadeIn>
+                  );
+                })}
+
+                {wontFitStarterModels.length > 0 && (
+                  <>
+                    <TouchableOpacity
+                      onPress={() => setShowWontFitModels((prev) => !prev)}
+                      activeOpacity={0.85}
+                      style={{ marginTop: 6, marginBottom: 10 }}
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: showWontFitModels }}
+                      accessibilityLabel={
+                        showWontFitModels
+                          ? "Hide models that exceed device RAM"
+                          : `Show ${wontFitStarterModels.length} models that exceed device RAM`
+                      }
+                    >
+                      <FrostedPanel
+                        style={{
+                          paddingVertical: 12,
+                          paddingHorizontal: SETTINGS_BLOCK.padding,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Icon
+                          name={showWontFitModels ? "expand-less" : "expand-more"}
+                          size={20}
+                          color={theme.colors.textSecondary}
+                        />
+                        <Text
+                          style={{
+                            color: theme.colors.textSecondary,
+                            fontSize: 13,
+                            fontWeight: "500",
+                            fontFamily: "Poppins",
+                            marginLeft: 8,
+                          }}
+                        >
+                          {showWontFitModels
+                            ? "Hide models exceeding RAM"
+                            : `Show anyway (${wontFitStarterModels.length} models exceeding RAM)`}
+                        </Text>
+                      </FrostedPanel>
+                    </TouchableOpacity>
+
+                    {showWontFitModels &&
+                      wontFitStarterModels.map((model, index) => (
+                        <StaggerFadeIn
+                          key={`${model.id}:${model.fileName}`}
+                          index={fittingStarterModels.length + index}
+                          active
+                          offset={12}
+                          staggerMs={20}
+                        >
+                          {renderModelCard(
+                            model,
+                            false,
+                            fittingStarterModels.length + index,
+                            true,
+                            undefined,
+                            true,
+                            false,
+                          )}
+                        </StaggerFadeIn>
+                      ))}
+                  </>
+                )}
+              </>
             )}
           </View>
         </View>

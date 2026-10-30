@@ -436,4 +436,28 @@ export function buildNewSourceMonitorTask(
   });
 }
 
+export const MORNING_BRIEF_DEFAULT_URL = 'https://news.ycombinator.com';
+export const MORNING_BRIEF_DEFAULT_PROMPT =
+  'Extract the top 5 most important and interesting stories from this morning source. Format each with a bold headline, a 2-sentence key takeaway, and why it matters. Keep it crisp and easy to scan or read aloud.';
+
+export function createMorningBriefTask(customUrl?: string): ScheduledTask {
+  return buildNewScheduledTask({
+    name: 'Morning Brief',
+    kind: 'source_monitor',
+    sourceUrl: customUrl || MORNING_BRIEF_DEFAULT_URL,
+    schedule: {
+      cadence: 'daily',
+      hour: 7,
+      minute: 30,
+    },
+    analysisPrompt: MORNING_BRIEF_DEFAULT_PROMPT,
+    enabled: true,
+  });
+}
+
+export function isMorningBriefTask(task: ScheduledTask): boolean {
+  return task.name.toLowerCase().includes('morning brief');
+}
+
 export { computeNextRunAfter, computeNextRunAt };
+

@@ -64,21 +64,13 @@ import {
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SIDE_INSET = 14;
 
-type ActionType = 'summarize' | 'rephrase' | 'key_points' | 'simplify' | 'custom';
-
-interface ActionPillConfig {
-  id: ActionType;
-  label: string;
-  icon: string;
-}
-
-const ACTION_PILLS: ActionPillConfig[] = [
-  { id: 'summarize', label: 'Summarize', icon: 'sparkles-outline' },
-  { id: 'rephrase', label: 'Rephrase', icon: 'sync-outline' },
-  { id: 'key_points', label: 'Key Points', icon: 'bulb-outline' },
-  { id: 'simplify', label: 'Simplify', icon: 'reader-outline' },
-  { id: 'custom', label: 'Ask...', icon: 'chatbubble-ellipses-outline' },
-];
+import {
+  type ActionType,
+  type ActionPillConfig,
+  ACTION_PILLS,
+  SHARE_SYSTEM_PROMPT,
+  buildPromptText,
+} from '../services/sharePromptBuilder';
 
 if (Platform.OS === 'android' && typeof UIManager?.setLayoutAnimationEnabledExperimental === 'function') {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -167,28 +159,6 @@ function isBareUrl(text: string): boolean {
     !trimmed.includes(' ') &&
     !trimmed.includes('\n')
   );
-}
-
-const SHARE_SYSTEM_PROMPT =
-  'You are ofln, an expert on-device text processing assistant. ' +
-  'Directly perform the requested transformation (summarize, rephrase, extract key points, or simplify) ' +
-  'on the provided source text. Output the result directly without conversational preamble, pleasantries, ' +
-  'or asking for confirmation.';
-
-function buildPromptText(action: ActionType, sourceText: string, custom?: string): string {
-  const trimmed = sourceText.trim();
-  switch (action) {
-    case 'summarize':
-      return `Summarize the following content into concise, clear bullet points:\n\n"""\n${trimmed}\n"""\n\nKey Summary:`;
-    case 'rephrase':
-      return `Rewrite the following text to be polished, clear, and natural while preserving its original meaning:\n\n"""\n${trimmed}\n"""\n\nPolished Version:`;
-    case 'key_points':
-      return `Extract the key takeaways, core facts, and action items from the following content:\n\n"""\n${trimmed}\n"""\n\nKey Takeaways:`;
-    case 'simplify':
-      return `Explain the following content in simple, easy-to-understand terms:\n\n"""\n${trimmed}\n"""\n\nSimplified Explanation:`;
-    case 'custom':
-      return `${(custom || '').trim()}\n\nSource Content:\n"""\n${trimmed}\n"""`;
-  }
 }
 
 function ShareOverlayContent() {

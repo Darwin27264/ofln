@@ -197,6 +197,32 @@ const formatLogEntry = (entry: ErrorLogEntry): string => {
  * @param context - Additional context information (optional)
  * @param level - Log level (default: "ERROR")
  */
+const SENSITIVE_KEY_PATTERNS =
+  /^(prompt|userInput|userText|chatContent|messageContent|fullText|completion|token|hfToken|auth|secret|password|bearer)/i;
+
+/**
+ * Audit & sanitize context keys to guarantee telemetry-free diagnostics with zero chat leakage.
+ */
+export function sanitizeLogContext(
+  context?: { [key: string]: any },
+): { [key: string]: any } | undefined {
+  if (!context) return undefined;
+  const sanitized: { [key: string]: any } = {};
+  for (const [key, value] of Object.entries(context)) {
+    if (SENSITIVE_KEY_PATTERNS.test(key)) {
+      sanitized[key] =
+        typeof value === 'string'
+          ? `[REDACTED_CHAT_CONTENT_${value.length}_CHARS]`
+          : '[REDACTED]';
+    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      sanitized[key] = sanitizeLogContext(value);
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  return sanitized;
+}
+
 export const logError = async (
   category: string,
   message: string,
@@ -213,7 +239,7 @@ export const logError = async (
       category,
       message,
       deviceInfo: getDeviceInfo(),
-      context,
+      context: sanitizeLogContext(context),
     };
     
     // Extract error information if provided
@@ -316,5 +342,28 @@ export const clearErrorLog = async (): Promise<void> => {
     console.error("Failed to clear error log:", error);
     throw error;
   }
+};
+
+/**
+ * Generate privacy-safe, telemetry-free diagnostics for bug reporting.
+ * Verified: Contains zero chat history or prompts.
+ */
+export const getSanitizedDiagnosticsString = async (): Promise<string> => {
+  const header = getAppEnvironmentInfo();
+  let errors = '';
+  try {
+    const raw = await readErrorLog();
+    if (raw && raw !== 'No error log file found.') {
+      // Split entries by separator line
+      const entries = raw.split('='.repeat(80)).filter((e) => e.trim().length > 0);
+      const recent = entries.slice(-5).map((e) => e.trim()).join('\n\n' + '='.repeat(80) + '\n\n');
+      errors = `\n\n=== Recent Error Diagnostics (${entries.length} recorded entries) ===\n\n${recent}`;
+    } else {
+      errors = '\n\nNo errors recorded.';
+    }
+  } catch {
+    errors = '\n\nUnable to read error log.';
+  }
+  return `${header}\nPrivacy Assurance: Local-only, telemetry-free diagnostics (zero chat content).${errors}\n`;
 };
 

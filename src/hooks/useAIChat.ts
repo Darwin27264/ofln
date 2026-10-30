@@ -43,6 +43,11 @@ import {
   type PerspectiveDebateOverrides,
   type PerspectiveSeat,
 } from '../services/perspectiveService';
+import {
+  partitionForSummarization,
+  buildSummarizationPrompt,
+  consolidateWithSummary,
+} from '../services/inference/contextTrim';
 
 import type {
   ChatMessage,
@@ -111,6 +116,7 @@ export interface UseAIChatReturn {
   /** Alias for regenerating the latest assistant reply. */
   reload: () => Promise<void>;
   newChat: () => void;
+  summarizeContext: () => Promise<boolean>;
   isLoading: boolean;
   isGenerating: boolean;
   error: Error | null;
@@ -1121,6 +1127,56 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     onChatIdChangeRef.current?.(null);
   }, [abortInFlight, commitMessages]);
 
+  const summarizeContext = useCallback(async (): Promise<boolean> => {
+    if (isGeneratingRef.current || messagesRef.current.length <= 4) {
+      return false;
+    }
+    const partition = partitionForSummarization(messagesRef.current);
+    if (!partition || partition.earlierTurnsToSummarize.length === 0) {
+      return false;
+    }
+
+    const prompt = buildSummarizationPrompt(partition.earlierTurnsToSummarize);
+    const nativeContext = llamaProvider.getNativeContext();
+    if (!nativeContext) {
+      throw new Error('No loaded model context available for summarization');
+    }
+
+    const settings = await getModelSettings(modelName).catch(() => DEFAULT_SETTINGS);
+    const summarySettings = { ...settings, n_predict: 256, temperature: 0.3 };
+    const res = await nativeCompletion(
+      nativeContext,
+      [{ role: 'user' as const, content: prompt }],
+      modelName,
+      summarySettings,
+      {},
+    );
+
+    const summaryText = res.text?.trim();
+    if (!summaryText) {
+      throw new Error('Failed to generate context summary');
+    }
+
+    const consolidated = consolidateWithSummary(
+      partition.systemMessage,
+      summaryText,
+      partition.recentTurnsToKeep,
+      (content) => ({
+        id: `summary_${Date.now()}`,
+        role: 'system' as const,
+        content,
+        timestamp: new Date().toISOString(),
+        createdAt: new Date(),
+      }),
+    );
+
+    commitMessages(consolidated);
+    if (!disablePersistenceRef.current) {
+      persistMessages(consolidated);
+    }
+    return true;
+  }, [modelName, commitMessages, persistMessages]);
+
   return {
     messages,
     setMessages,
@@ -1134,6 +1190,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     editUserAndRegenerate,
     reload,
     newChat,
+    summarizeContext,
     isLoading,
     isGenerating,
     error,

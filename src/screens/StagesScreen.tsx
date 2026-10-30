@@ -18,8 +18,15 @@ import { LineChart } from 'react-native-chart-kit';
 import { createStyles } from '../styles/styles';
 import { useTheme } from '../context/ThemeContext';
 import { showAlert } from '../components/CustomAlert';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { FloatingBackButton } from '../components/FloatingBackButton';
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from '../utils/layoutInsets';
+import {
+  runBenchmark,
+  loadLastBenchmark,
+  formatRedditBenchmarkCard,
+  type BenchmarkResult,
+} from '../services/benchmarkService';
 import {
   getAccelerationStatusSnapshot,
   type AccelerationStatusSnapshot,
@@ -175,6 +182,58 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   const [recentRunsExpanded, setRecentRunsExpanded] = useState(false);
   const userTouchedRef = useRef(false);
   const [accelStatus, setAccelStatus] = useState<AccelerationStatusSnapshot | null>(null);
+  const [benchmarkResult, setBenchmarkResult] = useState<BenchmarkResult | null>(null);
+  const [isBenchmarking, setIsBenchmarking] = useState(false);
+  const [benchmarkStage, setBenchmarkStage] = useState<string | null>(null);
+
+  useEffect(() => {
+    void loadLastBenchmark().then((res) => {
+      if (res) setBenchmarkResult(res);
+    });
+  }, []);
+
+  const handleRunBenchmark = async () => {
+    if (isBenchmarking) return;
+    if (!llamaProvider.isReady()) {
+      showAlert(
+        'Model Not Loaded',
+        'Please load a model first from the chat or models tab before running the benchmark.',
+        [{ text: 'OK' }],
+      );
+      return;
+    }
+    setIsBenchmarking(true);
+    setBenchmarkStage('Starting benchmark…');
+    try {
+      const res = await runBenchmark((stage) => setBenchmarkStage(stage));
+      setBenchmarkResult(res);
+      showAlert(
+        'Benchmark Complete',
+        `Prompt: ${res.promptTokPerSec} tok/s · Generation: ${res.generationTokPerSec} tok/s · TTFT: ${res.ttftMs}ms`,
+        [{ text: 'OK' }],
+      );
+    } catch (err: any) {
+      showAlert(
+        'Benchmark Failed',
+        err?.message || 'Could not complete benchmark test.',
+        [{ text: 'OK' }],
+      );
+    } finally {
+      setIsBenchmarking(false);
+      setBenchmarkStage(null);
+    }
+  };
+
+  const handleCopyBenchmarkCard = () => {
+    if (!benchmarkResult) return;
+    const card = formatRedditBenchmarkCard(benchmarkResult);
+    Clipboard.setString(card);
+    showAlert(
+      'Benchmark Card Copied',
+      'Reddit /r/LocalLLaMA markdown table copied to clipboard!',
+      [{ text: 'OK' }],
+    );
+  };
 
   // One-shot on mount — cached capability + last load snapshot; no polling.
   useEffect(() => {
@@ -906,6 +965,128 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           >
             Q4_0 / Q6_K may use GPU or NPU on Android. Metrics are private to your device.
           </Text>
+        </FrostedPanel>
+
+        {/* On-device Benchmark & Reddit Card */}
+        <FrostedPanel style={stylesLocalWithTheme.statusCard}>
+          <View style={stylesLocalWithTheme.statusHeader}>
+            <Ionicons name="speedometer-outline" size={20} color={theme.colors.text} />
+            <Text style={[stylesLocalWithTheme.statusTitle, { color: theme.colors.text }]}>
+              On-device benchmark
+            </Text>
+          </View>
+
+          <Text style={[stylesLocalWithTheme.statusHint, { color: theme.colors.textSecondary, marginBottom: 12 }]}>
+            Standardized test measuring prompt processing (PP), token generation (TG), time to first token (TTFT), and RAM.
+          </Text>
+
+          {benchmarkResult && (
+            <View style={{ marginBottom: 14 }}>
+              <View style={stylesLocalWithTheme.resourceGrid}>
+                <View style={stylesLocalWithTheme.resourceCell}>
+                  <Text style={[stylesLocalWithTheme.resourceValue, { color: theme.colors.text }]}>
+                    {benchmarkResult.promptTokPerSec.toFixed(1)}
+                  </Text>
+                  <Text style={[stylesLocalWithTheme.resourceCaption, { color: theme.colors.textSecondary }]}>
+                    PP tok/s
+                  </Text>
+                </View>
+                <View style={stylesLocalWithTheme.resourceCell}>
+                  <Text style={[stylesLocalWithTheme.resourceValue, { color: theme.colors.text }]}>
+                    {benchmarkResult.generationTokPerSec.toFixed(1)}
+                  </Text>
+                  <Text style={[stylesLocalWithTheme.resourceCaption, { color: theme.colors.textSecondary }]}>
+                    TG tok/s
+                  </Text>
+                </View>
+                <View style={stylesLocalWithTheme.resourceCell}>
+                  <Text style={[stylesLocalWithTheme.resourceValue, { color: theme.colors.text }]}>
+                    {benchmarkResult.ttftMs}ms
+                  </Text>
+                  <Text style={[stylesLocalWithTheme.resourceCaption, { color: theme.colors.textSecondary }]}>
+                    TTFT
+                  </Text>
+                </View>
+                <View style={stylesLocalWithTheme.resourceCell}>
+                  <Text style={[stylesLocalWithTheme.resourceValue, { color: theme.colors.text }]}>
+                    {benchmarkResult.peakRamMb ? `${(benchmarkResult.peakRamMb / 1024).toFixed(1)}G` : '—'}
+                  </Text>
+                  <Text style={[stylesLocalWithTheme.resourceCaption, { color: theme.colors.textSecondary }]}>
+                    peak RAM
+                  </Text>
+                </View>
+              </View>
+
+              <Text
+                style={[
+                  stylesLocalWithTheme.statusFootnote,
+                  { color: theme.colors.textSecondary, marginTop: 8 },
+                ]}
+              >
+                Model: {benchmarkResult.modelName} · {benchmarkResult.accelBackend}
+              </Text>
+            </View>
+          )}
+
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+            <TouchableOpacity
+              onPress={handleRunBenchmark}
+              disabled={isBenchmarking}
+              style={[
+                stylesLocalWithTheme.btn,
+                {
+                  flex: 1,
+                  backgroundColor: theme.colors.primary,
+                  opacity: isBenchmarking ? 0.7 : 1,
+                  flexDirection: 'row',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  gap: 6,
+                },
+              ]}
+            >
+              {isBenchmarking ? (
+                <>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <Text style={stylesLocalWithTheme.btnText}>
+                    {benchmarkStage || 'Benchmarking…'}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="play" size={16} color="#FFFFFF" />
+                  <Text style={stylesLocalWithTheme.btnText}>
+                    {benchmarkResult ? 'Re-run benchmark' : 'Run benchmark'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            {benchmarkResult && (
+              <TouchableOpacity
+                onPress={handleCopyBenchmarkCard}
+                disabled={isBenchmarking}
+                style={[
+                  stylesLocalWithTheme.btn,
+                  {
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.border,
+                    borderWidth: 1,
+                    paddingHorizontal: 12,
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    gap: 6,
+                  },
+                ]}
+              >
+                <Ionicons name="copy-outline" size={16} color={theme.colors.text} />
+                <Text style={[stylesLocalWithTheme.btnText, { color: theme.colors.text }]}>
+                  Reddit card
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </FrostedPanel>
 
         {/* Suggestions */}

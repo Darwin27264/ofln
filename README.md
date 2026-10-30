@@ -12,13 +12,30 @@ A private AI that runs fully offline on your phone, with no account and no cloud
 
 ### 📲 Download & Platform Status
 
-> ### [⬇️ **Download APK (v1.1)**](https://github.com/Darwin27264/ofln/releases/tag/v1.1)
-> Grab the latest installable Android package directly from [GitHub Releases](https://github.com/Darwin27264/ofln/releases/latest).
+<p align="left">
+  <a href="https://github.com/Darwin27264/ofln/releases/latest">
+    <img src="https://img.shields.io/github/v/release/Darwin27264/ofln?style=flat-square&color=2563EB&label=GitHub%20Release" alt="Latest Release" />
+  </a>
+  <a href="https://apps.obtainium.imranr.dev/add?r=https://github.com/Darwin27264/ofln">
+    <img src="https://img.shields.io/badge/Install%20via-Obtainium-10B981?style=flat-square&logo=android&logoColor=white" alt="Install via Obtainium" />
+  </a>
+  <a href="docs/DISTRIBUTION.md#2-f-droid-official-inclusion--build-flavor-configuration">
+    <img src="https://img.shields.io/badge/F--Droid-Recipe%20Ready-1976D2?style=flat-square&logo=f-droid&logoColor=white" alt="F-Droid Recipe" />
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-GPL--3.0-gray?style=flat-square" alt="License: GPL-3.0" />
+  </a>
+</p>
 
-| Platform | Current Status | How to Install |
-|:---|:---|:---|
-| **Android** | 🟢 **APK Available** | Download and install [`ofln-release.apk`](https://github.com/Darwin27264/ofln/releases/tag/v1.1) directly on any 64-bit ARM device (Android 7.0+ / API 24+). |
-| **iOS** | 🟡 **Build from Source** | Currently requires building from source with Xcode on macOS (see [Setup](#setup) below). App Store / TestFlight build in preparation. |
+> ### [⬇️ **Download Latest APK**](https://github.com/Darwin27264/ofln/releases/latest)
+> Grab the latest installable Android package directly from [GitHub Releases](https://github.com/Darwin27264/ofln/releases/latest) or install and auto-update via [Obtainium](https://apps.obtainium.imranr.dev/add?r=https://github.com/Darwin27264/ofln). SHA-256 checksums are published in `SHA256SUMS.txt`.
+
+| Platform | Channel | Status | How to Install |
+|:---|:---|:---|:---|
+| **Android** | **Obtainium** (Recommended) | 🟢 **1-Tap Auto-Update** | Tap [Install via Obtainium](https://apps.obtainium.imranr.dev/add?r=https://github.com/Darwin27264/ofln) to track and auto-update releases directly. |
+| **Android** | **Direct APK** | 🟢 **APK Available** | Download [`ofln-release.apk`](https://github.com/Darwin27264/ofln/releases/latest) on any 64-bit ARM device (Android 7.0+ / API 24+). |
+| **Android** | **F-Droid** | 🟡 **Recipe Ready** | Pure FOSS build without proprietary blobs (`metadata/com.ofln.yml`). See [DISTRIBUTION.md](docs/DISTRIBUTION.md). |
+| **iOS** | **Source / TestFlight** | 🟡 **Build from Source** | Build from source with Xcode on macOS (see [Setup](#setup)). TestFlight preparation documented in [DISTRIBUTION.md](docs/DISTRIBUTION.md). |
 
 ---
 
@@ -81,7 +98,7 @@ Here is what sets ofln apart:
 </div>
 
 > ### 📷 Production Screen Captures
-> Captured directly from a Google Pixel 8 running the v1.1 release build on Android:
+> Captured directly from a Google Pixel 8 running the release build on Android:
 > 1. [x] **Model Shelf (`01_model_shelf.png`):** Curated phone-sized models with RAM guidance & SHA-256 verification.
 > 2. [x] **Private Chat (`02_chat_screen.png`):** On-device inference with ambient hue and prompt suggestions.
 > 3. [x] **Personas Library (`03_personas.png`):** Custom system prompts and persona identities.
@@ -94,19 +111,21 @@ Here is what sets ofln apart:
 ## Features
 
 - **Hugging Face Hub:** Browse and download GGUF models directly (optional token for gated repos, stored securely in Keychain).
-- **Curated Starter Shelf:** Verified Q4_0 phone-friendly picks with SHA-256 integrity verification.
+- **Curated Starter Shelf & RAM Tiering:** Verified Q4_0 phone-friendly picks with SHA-256 integrity verification and "Recommended for your phone" badges.
 - **Download Management:** Resumable downloads with percentage, live transfer rate, and ETA calculation.
 - **Local File Import:** Import any `.gguf` file stored on device storage; configure temperature, context window, and GPU acceleration.
-- **Streaming Inference:** Native token streaming via `llama.cpp` with optional `<think>` reasoning block parsing and per-turn tok/s metrics.
-- **Personas & Chat Management:** Custom personas, temporary chats, conversation pinning, and renaming.
-- **Scheduled Tasks:** Periodic LLM prompts or Source Monitor (fetch webpage content and summarize on-device).
+- **Streaming Inference & Context Rollup:** Native token streaming via `llama.cpp` with `<think>` reasoning block parsing, live tok/s metrics, and automatic context rollup when fullness approaches limits.
+- **Share Sheet & Text Actions ("Ask ofln"):** Highlight text anywhere to summarize, rephrase, fix grammar, translate, or draft replies offline.
+- **Scheduled Tasks & Morning Brief:** Periodic LLM prompts or Source Monitor (webpage fetching & offline summarization) with one-tap Morning Brief preset.
 - **Perspective Debates:** Multi-speaker round-robin discussions between AI personas.
+- **Hardware Acceleration & Benchmarking:** OpenCL/Hexagon backend detection with in-app inference benchmarking (prompt tok/s, generation tok/s, TTFT, peak RAM).
+- **Personas & Chat Management:** Custom personas, temporary chats, conversation pinning, and renaming.
 - **Document & Image Attachments:** On-device OCR and document text extraction prior to prompting.
 - **Voice Input & TTS:** Local speech recognition input and spoken text playback.
 - **Appearance:** High-contrast light and dark themes with ambient hue accents.
 - **Usage & Performance (Stages):** Private, on-device metrics tracking token speeds and memory utilization.
 - **Durable Backup & Restore:** Export chats as JSON or full profile as ZIP; restore seamlessly without exporting tokens or GGUF files.
-- **Safe Mode Boot Guard:** Automatic detection and recovery if a model load or boot previously crashed.
+- **Safe Mode & Sanitized Diagnostics:** Automatic crash recovery and local-only, telemetry-free sanitized diagnostic logs for privacy-preserving bug reports.
 
 ---
 

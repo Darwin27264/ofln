@@ -93,6 +93,8 @@ interface ModelCardProps {
   animatedModelIds: React.MutableRefObject<Set<string>>;
   /** RAM fit vs device total memory (omit when unknown). */
   ramFit?: RamFitResult | null;
+  /** Highlight this card as recommended for this specific phone hardware. */
+  isDeviceRecommended?: boolean;
   /** Highlight this card as the Android Share / Quick actions default. */
   isQuickActionDefault?: boolean;
   /** When set, the card can mark itself as the Quick actions default. */
@@ -183,6 +185,7 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
   isInitialAnimationPhase,
   animatedModelIds,
   ramFit = null,
+  isDeviceRecommended = false,
   isQuickActionDefault = false,
   onSetQuickActionDefault,
   muted = false,
@@ -494,6 +497,34 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
                     borderColor: theme.colors.border,
                   }}
                 />
+              )}
+              {isDeviceRecommended && (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    backgroundColor: theme.mode === 'dark' ? 'rgba(76, 175, 80, 0.2)' : 'rgba(76, 175, 80, 0.12)',
+                    borderColor: theme.mode === 'dark' ? 'rgba(76, 175, 80, 0.5)' : 'rgba(76, 175, 80, 0.35)',
+                    borderWidth: 1,
+                    paddingHorizontal: 6,
+                    paddingVertical: 2,
+                    borderRadius: 4,
+                  }}
+                  accessibilityLabel="Recommended for your phone"
+                >
+                  <Icon name="star" size={11} color="#4CAF50" />
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      color: "#4CAF50",
+                      fontFamily: "Poppins",
+                      fontWeight: "600",
+                      marginLeft: 3,
+                    }}
+                  >
+                    Recommended for your phone
+                  </Text>
+                </View>
               )}
               {model.size && (
                 <View

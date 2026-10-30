@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useTheme } from '../context/ThemeContext';
 
@@ -12,9 +12,17 @@ type Props = {
   percent: number;
   onDismiss: () => void;
   onNewChat: () => void;
+  onSummarize?: () => void;
+  isSummarizing?: boolean;
 };
 
-export function ContextFullnessBanner({ percent, onDismiss, onNewChat }: Props) {
+export function ContextFullnessBanner({
+  percent,
+  onDismiss,
+  onNewChat,
+  onSummarize,
+  isSummarizing = false,
+}: Props) {
   const { theme } = useTheme();
 
   return (
@@ -67,14 +75,58 @@ export function ContextFullnessBanner({ percent, onDismiss, onNewChat }: Props) 
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 12,
                 marginTop: 10,
               }}
             >
+              {onSummarize && (
+                <TouchableOpacity
+                  onPress={onSummarize}
+                  disabled={isSummarizing}
+                  accessibilityLabel="Summarize earlier turns and continue"
+                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: theme.colors.card,
+                    borderColor: theme.colors.accent,
+                    borderWidth: 1,
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 8,
+                  }}
+                >
+                  {isSummarizing ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={theme.colors.accent}
+                      style={{ marginRight: 6 }}
+                    />
+                  ) : (
+                    <Ionicons
+                      name="sparkles-outline"
+                      size={14}
+                      color={theme.colors.accent}
+                      style={{ marginRight: 5 }}
+                    />
+                  )}
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      fontFamily: 'Poppins',
+                      fontWeight: '600',
+                      color: theme.colors.accent,
+                    }}
+                  >
+                    {isSummarizing ? 'Summarizing…' : 'Summarize & continue'}
+                  </Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 onPress={onNewChat}
                 accessibilityLabel="New chat"
                 hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-                style={{ marginRight: 20 }}
               >
                 <Text
                   style={{

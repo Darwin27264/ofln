@@ -41,6 +41,9 @@ import {
   replaceAllTaskRuns,
   setTaskEnabled,
   taskKindLabel,
+  createMorningBriefTask,
+  isMorningBriefTask,
+  saveTask,
   type ScheduledTask,
   type TaskLastStatus,
   type TaskRun,
@@ -523,6 +526,21 @@ export default function TasksLibraryScreen({
     [fallbackModelFileName, load, onOpenRun, runningId],
   );
 
+  const handleAddMorningBrief = useCallback(async () => {
+    try {
+      const brief = createMorningBriefTask();
+      await saveTask(brief);
+      await load();
+      showAlert(
+        "Morning Brief Added",
+        "Scheduled daily at 7:30 AM to summarize Hacker News updates.",
+        [{ text: "OK" }],
+      );
+    } catch (err: any) {
+      showAlert("Error", err?.message || "Failed to add Morning Brief preset.", [{ text: "OK" }]);
+    }
+  }, [load]);
+
   const openHistory = useCallback(
     async (task: ScheduledTask) => {
       const runs = await getRunsForTask(task.id);
@@ -594,24 +612,116 @@ export default function TasksLibraryScreen({
           >
             Try a morning poem, or watch a page and summarize it later.
           </Text>
+          <View style={{ flexDirection: "row", gap: 12 }}>
+            <TouchableOpacity
+              onPress={() => onEditTask(null)}
+              style={{
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+                borderWidth: 1,
+                paddingHorizontal: 20,
+                paddingVertical: 12,
+                borderRadius: 20,
+              }}
+            >
+              <Text
+                style={{
+                  color: theme.colors.text,
+                  fontSize: 15,
+                  fontWeight: "600",
+                  fontFamily: "Poppins",
+                }}
+              >
+                Add custom
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleAddMorningBrief}
+              style={{
+                backgroundColor: theme.colors.primary,
+                paddingHorizontal: 20,
+                paddingVertical: 12,
+                borderRadius: 20,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <Ionicons name="sunny-outline" size={18} color={theme.colors.primaryText} />
+              <Text
+                style={{
+                  color: theme.colors.primaryText,
+                  fontSize: 15,
+                  fontWeight: "600",
+                  fontFamily: "Poppins",
+                }}
+              >
+                Morning Brief
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {!isLoading && tasks.length > 0 && !tasks.some(isMorningBriefTask) && (
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            backgroundColor: theme.colors.card,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            marginBottom: 12,
+          }}
+        >
+          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Ionicons name="sunny" size={20} color={theme.colors.warning} />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: "600",
+                  color: theme.colors.text,
+                  fontFamily: "Poppins",
+                }}
+              >
+                Preset: Morning Brief
+              </Text>
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: theme.colors.textSecondary,
+                  fontFamily: "Poppins",
+                }}
+                numberOfLines={1}
+              >
+                Daily 7:30 AM bullet summary of news
+              </Text>
+            </View>
+          </View>
           <TouchableOpacity
-            onPress={() => onEditTask(null)}
+            onPress={handleAddMorningBrief}
             style={{
               backgroundColor: theme.colors.primary,
-              paddingHorizontal: 24,
-              paddingVertical: 12,
-              borderRadius: 20,
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 14,
             }}
           >
             <Text
               style={{
                 color: theme.colors.primaryText,
-                fontSize: 16,
+                fontSize: 12,
                 fontWeight: "600",
                 fontFamily: "Poppins",
               }}
             >
-              Add task
+              + Add
             </Text>
           </TouchableOpacity>
         </View>

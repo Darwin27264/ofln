@@ -63,3 +63,19 @@ Copy-Item -LiteralPath $apk.FullName -Destination $destPath -Force
 
 $sizeMb = [math]::Round($apk.Length / 1MB, 1)
 Write-Host "Extracted $($apk.Name) ($sizeMb MB) -> $destPath"
+
+# Also output versioned copy if package.json specifies a version
+$pkgJsonPath = Join-Path $repoRoot 'package.json'
+if (Test-Path -LiteralPath $pkgJsonPath) {
+  try {
+    $pkg = Get-Content -LiteralPath $pkgJsonPath -Raw | ConvertFrom-Json
+    if ($pkg.version) {
+      $versionName = "ofln-v$($pkg.version).apk"
+      $versionPath = Join-Path $outDir $versionName
+      Copy-Item -LiteralPath $apk.FullName -Destination $versionPath -Force
+      Write-Host "Extracted versioned copy -> $versionPath"
+    }
+  } catch {
+    Write-Warning "Could not copy versioned APK: $_"
+  }
+}

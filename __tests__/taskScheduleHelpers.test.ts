@@ -25,6 +25,8 @@ import {
   isTaskRun,
   buildNewSourceMonitorTask,
   buildNewScheduledTask,
+  createMorningBriefTask,
+  isMorningBriefTask,
 } from '../src/services/taskService';
 
 describe('taskScheduleHelpers', () => {
@@ -170,5 +172,18 @@ describe('taskService validators', () => {
   it('rejects invalid task shapes', () => {
     expect(isScheduledTask({})).toBe(false);
     expect(isTaskRun({ id: 'x' })).toBe(false);
+  });
+
+  it('builds a valid Morning Brief preset task with 7:30 daily cadence', () => {
+    const brief = createMorningBriefTask();
+    expect(isScheduledTask(brief)).toBe(true);
+    expect(brief.name).toBe('Morning Brief');
+    expect(brief.kind).toBe('source_monitor');
+    expect(brief.sourceUrl).toContain('news.ycombinator.com');
+    expect(brief.schedule.cadence).toBe('daily');
+    expect(brief.schedule.hour).toBe(7);
+    expect(brief.schedule.minute).toBe(30);
+    expect(brief.analysisPrompt).toContain('top 5');
+    expect(isMorningBriefTask(brief)).toBe(true);
   });
 });

@@ -377,6 +377,10 @@ class LlamaProviderService {
             /* ignore */
           }
           await prepareOnce(true);
+          const fallbackWarning =
+            'Model failed to load with GPU/high context. Automatically loaded in safe CPU mode (n_ctx=512, GPU off).';
+          this.lastWarning = fallbackWarning;
+          this.setStatus({ warning: fallbackWarning });
         }
       };
 

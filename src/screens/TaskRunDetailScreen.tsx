@@ -34,6 +34,11 @@ import {
   requestCancelTask,
   subscribeTaskRunner,
 } from "../services/taskRunnerService";
+import {
+  speakText,
+  stopSpeaking,
+  setSpeechStatusListener,
+} from "../services/ttsService";
 
 interface Props {
   runId: string;
@@ -226,6 +231,28 @@ export default function TaskRunDetailScreen({
   const [sourceOpen, setSourceOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
   const [showAllPrevious, setShowAllPrevious] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  useEffect(() => {
+    setSpeechStatusListener((st) => {
+      setIsSpeaking(st.speaking);
+    });
+    return () => {
+      setSpeechStatusListener(null);
+      void stopSpeaking();
+    };
+  }, []);
+
+  const handleToggleSpeak = async () => {
+    if (isSpeaking) {
+      await stopSpeaking();
+    } else if (run?.resultText) {
+      const res = await speakText(run.resultText);
+      if (!res.ok && res.reason === "unavailable") {
+        showAlert("TTS Unavailable", "Text-to-speech engine is not available on this device.", [{ text: "OK" }]);
+      }
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -543,17 +570,30 @@ export default function TaskRunDetailScreen({
               Results
             </Text>
             {run.resultText ? (
-              <TouchableOpacity
-                onPress={() => copyText("Results", run.resultText || "")}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityLabel="Copy results"
-              >
-                <Icon
-                  name="content-copy"
-                  size={18}
-                  color={theme.colors.textSecondary}
-                />
-              </TouchableOpacity>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+                <TouchableOpacity
+                  onPress={handleToggleSpeak}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel={isSpeaking ? "Stop reading" : "Read aloud"}
+                >
+                  <Icon
+                    name={isSpeaking ? "volume-off" : "volume-up"}
+                    size={20}
+                    color={isSpeaking ? theme.colors.primary : theme.colors.textSecondary}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => copyText("Results", run.resultText || "")}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel="Copy results"
+                >
+                  <Icon
+                    name="content-copy"
+                    size={18}
+                    color={theme.colors.textSecondary}
+                  />
+                </TouchableOpacity>
+              </View>
             ) : null}
           </View>
 

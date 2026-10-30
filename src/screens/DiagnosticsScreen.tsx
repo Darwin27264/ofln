@@ -19,8 +19,13 @@ import { LineChart } from "react-native-chart-kit";
 import { initLlama, getBackendDevicesInfo } from "llama.rn";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
-import { getFullLogContent, getErrorLogPath, clearErrorLog } from "../utils/errorLogger";
 import { showAlert } from "../components/CustomAlert";
+import {
+  getFullLogContent,
+  getErrorLogPath,
+  clearErrorLog,
+  getSanitizedDiagnosticsString,
+} from "../utils/errorLogger";
 import { FloatingBackButton } from "../components/FloatingBackButton";
 import { BottomSheet } from "../components/BottomSheet";
 import { FrostedPanel, SETTINGS_BLOCK } from "../components/FrostedGlass";
@@ -497,6 +502,20 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
     }
     Clipboard.setString(errorLogContent);
     showAlert("Copied", "Full log copied to clipboard.", [{ text: "OK" }]);
+  };
+
+  const handleCopyDiagnostics = async () => {
+    try {
+      const diag = await getSanitizedDiagnosticsString();
+      Clipboard.setString(diag);
+      showAlert(
+        "Diagnostics Copied",
+        "Sanitized system diagnostics (device hardware, acceleration, and errors with zero chat content) copied to clipboard.",
+        [{ text: "OK" }],
+      );
+    } catch {
+      showAlert("Error", "Failed to generate diagnostics string.", [{ text: "OK" }]);
+    }
   };
 
   const handleCopyLogPath = () => {
@@ -1403,6 +1422,31 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
             }}
           >
             <TouchableOpacity
+              onPress={handleCopyDiagnostics}
+              disabled={logsLoading}
+              style={{
+                flex: 1,
+                backgroundColor: theme.colors.surface,
+                borderRadius: 12,
+                padding: 12,
+                alignItems: "center",
+                opacity: logsLoading ? 0.5 : 1,
+              }}
+            >
+              <Ionicons name="shield-checkmark-outline" size={20} color={theme.colors.accent} />
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: theme.colors.text,
+                  fontFamily: "Poppins",
+                  marginTop: 4,
+                }}
+              >
+                Diagnostics
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
               onPress={handleCopyLogContent}
               disabled={logsLoading}
               style={{
@@ -1423,7 +1467,7 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
                   marginTop: 4,
                 }}
               >
-                Copy Log
+                Full Log
               </Text>
             </TouchableOpacity>
 

@@ -406,3 +406,43 @@ export function findStarterByFileName(
   }
   return undefined;
 }
+
+/**
+ * Pick the recommended model from a catalog based on device total RAM.
+ * Picks the largest model that comfortably fits within the device's RAM tier ('fits'),
+ * ensuring the model will load and run smoothly on the user's specific hardware.
+ * Falls back to the first catalog model if RAM is unknown.
+ */
+export function pickRecommendedStarterModel(
+  catalog: StarterModelInfo[],
+  totalMemoryBytes: number | null | undefined,
+): StarterModelInfo | null {
+  if (!catalog || catalog.length === 0) return null;
+  if (totalMemoryBytes == null || !(totalMemoryBytes > 0)) {
+    return catalog[0];
+  }
+
+  // Find all models that 'fits' in this device's RAM bucket
+  const fitting = catalog.filter((m) => {
+    const bytes = m.sizeBytes ?? 0;
+    if (bytes <= 0) return false;
+    const { classifyRamFit } = require('./ramFitService');
+    return classifyRamFit(bytes, totalMemoryBytes) === 'fits';
+  });
+
+  if (fitting.length > 0) {
+    // Pick the most capable (largest) model that fits comfortably
+    return fitting.reduce((best, cur) => {
+      const curBytes = cur.sizeBytes ?? 0;
+      const bestBytes = best.sizeBytes ?? 0;
+      return curBytes > bestBytes ? cur : best;
+    }, fitting[0]);
+  }
+
+  // If none 'fits', pick the smallest model in the catalog
+  return catalog.reduce((smallest, cur) => {
+    const curBytes = cur.sizeBytes ?? Infinity;
+    const smallBytes = smallest.sizeBytes ?? Infinity;
+    return curBytes < smallBytes ? cur : smallest;
+  }, catalog[0]);
+}

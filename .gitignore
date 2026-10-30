@@ -99,3 +99,10 @@ yarn-error.log
 !.yarn/versions
 android/gradle.properties
 android/.foss
+
+# Internal roadmap & planning documents (private)
+backlog.md
+ROADMAP.md
+roadmap.md
+*backlog*.md
+*roadmap*.md

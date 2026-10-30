@@ -443,7 +443,6 @@ export async function nativeCompletion(
       messageCount: llamaMessages.length,
       trimmedMessageCount,
       roles: llamaMessages.map((m) => m.role),
-      lastUserPreview: userText.slice(0, 120),
     },
     'INFO',
   );

@@ -33,6 +33,7 @@ import {
   PermissionsAndroid,
   StyleSheet,
   Share,
+  Alert,
 } from "react-native";
 import { launchImageLibrary, launchCamera } from "react-native-image-picker";
 
@@ -405,6 +406,7 @@ export default function ConversationScreen({
   const [historySearchQuery, setHistorySearchQuery] = useState("");
   const [contextNCtx, setContextNCtx] = useState<number>(DEFAULT_SETTINGS.n_ctx);
   const [contextBannerDismissed, setContextBannerDismissed] = useState(false);
+  const [isSummarizingContext, setIsSummarizingContext] = useState(false);
 
   // Long press menu state
   const [menuVisible, setMenuVisible] = useState(false);
@@ -2720,6 +2722,24 @@ export default function ConversationScreen({
     hasUserMessages: hasStartedChat,
   });
 
+  const handleSummarizeContext = useCallback(async () => {
+    if (isSummarizingContext || isGenerating) return;
+    try {
+      setIsSummarizingContext(true);
+      const success = await aiChat.summarizeContext();
+      if (success) {
+        setContextBannerDismissed(true);
+      }
+    } catch (err: any) {
+      Alert.alert(
+        "Summarize Context",
+        err?.message || "Could not summarize earlier messages. Ensure model is loaded.",
+      );
+    } finally {
+      setIsSummarizingContext(false);
+    }
+  }, [isSummarizingContext, isGenerating, aiChat]);
+
   const handleLayout = useCallback((event: LayoutChangeEvent) => {
     const { height } = event.nativeEvent.layout;
     if (initialLayoutHeightRef.current === null) initialLayoutHeightRef.current = height;
@@ -3209,6 +3229,8 @@ export default function ConversationScreen({
             percent={contextFullness.percent}
             onDismiss={() => setContextBannerDismissed(true)}
             onNewChat={handleNewChatPress}
+            onSummarize={handleSummarizeContext}
+            isSummarizing={isSummarizingContext}
           />
         )}
 

@@ -48,8 +48,34 @@ The previous blocker regarding `@react-native-ml-kit/text-recognition` binary bl
 3. **Runtime Safety (`src/services/ocrService.ts`):**
    - `isOcrSupported()` safely detects module availability at runtime. FOSS builds gracefully skip OCR without runtime crashes.
 
-### Official F-Droid Recipe Metadata Example (`metadata/com.ofln.yml`):
+### Official F-Droid Recipe (`metadata/com.ofln.yml`):
+The official metadata recipe has been authored and placed at [`metadata/com.ofln.yml`](../metadata/com.ofln.yml).
+
 ```yaml
+Categories:
+  - System
+  - Office
+License: GPL-3.0-or-later
+AuthorName: Darwin Chen
+AuthorWebSite: https://github.com/Darwin27264
+SourceCode: https://github.com/Darwin27264/ofln
+IssueTracker: https://github.com/Darwin27264/ofln/issues
+Changelog: https://github.com/Darwin27264/ofln/releases
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: '1.2'
+CurrentCode: 3
+
+AutoName: ofln
+Summary: Private AI that runs fully offline on your phone
+Description: |-
+  A private AI that runs fully offline on your phone, with no account and no cloud.
+  Executes open-weights GGUF models directly on device using llama.cpp via llama.rn.
+
+RepoType: git
+Repo: https://github.com/Darwin27264/ofln.git
+
 Builds:
   - versionName: '1.1'
     versionCode: 2
@@ -58,7 +84,25 @@ Builds:
     gradle:
       - assembleFossRelease
     ndk: r27c
+    prebuild:
+      - npm ci
+
+  - versionName: '1.2'
+    versionCode: 3
+    commit: v1.2
+    subdir: android
+    gradle:
+      - assembleFossRelease
+    ndk: r27c
+    prebuild:
+      - npm ci
 ```
+
+### F-Droid Submission Steps:
+1. Fork [fdroiddata on GitLab](https://gitlab.com/fdroid/fdroiddata).
+2. Copy `metadata/com.ofln.yml` to `metadata/com.ofln.yml` in the fork.
+3. Verify local build via `fdroid build com.ofln` in docker (`registry.gitlab.com/fdroid/ci-images-server`).
+4. Open a Merge Request against `fdroid/fdroiddata`. (Public action requiring maintainer approval).
 
 ### Dependency Audit Summary
 

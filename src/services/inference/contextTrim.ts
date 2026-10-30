@@ -85,3 +85,75 @@ export function applyConversationTrim<T extends TrimableMessage>(
     droppedCount: Math.max(0, messages.length - trimmed.length),
   };
 }
+
+export interface ContextPartition<T extends TrimableMessage> {
+  systemMessage: T;
+  earlierTurnsToSummarize: T[];
+  recentTurnsToKeep: T[];
+}
+
+/**
+ * Partitions conversation turns for auto-summarization when context is full.
+ * Preserves the system prompt (turn 0) and the last `recentTurnCount` turns verbatim.
+ * The middle turns are designated for summarization into a pinned context note.
+ */
+export function partitionForSummarization<T extends TrimableMessage>(
+  messages: T[],
+  recentTurnCount = 6,
+): ContextPartition<T> | null {
+  if (messages.length <= recentTurnCount + 1) {
+    return null;
+  }
+  const systemMessage = messages[0];
+  const splitIndex = Math.max(1, messages.length - recentTurnCount);
+  const earlierTurnsToSummarize = messages.slice(1, splitIndex);
+  const recentTurnsToKeep = messages.slice(splitIndex);
+
+  return {
+    systemMessage,
+    earlierTurnsToSummarize,
+    recentTurnsToKeep,
+  };
+}
+
+/**
+ * Builds the on-device summarization prompt for older conversation turns.
+ */
+export function buildSummarizationPrompt<T extends TrimableMessage>(
+  earlierTurns: T[],
+): string {
+  const dialog = earlierTurns
+    .map((m) => {
+      const role = m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : m.role;
+      const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+      return `${role}: ${text}`;
+    })
+    .join('\n\n');
+
+  return (
+    'Summarize the key facts, user preferences, and important context from this earlier conversation into 3-5 concise bullet points:\n\n' +
+    dialog +
+    '\n\nContext Summary:'
+  );
+}
+
+/**
+ * Formats a pinned earlier-context system note.
+ */
+export function formatPinnedEarlierSummary(summaryText: string): string {
+  return `Earlier in this chat:\n${summaryText.trim()}`;
+}
+
+/**
+ * Consolidates the conversation by keeping system prompt, inserting the summary note,
+ * and appending recent turns verbatim.
+ */
+export function consolidateWithSummary<T extends TrimableMessage>(
+  systemMessage: T,
+  summaryText: string,
+  recentTurns: T[],
+  createSummaryMessage: (content: string) => T,
+): T[] {
+  const summaryMsg = createSummaryMessage(formatPinnedEarlierSummary(summaryText));
+  return [systemMessage, summaryMsg, ...recentTurns];
+}
