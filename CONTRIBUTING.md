@@ -71,9 +71,7 @@ cd ..
 
 ## Finding Something to Work On
 
-If you are new to the codebase, we have prepared curated, bite-sized tasks with code pointers and test guidance:
-- Check out the **Good First Issue drafts** in [`docs/issues/`](./docs/issues/)!
-- Browse open GitHub Issues labeled `good first issue` or `help wanted`.
+Browse open GitHub Issues labeled `good first issue` or `help wanted` to find tasks, or open an issue to propose improvements!
 
 ---
 

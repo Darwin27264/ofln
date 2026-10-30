@@ -33,7 +33,7 @@ A private AI that runs fully offline on your phone, with no account and no cloud
 | Platform | Channel | Status | How to Install |
 |:---|:---|:---|:---|
 | **Android** | **Obtainium** (Recommended) | 🟢 **1-Tap Auto-Update** | Tap [Install via Obtainium](https://apps.obtainium.imranr.dev/add?r=https://github.com/Darwin27264/ofln) to track and auto-update releases directly. |
-| **Android** | **Direct APK** | 🟢 **APK Available** | Download [`ofln-release.apk`](https://github.com/Darwin27264/ofln/releases/latest) on any 64-bit ARM device (Android 7.0+ / API 24+). |
+| **Android** | **Direct APK** | 🟢 **APK Available** | Download [`ofln-v1.2.apk`](https://github.com/Darwin27264/ofln/releases/latest) (Universal package for Android 7.0+ / API 24+). |
 | **Android** | **F-Droid** | 🟡 **Recipe Ready** | Pure FOSS build without proprietary blobs (`metadata/com.ofln.yml`). See [DISTRIBUTION.md](docs/DISTRIBUTION.md). |
 | **iOS** | **Source / TestFlight** | 🟡 **Build from Source** | Build from source with Xcode on macOS (see [Setup](#setup)). TestFlight preparation documented in [DISTRIBUTION.md](docs/DISTRIBUTION.md). |
 
@@ -247,7 +247,7 @@ Created and maintained by **Evolvyn AI** (Darwin Chen).
 
 ## Contributing
 
-Contributions are warmly welcomed! Please see [`CONTRIBUTING.md`](./CONTRIBUTING.md) for step-by-step setup, guidelines, and available starter issues in [`docs/issues/`](./docs/issues/).
+Contributions are warmly welcomed! Please see [`CONTRIBUTING.md`](./CONTRIBUTING.md) for step-by-step setup and development guidelines.
 
 ---
 

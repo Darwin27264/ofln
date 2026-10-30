@@ -95,7 +95,7 @@ Builds:
       - assembleFossRelease
     ndk: r27c
     prebuild:
-      - npm ci
+      - npm ci && touch android/.foss
 ```
 
 ### F-Droid Submission Steps:
