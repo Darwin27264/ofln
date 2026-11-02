@@ -23,7 +23,6 @@ import {
 import { useCollapsibleTitle } from "../hooks/useCollapsibleTitle";
 import { CollapsibleTitle } from "../components/CollapsibleTitle";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
-import { EASING } from "../utils/animationConfig";
 import { getPersonas } from "../services/personaService";
 import { getPerspectivePresets } from "../services/perspectiveService";
 import { countEnabledTasks } from "../services/taskService";
@@ -302,45 +301,6 @@ export default function SettingsScreen({
     setAssistantDisplayMode(bubblesMode ? "direct" : "bubble");
   };
 
-  // Color interpolation cannot use the native driver.
-  const TOGGLE_ANIMATION_CONFIG = {
-    duration: 250,
-    easing: EASING.STANDARD,
-    useNativeDriver: false,
-  };
-
-  const chatModeAnim = useRef(new Animated.Value(bubblesMode ? 1 : 0)).current;
-  useEffect(() => {
-    Animated.timing(chatModeAnim, {
-      toValue: bubblesMode ? 1 : 0,
-      ...TOGGLE_ANIMATION_CONFIG,
-    }).start();
-  }, [assistantDisplayMode, chatModeAnim]);
-  const chatModeBackground = chatModeAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["transparent", theme.colors.primary],
-  });
-  const chatModeTextColor = chatModeAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [theme.colors.text, theme.colors.primaryText],
-  });
-
-  const darkModeAnim = useRef(new Animated.Value(isDark ? 1 : 0)).current;
-  useEffect(() => {
-    Animated.timing(darkModeAnim, {
-      toValue: isDark ? 1 : 0,
-      ...TOGGLE_ANIMATION_CONFIG,
-    }).start();
-  }, [isDark, darkModeAnim]);
-  const darkModeBackground = darkModeAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["transparent", theme.colors.primary],
-  });
-  const darkModeTextColor = darkModeAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [theme.colors.text, theme.colors.primaryText],
-  });
-
   const mutedBadgeBg = isDark
     ? "rgba(255, 255, 255, 0.14)"
     : "rgba(0, 0, 0, 0.12)";
@@ -348,12 +308,12 @@ export default function SettingsScreen({
     ? theme.colors.textSecondary
     : theme.colors.text;
   const onBadgeBg = isDark
-    ? "rgba(0, 0, 0, 0.18)"
-    : "rgba(255, 255, 255, 0.22)";
+    ? "rgba(255, 255, 255, 0.28)"
+    : "rgba(0, 0, 0, 0.20)";
   const iconCircleDefault = theme.colors.card;
   const iconCircleOn = isDark
-    ? "rgba(0, 0, 0, 0.25)"
-    : "rgba(255, 255, 255, 0.92)";
+    ? "rgba(255, 255, 255, 0.16)"
+    : "rgba(0, 0, 0, 0.08)";
 
   const modelsStat = String(downloadedModels.length);
   const personasStat =
@@ -686,18 +646,15 @@ export default function SettingsScreen({
             label={"Chat\nMode"}
             stat={bubblesMode ? "On" : "Off"}
             onPress={toggleChatMode}
-            overlayColor={chatModeBackground}
-            iconColor={bubblesMode ? theme.colors.primaryText : theme.colors.text}
-            labelColor={chatModeTextColor}
+            iconColor={theme.colors.text}
+            labelColor={theme.colors.text}
             iconCircleBg={bubblesMode ? iconCircleOn : iconCircleDefault}
             badgeBg={bubblesMode ? onBadgeBg : mutedBadgeBg}
-            badgeTextColor={
-              bubblesMode ? theme.colors.primaryText : mutedBadgeText
-            }
+            badgeTextColor={bubblesMode ? theme.colors.text : mutedBadgeText}
             chromeScale={chromeScale}
             info={{
               onPress: () => setChatModeInfoOpen(true),
-              color: bubblesMode ? theme.colors.primaryText : theme.colors.text,
+              color: theme.colors.text,
             }}
           />
           <SettingsTile
@@ -707,14 +664,11 @@ export default function SettingsScreen({
             label={"Dark\nMode"}
             stat={isDark ? "On" : "Off"}
             onPress={toggleTheme}
-            overlayColor={darkModeBackground}
-            iconColor={isDark ? theme.colors.primaryText : theme.colors.text}
-            labelColor={darkModeTextColor}
+            iconColor={theme.colors.text}
+            labelColor={theme.colors.text}
             iconCircleBg={isDark ? iconCircleOn : iconCircleDefault}
             badgeBg={isDark ? onBadgeBg : mutedBadgeBg}
-            badgeTextColor={
-              isDark ? theme.colors.primaryText : mutedBadgeText
-            }
+            badgeTextColor={isDark ? theme.colors.text : mutedBadgeText}
             chromeScale={chromeScale}
           />
         </View>
