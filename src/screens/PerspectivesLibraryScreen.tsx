@@ -117,8 +117,6 @@ export default function PerspectivesLibraryScreen({
         { padding: 20, flex: 1, backgroundColor: theme.colors.background },
       ]}
     >
-      <CollapsibleTitle title="Perspective" anim={titleAnim} />
-
       <ScrollView
         style={{ flex: 1 }}
         onScroll={handleScroll}
@@ -126,6 +124,7 @@ export default function PerspectivesLibraryScreen({
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
       >
+        <CollapsibleTitle title="Perspective" anim={titleAnim} />
         {loading ? (
           <Text
             style={{

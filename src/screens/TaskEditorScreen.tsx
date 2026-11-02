@@ -758,11 +758,6 @@ export default function TaskEditorScreen({
         { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
       ]}
     >
-      <CollapsibleTitle
-        title={isEditMode ? "Edit task" : "New task"}
-        anim={titleAnim}
-      />
-
       <ScrollView
         style={{ flex: 1 }}
         onScroll={handleScroll}
@@ -771,6 +766,10 @@ export default function TaskEditorScreen({
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        <CollapsibleTitle
+          title={isEditMode ? "Edit task" : "New task"}
+          anim={titleAnim}
+        />
         <View style={{ marginBottom: 24 }}>
           <Text style={sectionTitle}>Basics</Text>
           {!isEditMode && (

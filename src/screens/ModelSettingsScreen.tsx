@@ -368,12 +368,6 @@ export default function ModelSettingsScreen({
         { padding: 20, flex: 1, backgroundColor: theme.colors.background },
       ]}
     >
-      <CollapsibleTitle
-        title="Model Settings"
-        subtitle={model.name}
-        anim={titleAnim}
-      />
-
       {/* Scrollable content */}
       <ScrollView
         style={{ flex: 1 }}
@@ -384,6 +378,11 @@ export default function ModelSettingsScreen({
           paddingBottom: scrollPadBottom,
         }}
       >
+        <CollapsibleTitle
+          title="Model Settings"
+          subtitle={model.name}
+          anim={titleAnim}
+        />
         {/* System Prompt */}
         <View style={{ marginBottom: 24 }}>
           <Text

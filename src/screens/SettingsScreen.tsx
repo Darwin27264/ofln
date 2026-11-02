@@ -400,8 +400,6 @@ export default function SettingsScreen({
         },
       ]}
     >
-      <CollapsibleTitle title="Settings" anim={titleAnim} />
-
       <ScrollView
         style={{ flex: 1 }}
         onScroll={handleScroll}
@@ -417,6 +415,7 @@ export default function SettingsScreen({
         keyboardShouldPersistTaps="handled"
         onLayout={(e) => setViewportH(e.nativeEvent.layout.height)}
       >
+        <CollapsibleTitle title="Settings" anim={titleAnim} />
         <View
           style={{ marginBottom: 0 }}
           onLayout={(e) => setContentH(e.nativeEvent.layout.height)}

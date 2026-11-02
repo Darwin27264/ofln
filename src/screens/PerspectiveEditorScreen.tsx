@@ -283,11 +283,6 @@ export default function PerspectiveEditorScreen({
         { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
       ]}
     >
-      <CollapsibleTitle
-        title={preset ? 'Edit perspective' : 'Create perspective'}
-        anim={titleAnim}
-      />
-
       <ScrollView
         style={{ flex: 1 }}
         onScroll={handleScroll}
@@ -298,6 +293,10 @@ export default function PerspectiveEditorScreen({
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator
       >
+        <CollapsibleTitle
+          title={preset ? 'Edit perspective' : 'Create perspective'}
+          anim={titleAnim}
+        />
         <View style={{ marginBottom: 24 }}>
           <Text style={sectionTitleStyle}>Basics</Text>
           <View style={{ marginBottom: 16 }}>

@@ -735,8 +735,6 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   
   return (
     <View style={[{ flex: 1, backgroundColor: theme.colors.background, padding: 20 }]}>
-      <CollapsibleTitle title="Performance" anim={titleAnim} />
-
       <ScrollView
         style={stylesLocalWithTheme.scroll}
         onScroll={handleScroll}
@@ -744,6 +742,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
         contentContainerStyle={[stylesLocalWithTheme.scrollContent, { paddingBottom: scrollPadBottom + MODEL_PILL_SCROLL_CLEARANCE }]}
         showsVerticalScrollIndicator={false}
       >
+        <CollapsibleTitle title="Performance" anim={titleAnim} />
         {selectedModel && stats && (
           <>
             {/* Stats cards */}

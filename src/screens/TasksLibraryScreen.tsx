@@ -1488,8 +1488,6 @@ export default function TasksLibraryScreen({
         { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
       ]}
     >
-      <CollapsibleTitle title="Tasks" anim={titleAnim} />
-
       <ScrollView
         style={{ flex: 1 }}
         onScroll={handleScroll}
@@ -1497,6 +1495,7 @@ export default function TasksLibraryScreen({
         contentContainerStyle={{ paddingBottom: contentPadBottom }}
         showsVerticalScrollIndicator={false}
       >
+        <CollapsibleTitle title="Tasks" anim={titleAnim} />
         {libraryTab === "tasks" ? renderTasksTab() : renderResultsTab()}
       </ScrollView>
 

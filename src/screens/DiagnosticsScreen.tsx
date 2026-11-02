@@ -727,8 +727,6 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
         },
       ]}
     >
-      <CollapsibleTitle title="Diagnostics" anim={titleAnim} />
-
       <ScrollView
         style={{ flex: 1 }}
         onScroll={handleScroll}
@@ -736,6 +734,7 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
         showsVerticalScrollIndicator={false}
       >
+        <CollapsibleTitle title="Diagnostics" anim={titleAnim} />
         {/* 1. Logs */}
         <TouchableOpacity
           onPress={handleViewLogs}

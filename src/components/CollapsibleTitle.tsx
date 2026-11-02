@@ -74,18 +74,6 @@ export const CollapsibleTitle: React.FC<CollapsibleTitleProps> = React.memo(
         : (subtitle ? 96 : 56);
     const expandedHeight = Math.ceil(measuredHeight ?? fallbackHeight) + 4;
 
-    const maxHeight = anim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [0, expandedHeight],
-      extrapolate: 'clamp',
-    });
-
-    const marginBottom = anim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [0, targetMarginBottom],
-      extrapolate: 'clamp',
-    });
-
     const opacity = anim.interpolate({
       inputRange: [0, 1],
       outputRange: [0, 1],
@@ -95,6 +83,12 @@ export const CollapsibleTitle: React.FC<CollapsibleTitleProps> = React.memo(
     const scale = anim.interpolate({
       inputRange: [0, 1],
       outputRange: [0.92, 1],
+      extrapolate: 'clamp',
+    });
+
+    const translateY = anim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [-10, 0],
       extrapolate: 'clamp',
     });
 
@@ -108,21 +102,14 @@ export const CollapsibleTitle: React.FC<CollapsibleTitleProps> = React.memo(
           styles.container,
           containerStyle,
           {
-            maxHeight,
-            marginBottom,
+            marginBottom: targetMarginBottom,
             opacity,
+            transform: [{ scale }, { translateY }],
           },
         ]}
       >
         <View onLayout={handleLayout} style={styles.measureWrapper}>
-          <Animated.View
-            style={[
-              styles.innerRow,
-              {
-                transform: [{ scale }],
-              },
-            ]}
-          >
+          <View style={styles.innerRow}>
             <View style={styles.textContainer}>
               <Text
                 style={[
@@ -150,7 +137,7 @@ export const CollapsibleTitle: React.FC<CollapsibleTitleProps> = React.memo(
             {rightAction ? (
               <View style={styles.rightActionContainer}>{rightAction}</View>
             ) : null}
-          </Animated.View>
+          </View>
         </View>
       </Animated.View>
     );

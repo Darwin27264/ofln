@@ -315,8 +315,6 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
         },
       ]}
     >
-      <CollapsibleTitle title="About" anim={titleAnim} />
-
       <ScrollView
         style={{ flex: 1 }}
         onScroll={handleScroll}
@@ -324,6 +322,7 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
         showsVerticalScrollIndicator={false}
       >
+        <CollapsibleTitle title="About" anim={titleAnim} />
         <View
           style={{
             flexDirection: "row",

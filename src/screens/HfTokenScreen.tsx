@@ -111,8 +111,6 @@ export default function HfTokenScreen({ onBack }: Props) {
         },
       ]}
     >
-      <CollapsibleTitle title="Hugging Face" anim={titleAnim} />
-
       <ScrollView
         style={{ flex: 1 }}
         onScroll={handleScroll}
@@ -121,6 +119,7 @@ export default function HfTokenScreen({ onBack }: Props) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        <CollapsibleTitle title="Hugging Face" anim={titleAnim} />
         <Text
           style={{
             fontSize: 16,

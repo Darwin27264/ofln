@@ -287,8 +287,6 @@ export default function PersonasLibraryScreen({
 
   return (
       <View style={[styles.container, { padding: 20, flex: 1, backgroundColor: theme.colors.background }]}>
-      <CollapsibleTitle title="Personas" anim={titleAnim} />
-
       <ScrollView
         style={{ flex: 1 }}
         onScroll={handleScroll}
@@ -296,6 +294,7 @@ export default function PersonasLibraryScreen({
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
       >
+        <CollapsibleTitle title="Personas" anim={titleAnim} />
         {!isLoading && sortedPersonas.length === 0 && (
           <View style={emptyStateContainerStyle}>
             <Icon name="person-outline" size={64} color={theme.colors.textTertiary} />

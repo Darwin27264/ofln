@@ -294,11 +294,6 @@ export default function PersonaEditorScreen({
         { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
       ]}
     >
-      <CollapsibleTitle
-        title={isEditMode ? "Edit Persona" : "Create Persona"}
-        anim={titleAnim}
-      />
-
       <ScrollView
         style={{ flex: 1 }}
         onScroll={handleScroll}
@@ -306,6 +301,10 @@ export default function PersonaEditorScreen({
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
         showsVerticalScrollIndicator={true}
       >
+        <CollapsibleTitle
+          title={isEditMode ? "Edit Persona" : "Create Persona"}
+          anim={titleAnim}
+        />
         {renderSection("Basics", (
           <>
             <View style={{ marginBottom: 16 }}>

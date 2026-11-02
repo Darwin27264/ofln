@@ -468,8 +468,6 @@ export default function StorageScreen({
         { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
       ]}
     >
-      <CollapsibleTitle title="Storage" anim={titleAnim} />
-
       <ScrollView
         style={{ flex: 1 }}
         onScroll={handleScroll}
@@ -488,6 +486,7 @@ export default function StorageScreen({
           />
         }
       >
+        <CollapsibleTitle title="Storage" anim={titleAnim} />
         {/* —— Models —— */}
         <SectionHeader
           title="Models"

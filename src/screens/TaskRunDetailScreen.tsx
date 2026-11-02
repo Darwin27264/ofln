@@ -389,12 +389,6 @@ export default function TaskRunDetailScreen({
         { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
       ]}
     >
-      <CollapsibleTitle
-        title={run.taskName}
-        anim={titleAnim}
-        numberOfLines={2}
-      />
-
       <ScrollView
         style={{ flex: 1 }}
         onScroll={handleScroll}
@@ -402,6 +396,11 @@ export default function TaskRunDetailScreen({
         contentContainerStyle={{ paddingBottom: scrollPadBottom + 72 }}
         showsVerticalScrollIndicator={false}
       >
+        <CollapsibleTitle
+          title={run.taskName}
+          anim={titleAnim}
+          numberOfLines={2}
+        />
         {/* Status strip */}
         {/* Status strip — Done + time on top; Manual + model below */}
         <View style={{ marginBottom: 16, marginTop: 4, gap: 8 }}>

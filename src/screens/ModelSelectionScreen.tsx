@@ -1898,8 +1898,6 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
 
   return (
     <View style={[styles.container, { padding: 20, flex: 1, backgroundColor: theme.colors.background }]}>
-      <CollapsibleTitle title="Models" anim={titleAnim} />
-
       {/* Scrollable content */}
       <ScrollView
         style={{ flex: 1 }}
@@ -1908,6 +1906,7 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
       >
+        <CollapsibleTitle title="Models" anim={titleAnim} />
         {/* Local Models Section */}
         {localModels.length > 0 && (
           <View style={{ marginBottom: 24 }}>
