@@ -23,6 +23,7 @@ import {
   LibraryCardEnter,
   useLibraryCardEnter,
 } from '../components/LibraryCardEnter';
+import { FrostedCard, ExpandableCardDropdown } from '../components/FrostedCard';
 import {
   useFloatingBackBottom,
   useScrollPadForFloatingBack,
@@ -205,21 +206,7 @@ export default function PerspectivesLibraryScreen({
               index={index}
               animatedIds={animatedIds}
             >
-            <View
-              style={{
-                backgroundColor: theme.colors.card,
-                borderRadius: 16,
-                marginBottom: 12,
-                borderWidth: 1,
-                borderColor: theme.colors.border,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.1,
-                shadowRadius: 4,
-                elevation: 2,
-                overflow: 'hidden',
-              }}
-            >
+            <FrostedCard>
               <TouchableOpacity
                 style={{
                   padding: 16,
@@ -268,15 +255,7 @@ export default function PerspectivesLibraryScreen({
                 />
               </TouchableOpacity>
 
-              {isExpanded ? (
-              <View
-                style={{
-                  borderTopWidth: 1,
-                  borderTopColor: theme.colors.border,
-                  padding: 12,
-                  backgroundColor: theme.colors.surface,
-                }}
-              >
+              <ExpandableCardDropdown isExpanded={isExpanded}>
                 <View
                   style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}
                 >
@@ -371,9 +350,8 @@ export default function PerspectivesLibraryScreen({
                     </Text>
                   </TouchableOpacity>
                 </View>
-              </View>
-              ) : null}
-            </View>
+              </ExpandableCardDropdown>
+            </FrostedCard>
             </LibraryCardEnter>
             );
           })

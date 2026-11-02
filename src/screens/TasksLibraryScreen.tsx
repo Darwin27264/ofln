@@ -31,6 +31,7 @@ import {
   useLibraryCardEnter,
 } from "../components/LibraryCardEnter";
 import { FrostedGlass, FrostedPanel, SETTINGS_BLOCK } from "../components/FrostedGlass";
+import { FrostedCard, ExpandableCardDropdown } from "../components/FrostedCard";
 import { animateLayout } from "../utils/animationConfig";
 import {
   useFloatingBackBottom,
@@ -759,7 +760,7 @@ export default function TasksLibraryScreen({
             index={index}
             animatedIds={animatedIds}
           >
-            <View style={cardStyle}>
+            <FrostedCard style={{ padding: 16 }}>
               <View
                 style={{
                   flexDirection: "row",
@@ -909,27 +910,23 @@ export default function TasksLibraryScreen({
                 </View>
               </View>
 
-              {expanded ? (
+              <ExpandableCardDropdown
+                isExpanded={expanded}
+                style={{
+                  marginTop: 12,
+                  marginHorizontal: -16,
+                  marginBottom: -16,
+                  borderBottomLeftRadius: 16,
+                  borderBottomRightRadius: 16,
+                }}
+              >
                 <View
                   style={{
-                    borderTopWidth: 1,
-                    borderTopColor: theme.colors.border,
-                    marginTop: 12,
-                    marginHorizontal: -16,
-                    marginBottom: -16,
-                    padding: 12,
-                    backgroundColor: theme.colors.surface,
-                    borderBottomLeftRadius: 16,
-                    borderBottomRightRadius: 16,
+                    flexDirection: "row",
+                    gap: 8,
+                    flexWrap: "wrap",
                   }}
                 >
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      gap: 8,
-                      flexWrap: "wrap",
-                    }}
-                  >
                     <TouchableOpacity
                       onPress={() => onEditTask(task)}
                       style={{
@@ -1102,9 +1099,8 @@ export default function TasksLibraryScreen({
                       </Text>
                     </TouchableOpacity>
                   </View>
-                </View>
-              ) : null}
-            </View>
+                </ExpandableCardDropdown>
+              </FrostedCard>
           </LibraryCardEnter>
         );
       })}

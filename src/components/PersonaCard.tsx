@@ -16,6 +16,7 @@ import { useTheme } from "../context/ThemeContext";
 import { Persona } from "../services/personaService";
 import { PersonaAvatar } from "./PersonaAvatar";
 import { ANIMATION_CONFIG, EASING, getStaggeredDelay } from "../utils/animationConfig";
+import { FrostedCard, ExpandableCardDropdown } from "./FrostedCard";
 
 interface PersonaCardProps {
   persona: Persona;
@@ -61,12 +62,9 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
   
   const cardOpacity = useRef(new Animated.Value(0)).current;
   const cardTranslateY = useRef(new Animated.Value(20)).current;
-  const dropdownTranslateY = useRef(new Animated.Value(-20)).current;
-  const dropdownOpacity = useRef(new Animated.Value(0)).current;
 
   const hasInitializedRef = useRef(false);
   const cardAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
-  const dropdownAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   
   useEffect(() => {
     if (animatedPersonaIds.current.has(persona.id)) {
@@ -132,64 +130,6 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
     }
   }, [persona.id, index, isInitialAnimationPhase, animatedPersonaIds, cardOpacity, cardTranslateY]);
 
-  useEffect(() => {
-    if (dropdownAnimationRef.current) {
-      dropdownAnimationRef.current.stop();
-      dropdownAnimationRef.current = null;
-    }
-
-    if (isExpanded) {
-      dropdownTranslateY.setValue(-20);
-      dropdownOpacity.setValue(0);
-      
-      const animation = Animated.parallel([
-        Animated.timing(dropdownTranslateY, {
-          toValue: 0,
-          duration: 200,
-          easing: EASING.STANDARD,
-          useNativeDriver: true,
-        }),
-        Animated.timing(dropdownOpacity, {
-          toValue: 1,
-          duration: 180,
-          easing: EASING.STANDARD,
-          useNativeDriver: true,
-        }),
-      ]);
-      dropdownAnimationRef.current = animation;
-      animation.start((finished) => {
-        if (finished) {
-          dropdownTranslateY.setValue(0);
-          dropdownOpacity.setValue(1);
-        }
-        dropdownAnimationRef.current = null;
-      });
-    } else {
-      const animation = Animated.parallel([
-        Animated.timing(dropdownTranslateY, {
-          toValue: -20,
-          duration: 150,
-          easing: EASING.ACCELERATE,
-          useNativeDriver: true,
-        }),
-        Animated.timing(dropdownOpacity, {
-          toValue: 0,
-          duration: 120,
-          easing: EASING.ACCELERATE,
-          useNativeDriver: true,
-        }),
-      ]);
-      dropdownAnimationRef.current = animation;
-      animation.start((finished) => {
-        if (finished) {
-          dropdownTranslateY.setValue(-20);
-          dropdownOpacity.setValue(0);
-        }
-        dropdownAnimationRef.current = null;
-      });
-    }
-  }, [isExpanded, dropdownTranslateY, dropdownOpacity]);
-
   const formattedLastUsed = useMemo(() => formatLastUsed(persona.lastUsed), [persona.lastUsed]);
 
   return (
@@ -199,21 +139,7 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
         transform: [{ translateY: cardTranslateY }],
       }}
     >
-      <View
-        style={{
-          backgroundColor: theme.colors.card,
-          borderRadius: 16,
-          marginBottom: 12,
-          borderWidth: 1,
-          borderColor: theme.colors.border,
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.1,
-          shadowRadius: 4,
-          elevation: 2,
-          overflow: "hidden",
-      }}
-    >
+      <FrostedCard>
         <TouchableOpacity
           style={{
             padding: 16,
@@ -318,22 +244,8 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
           />
         </TouchableOpacity>
 
-        {isExpanded && (
-          <Animated.View
-            style={{
-              borderTopWidth: 1,
-              borderTopColor: theme.colors.border,
-              padding: 12,
-              backgroundColor: theme.colors.surface,
-              opacity: dropdownOpacity,
-              transform: [
-                {
-                  translateY: dropdownTranslateY,
-                },
-              ],
-            }}
-          >
-            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+        <ExpandableCardDropdown isExpanded={isExpanded}>
+          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
               {onUse && (
                 <TouchableOpacity
                   onPress={onUse}
@@ -447,9 +359,8 @@ export const PersonaCard: React.FC<PersonaCardProps> = React.memo(({
                 </Text>
               </TouchableOpacity>
             </View>
-          </Animated.View>
-        )}
-      </View>
+        </ExpandableCardDropdown>
+      </FrostedCard>
     </Animated.View>
   );
 }, (prevProps, nextProps) => {

@@ -126,19 +126,15 @@ function SettingsTile({
 
   return (
     <TouchableOpacity style={touchStyle} onPress={onPress} activeOpacity={0.85}>
-      <Animated.View style={styles.settingsBlock}>
-        <FrostedGlass
-          style={StyleSheet.absoluteFillObject}
-          blurAmount={SETTINGS_BLOCK.blurAmount}
-          // Light: soft white frost (readable). Dark: deeper shaded glass.
-          tintOpacity={isDark ? SETTINGS_BLOCK.tintDark : SETTINGS_BLOCK.tintLight}
-        />
-        {overlayColor != null ? (
-          <Animated.View
-            pointerEvents="none"
-            style={[StyleSheet.absoluteFillObject, { backgroundColor: overlayColor as any }]}
-          />
-        ) : null}
+      <FrostedPanel
+        style={{
+          flex: 1,
+          padding: 15,
+          justifyContent: "flex-end",
+          height: "100%",
+        }}
+        overlayColor={typeof overlayColor === "string" ? overlayColor : undefined}
+      >
         <View style={[styles.blockIconCircle, { backgroundColor: iconCircleBg }]}>
           <Ionicons name={icon as any} size={18} color={iconColor} />
         </View>
@@ -194,7 +190,7 @@ function SettingsTile({
             <Ionicons name="information-circle-outline" size={19} color={info.color} />
           </TouchableOpacity>
         ) : null}
-      </Animated.View>
+      </FrostedPanel>
     </TouchableOpacity>
   );
 }
@@ -521,12 +517,14 @@ export default function SettingsScreen({
               onPress={onGoToStorage}
               activeOpacity={0.85}
             >
-              <View style={styles.settingsBlock}>
-                <FrostedGlass
-                  style={StyleSheet.absoluteFillObject}
-                  blurAmount={SETTINGS_BLOCK.blurAmount}
-                  tintOpacity={isDark ? SETTINGS_BLOCK.tintDark : SETTINGS_BLOCK.tintLight}
-                />
+              <FrostedPanel
+                style={{
+                  flex: 1,
+                  padding: 15,
+                  justifyContent: "flex-end",
+                  height: "100%",
+                }}
+              >
                 <View
                   style={[
                     styles.blockIconCircle,
@@ -602,7 +600,7 @@ export default function SettingsScreen({
                     Storage
                   </Text>
                 </View>
-              </View>
+              </FrostedPanel>
             </TouchableOpacity>
           </View>
         </View>
@@ -721,21 +719,15 @@ export default function SettingsScreen({
           />
         </View>
 
-        <View
-          style={[
-            styles.settingsBlock,
-            {
-              height: SETTINGS_TILE_HEIGHT,
-              marginTop: SETTINGS_TILE_GAP,
-              flex: 0,
-            },
-          ]}
+        <FrostedPanel
+          style={{
+            height: SETTINGS_TILE_HEIGHT,
+            marginTop: SETTINGS_TILE_GAP,
+            flex: 0,
+            padding: 15,
+            justifyContent: "flex-end",
+          }}
         >
-          <FrostedGlass
-            style={StyleSheet.absoluteFillObject}
-            blurAmount={SETTINGS_BLOCK.blurAmount}
-            tintOpacity={isDark ? SETTINGS_BLOCK.tintDark : SETTINGS_BLOCK.tintLight}
-          />
           <View style={[styles.blockIconCircle, { backgroundColor: iconCircleDefault }]}>
             <Ionicons name="text-outline" size={18} color={theme.colors.text} />
           </View>
@@ -839,23 +831,17 @@ export default function SettingsScreen({
               Default
             </Text>
           </TouchableOpacity>
-        </View>
+        </FrostedPanel>
 
-        <View
-          style={[
-            styles.settingsBlock,
-            {
-              height: SETTINGS_TILE_HEIGHT,
-              marginTop: SETTINGS_TILE_GAP,
-              flex: 0,
-            },
-          ]}
+        <FrostedPanel
+          style={{
+            height: SETTINGS_TILE_HEIGHT,
+            marginTop: SETTINGS_TILE_GAP,
+            flex: 0,
+            padding: 15,
+            justifyContent: "flex-end",
+          }}
         >
-          <FrostedGlass
-            style={StyleSheet.absoluteFillObject}
-            blurAmount={SETTINGS_BLOCK.blurAmount}
-            tintOpacity={isDark ? SETTINGS_BLOCK.tintDark : SETTINGS_BLOCK.tintLight}
-          />
           <View style={[styles.blockIconCircle, { backgroundColor: iconCircleDefault }]}>
             <Ionicons name="resize-outline" size={18} color={theme.colors.text} />
           </View>
@@ -957,23 +943,17 @@ export default function SettingsScreen({
               Default
             </Text>
           </TouchableOpacity>
-        </View>
+        </FrostedPanel>
 
-        <View
-          style={[
-            styles.settingsBlock,
-            {
-              height: SETTINGS_TILE_HEIGHT,
-              marginTop: SETTINGS_TILE_GAP,
-              flex: 0,
-            },
-          ]}
+        <FrostedPanel
+          style={{
+            height: SETTINGS_TILE_HEIGHT,
+            marginTop: SETTINGS_TILE_GAP,
+            flex: 0,
+            padding: 15,
+            justifyContent: "flex-end",
+          }}
         >
-          <FrostedGlass
-            style={StyleSheet.absoluteFillObject}
-            blurAmount={SETTINGS_BLOCK.blurAmount}
-            tintOpacity={isDark ? SETTINGS_BLOCK.tintDark : SETTINGS_BLOCK.tintLight}
-          />
           <View style={[styles.blockIconCircle, { backgroundColor: iconCircleDefault }]}>
             <Ionicons name="sparkles-outline" size={18} color={theme.colors.text} />
           </View>
@@ -1044,7 +1024,7 @@ export default function SettingsScreen({
               {"Ambient\nMotion"}
             </Text>
           </View>
-        </View>
+        </FrostedPanel>
       </BottomSheet>
 
       <BottomSheet

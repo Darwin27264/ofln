@@ -46,6 +46,10 @@ export const SETTINGS_BLOCK = {
   blurAmount: 16,
   tintDark: 0.62,
   tintLight: 0.52,
+  glassBgDark: "rgba(255, 255, 255, 0.05)",
+  glassBgLight: "rgba(255, 255, 255, 0.72)",
+  borderDark: "rgba(255, 255, 255, 0.12)",
+  borderLight: "rgba(0, 0, 0, 0.08)",
 } as const;
 
 /** System status/nav bar color that matches the frosted history panel. */
@@ -171,19 +175,29 @@ export function FrostedPanel({
   style,
   children,
   overlayColor,
+  borderRadius = SETTINGS_BLOCK.radius,
   ...rest
-}: FrostedPanelProps) {
+}: FrostedPanelProps & { borderRadius?: number }) {
   const { theme, isDark } = useTheme();
   return (
     <View
       {...rest}
       style={[
         {
-          borderRadius: SETTINGS_BLOCK.radius,
+          borderRadius,
           overflow: "hidden",
-          backgroundColor: "transparent",
+          backgroundColor: isDark
+            ? SETTINGS_BLOCK.glassBgDark
+            : SETTINGS_BLOCK.glassBgLight,
           borderWidth: 1,
-          borderColor: theme.colors.border,
+          borderColor: isDark
+            ? SETTINGS_BLOCK.borderDark
+            : SETTINGS_BLOCK.borderLight,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: isDark ? 0.16 : 0.06,
+          shadowRadius: 10,
+          elevation: 3,
         },
         style,
       ]}
