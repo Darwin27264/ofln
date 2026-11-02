@@ -1,7 +1,8 @@
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
 import { ModelCard, ModelInfo } from '../src/components/ModelCard';
-import { Modal, Text, TouchableOpacity, View } from 'react-native';
+import { BottomSheet } from '../src/components/BottomSheet';
+import { Text, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
 
 jest.mock('react-native-fs', () => ({
   getFSInfo: jest.fn(),
@@ -13,6 +14,11 @@ jest.mock('react-native-device-info', () => ({
     getTotalMemory: jest.fn(async () => 8 * 1024 ** 3),
     getUsedMemory: jest.fn(async () => 2 * 1024 ** 3),
   },
+}));
+
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 40, bottom: 24, left: 0, right: 0 }),
+  SafeAreaProvider: ({ children }: any) => children,
 }));
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -42,6 +48,7 @@ jest.mock('../src/context/ThemeContext', () => ({
         warning: '#FF9F0A',
         error: '#FF453A',
         transparent: 'transparent',
+        glass: 'rgba(36, 36, 36, 0.75)',
       },
     },
     isDark: true,
@@ -50,7 +57,30 @@ jest.mock('../src/context/ThemeContext', () => ({
 
 jest.mock('react-native-vector-icons/MaterialIcons', () => 'Icon');
 
-describe('ModelCard - Recommended Badge & Dismissible Popup', () => {
+jest.mock('../src/components/BottomSheet', () => {
+  const React = require('react');
+  const { View, Text, TouchableOpacity } = require('react-native');
+  const MockBottomSheet = ({ visible, title, subtitle, children, onClose }: any) =>
+    visible
+      ? React.createElement(
+          View,
+          { testID: 'mock-bottom-sheet' },
+          React.createElement(Text, null, title),
+          subtitle ? React.createElement(Text, null, subtitle) : null,
+          children,
+          React.createElement(TouchableOpacity, { testID: 'backdrop', onPress: onClose })
+        )
+      : null;
+  return {
+    BottomSheet: MockBottomSheet,
+  };
+});
+
+jest.mock('@react-native-community/blur', () => ({
+  BlurView: 'BlurView',
+}));
+
+describe('ModelCard - Recommended Badge & BottomSheet Popup', () => {
   const sampleModel: ModelInfo = {
     id: 'test-model',
     name: 'SmolLM2 1.7B',
@@ -119,7 +149,38 @@ describe('ModelCard - Recommended Badge & Dismissible Popup', () => {
     expect(dotView).toBeDefined();
   });
 
-  it('opens a non-sticky dismissible popup explaining device recommendation, and closes when clicking anywhere', () => {
+  it('delegates to onShowRamFit callback when provided by parent screen', () => {
+    const onShowRamFit = jest.fn();
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(
+        <ModelCard
+          {...defaultProps}
+          isDeviceRecommended={true}
+          onShowRamFit={onShowRamFit}
+        />
+      );
+    });
+
+    const root = tree!.root;
+    const touchables = root.findAllByType(TouchableOpacity);
+    const recButton = touchables.find((t) =>
+      t.props.accessibilityLabel?.includes('Recommended model')
+    );
+    expect(recButton).toBeDefined();
+
+    act(() => {
+      recButton!.props.onPress({ stopPropagation: jest.fn() });
+    });
+
+    expect(onShowRamFit).toHaveBeenCalledTimes(1);
+    const callArg = onShowRamFit.mock.calls[0][0];
+    expect(callArg.title).toBe('Recommended for your phone');
+    expect(callArg.message).toContain('recommended for your phone');
+    expect(callArg.message).toContain('balance of reasoning capability');
+  });
+
+  it('opens a clean BottomSheet popup without X button or dedicated dismiss button', () => {
     let tree: renderer.ReactTestRenderer;
     act(() => {
       tree = renderer.create(
@@ -129,9 +190,9 @@ describe('ModelCard - Recommended Badge & Dismissible Popup', () => {
 
     const root = tree!.root;
 
-    // Initially, modal is hidden
-    let modal = root.findByType(Modal);
-    expect(modal.props.visible).toBe(false);
+    // Initially, bottom sheet is closed
+    let sheet = root.findByType(BottomSheet);
+    expect(sheet.props.visible).toBe(false);
 
     // Tap the Recommended box
     const touchables = root.findAllByType(TouchableOpacity);
@@ -144,58 +205,35 @@ describe('ModelCard - Recommended Badge & Dismissible Popup', () => {
       recButton!.props.onPress({ stopPropagation: jest.fn() });
     });
 
-    // Now modal is visible
-    modal = root.findByType(Modal);
-    expect(modal.props.visible).toBe(true);
+    // Bottom sheet is now open
+    sheet = root.findByType(BottomSheet);
+    expect(sheet.props.visible).toBe(true);
+    expect(sheet.props.title).toBe('Recommended for your phone');
 
-    // Verify modal explains that it is recommended for the device
-    const modalTexts = modal.findAllByType(Text).map((n) =>
+    // Verify there is NO "Tap anywhere to dismiss" button or text
+    const allTexts = root.findAllByType(Text).map((n) =>
       Array.isArray(n.props.children)
         ? n.props.children.join('')
         : String(n.props.children ?? '')
     );
+    expect(allTexts).not.toContain('Tap anywhere to dismiss');
 
-    const hasRecTitle = modalTexts.some((t) => t.includes('Recommended for your phone'));
-    expect(hasRecTitle).toBe(true);
-
-    const hasRecExplanation = modalTexts.some((t) =>
-      t.includes('recommended for your phone') &&
-      t.includes('balance of reasoning capability')
+    // Verify there is NO X close button inside the sheet
+    const iconButtons = sheet.findAllByType(TouchableOpacity).filter((t) =>
+      t.props.accessibilityLabel === 'Close'
     );
-    expect(hasRecExplanation).toBe(true);
+    expect(iconButtons.length).toBe(0);
 
-    // Verify "Tap anywhere to dismiss" prompt exists
-    const hasDismissHint = modalTexts.some((t) => t.includes('Tap anywhere to dismiss'));
-    expect(hasDismissHint).toBe(true);
-
-    // Test dismiss: tapping the outer backdrop closes it
-    const modalTouchables = modal.findAllByType(TouchableOpacity);
-    const backdrop = modalTouchables[0]; // Outer full-screen TouchableOpacity
-    expect(backdrop).toBeDefined();
+    // Tapping the TouchableWithoutFeedback calls onClose (tap anywhere to dismiss)
+    const touchablesWithoutFeedback = sheet.findAllByType(TouchableWithoutFeedback);
+    expect(touchablesWithoutFeedback.length).toBeGreaterThan(0);
 
     act(() => {
-      backdrop.props.onPress();
+      sheet.props.onClose();
     });
 
-    expect(modal.props.visible).toBe(false);
-
-    // Reopen and test dismiss by clicking on the card itself
-    act(() => {
-      recButton!.props.onPress({ stopPropagation: jest.fn() });
-    });
-    modal = root.findByType(Modal);
-    expect(modal.props.visible).toBe(true);
-
-    const freshModalTouchables = modal.findAllByType(TouchableOpacity);
-    const cardTouchable = freshModalTouchables[1]; // Inner card TouchableOpacity
-    expect(cardTouchable).toBeDefined();
-
-    act(() => {
-      cardTouchable.props.onPress();
-    });
-
-    modal = root.findByType(Modal);
-    expect(modal.props.visible).toBe(false);
+    sheet = root.findByType(BottomSheet);
+    expect(sheet.props.visible).toBe(false);
   });
 
   it('renders only the standalone dot when isDeviceRecommended is false', () => {

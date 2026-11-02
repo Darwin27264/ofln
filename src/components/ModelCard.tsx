@@ -28,10 +28,10 @@ import {
   View,
   Text,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   ActivityIndicator,
   Animated,
   InteractionManager,
-  Modal,
 } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { useTheme } from "../context/ThemeContext";
@@ -40,6 +40,7 @@ import { ANIMATION_CONFIG, EASING, getStaggeredDelay } from "../utils/animationC
 import { isThinkingModel, getQuantRecommendLabel } from "../utils/modelUtils";
 import type { RamFitResult } from "../services/ramFitService";
 import { explainRamFit, formatRamGb, RAM_FIT_LABELS } from "../services/ramFitService";
+import { BottomSheet } from "./BottomSheet";
 import { splitDownloadProgressLines } from "../utils/downloadProgressFormat";
 
 // Types
@@ -101,6 +102,8 @@ interface ModelCardProps {
   onSetQuickActionDefault?: () => void;
   /** Gray, not-yet-downloaded treatment (Quick actions catalog). */
   muted?: boolean;
+  /** Callback to show RAM fit / recommendation details in parent BottomSheet. */
+  onShowRamFit?: (info: { title: string; subtitle?: string; message: string }) => void;
 }
 
 // Cache for quantization extraction to avoid repeated regex operations
@@ -189,6 +192,7 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
   isQuickActionDefault = false,
   onSetQuickActionDefault,
   muted = false,
+  onShowRamFit,
 }) => {
   const { theme } = useTheme();
   
@@ -240,8 +244,12 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
   }, [ramFit, isDeviceRecommended]);
 
   const showRamFitDetails = () => {
-    if (!ramFit && !isDeviceRecommended) return;
-    setRamFitInfoOpen(true);
+    if (!ramFitInfo) return;
+    if (onShowRamFit) {
+      onShowRamFit(ramFitInfo);
+    } else {
+      setRamFitInfoOpen(true);
+    }
   };
 
   const quickActionGrid = Boolean(onSetQuickActionDefault);
@@ -1227,140 +1235,28 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
       </View>
     </Animated.View>
 
-    <Modal
+    <BottomSheet
       visible={ramFitInfoOpen}
-      transparent
-      animationType="fade"
-      onRequestClose={() => setRamFitInfoOpen(false)}
-      statusBarTranslucent
+      onClose={() => setRamFitInfoOpen(false)}
+      title={ramFitInfo?.title ?? ""}
+      subtitle={ramFitInfo?.subtitle}
+      fitContent
     >
-      <TouchableOpacity
-        activeOpacity={1}
-        onPress={() => setRamFitInfoOpen(false)}
-        style={{
-          flex: 1,
-          backgroundColor: "rgba(0, 0, 0, 0.52)",
-          justifyContent: "center",
-          alignItems: "center",
-          paddingHorizontal: 20,
-        }}
-      >
-        <TouchableOpacity
-          activeOpacity={0.95}
-          onPress={() => setRamFitInfoOpen(false)}
-          style={{
-            width: "100%",
-            maxWidth: 420,
-            backgroundColor: theme.colors.surface,
-            borderRadius: 18,
-            padding: 20,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 8 },
-            shadowOpacity: 0.25,
-            shadowRadius: 16,
-            elevation: 12,
-          }}
-        >
-          {/* Header */}
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "flex-start",
-              justifyContent: "space-between",
-              marginBottom: 12,
-            }}
-          >
-            <View style={{ flex: 1, paddingRight: 8 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
-                <View
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: ramFitColor ?? "#4CAF50",
-                    marginRight: 6,
-                  }}
-                />
-                <Text
-                  style={{
-                    fontSize: 16,
-                    fontWeight: "600",
-                    color: theme.colors.text,
-                    fontFamily: "Poppins",
-                  }}
-                >
-                  {ramFitInfo?.title ?? "RAM Fit Details"}
-                </Text>
-              </View>
-              {ramFitInfo?.subtitle ? (
-                <Text
-                  style={{
-                    fontSize: 12,
-                    color: theme.colors.textSecondary,
-                    fontFamily: "Poppins",
-                  }}
-                >
-                  {ramFitInfo.subtitle}
-                </Text>
-              ) : null}
-            </View>
-            <TouchableOpacity
-              onPress={() => setRamFitInfoOpen(false)}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 14,
-                backgroundColor: theme.mode === "dark" ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Icon name="close" size={18} color={theme.colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Body Message */}
+      <TouchableWithoutFeedback onPress={() => setRamFitInfoOpen(false)}>
+        <View>
           <Text
             style={{
-              fontSize: 13,
+              fontSize: 14,
               color: theme.colors.textSecondary,
               fontFamily: "Poppins",
-              lineHeight: 20,
-              marginBottom: 16,
+              lineHeight: 21,
             }}
           >
             {ramFitInfo?.message}
           </Text>
-
-          {/* Dismiss Action Hint / Button */}
-          <View
-            style={{
-              backgroundColor: theme.mode === "dark" ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.04)",
-              borderRadius: 10,
-              paddingVertical: 10,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Text
-              style={{
-                fontSize: 12,
-                fontWeight: "600",
-                color: theme.colors.textSecondary,
-                fontFamily: "Poppins",
-              }}
-            >
-              Tap anywhere to dismiss
-            </Text>
-          </View>
-        </TouchableOpacity>
-      </TouchableOpacity>
-    </Modal>
+        </View>
+      </TouchableWithoutFeedback>
+    </BottomSheet>
     </>
   );
 }, (prevProps, nextProps) => {
@@ -1388,7 +1284,8 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
     prevProps.isDeviceRecommended === nextProps.isDeviceRecommended &&
     prevProps.isQuickActionDefault === nextProps.isQuickActionDefault &&
     prevProps.onSetQuickActionDefault === nextProps.onSetQuickActionDefault &&
-    prevProps.muted === nextProps.muted
+    prevProps.muted === nextProps.muted &&
+    prevProps.onShowRamFit === nextProps.onShowRamFit
   );
 });
 

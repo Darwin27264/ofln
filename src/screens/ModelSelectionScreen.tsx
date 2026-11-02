@@ -17,6 +17,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   ActivityIndicator,
   BackHandler,
   ScrollView,
@@ -1763,6 +1764,10 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
     setQuickActionsDefault(fileName);
   }, []);
 
+  const handleShowRamFit = useCallback((info: { title: string; subtitle?: string; message: string }) => {
+    showInfoSheet(info.title, info.message, info.subtitle);
+  }, [showInfoSheet]);
+
   /**
    * Render a model card with proper props
    * Uses the extracted ModelCard component for better performance
@@ -1815,9 +1820,10 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         isQuickActionDefault={quickAction?.isDefault}
         onSetQuickActionDefault={quickAction?.onSetDefault}
         muted={muted}
+        onShowRamFit={handleShowRamFit}
       />
     );
-  }, [downloadProgress, downloadProgressDetail, pausedDownloads, loadingModelFile, isLoadingModel, expandedModelId, handleModelDownload, handleDeleteModel, handleCancelDownload, handleDiscardPausedDownload, handleOpenSettings, isInitialAnimationPhase, animatedModelIds, totalMemoryBytes]);
+  }, [downloadProgress, downloadProgressDetail, pausedDownloads, loadingModelFile, isLoadingModel, expandedModelId, handleModelDownload, handleDeleteModel, handleCancelDownload, handleDiscardPausedDownload, handleOpenSettings, isInitialAnimationPhase, animatedModelIds, totalMemoryBytes, handleShowRamFit]);
 
   // Memoize downloaded models info to avoid recalculation on every render
   const downloadedModelsInfo = useMemo(() => {
@@ -3169,17 +3175,21 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         subtitle={infoSheet?.subtitle}
         fitContent
       >
-        <Text
-          style={{
-            fontSize: 14,
-            color: theme.colors.textSecondary,
-            fontFamily: "Poppins",
-            lineHeight: 21,
-            marginBottom: infoSheet?.action ? 16 : 0,
-          }}
-        >
-          {infoSheet?.message ?? ""}
-        </Text>
+        <TouchableWithoutFeedback onPress={closeInfoSheet}>
+          <View>
+            <Text
+              style={{
+                fontSize: 14,
+                color: theme.colors.textSecondary,
+                fontFamily: "Poppins",
+                lineHeight: 21,
+                marginBottom: infoSheet?.action ? 16 : 0,
+              }}
+            >
+              {infoSheet?.message ?? ""}
+            </Text>
+          </View>
+        </TouchableWithoutFeedback>
         {infoSheet?.action ? (
           <TouchableOpacity
             onPress={infoSheet.action.onPress}
