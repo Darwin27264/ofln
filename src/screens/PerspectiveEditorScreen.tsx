@@ -18,6 +18,8 @@ import { useTheme } from '../context/ThemeContext';
 import { showAlert } from '../components/CustomAlert';
 import { BottomSheet } from '../components/BottomSheet';
 import { FloatingBackButton } from '../components/FloatingBackButton';
+import { useCollapsibleTitle } from '../hooks/useCollapsibleTitle';
+import { CollapsibleTitle } from '../components/CollapsibleTitle';
 import {
   useFloatingBackBottom,
   useScrollPadForFloatingBack,
@@ -58,6 +60,7 @@ export default function PerspectiveEditorScreen({
 }: PerspectiveEditorScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const { anim: titleAnim, handleScroll } = useCollapsibleTitle();
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
 
@@ -280,12 +283,15 @@ export default function PerspectiveEditorScreen({
         { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
       ]}
     >
-      <Text style={styles.settingsTitle}>
-        {preset ? 'Edit perspective' : 'Create perspective'}
-      </Text>
+      <CollapsibleTitle
+        title={preset ? 'Edit perspective' : 'Create perspective'}
+        anim={titleAnim}
+      />
 
       <ScrollView
         style={{ flex: 1 }}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={{
           paddingBottom: scrollPadBottom,
         }}

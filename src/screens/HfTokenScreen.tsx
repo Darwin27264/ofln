@@ -16,6 +16,8 @@ import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
 import { FloatingBackButton } from "../components/FloatingBackButton";
+import { useCollapsibleTitle } from "../hooks/useCollapsibleTitle";
+import { CollapsibleTitle } from "../components/CollapsibleTitle";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import {
   clearHfToken,
@@ -32,6 +34,7 @@ interface Props {
 export default function HfTokenScreen({ onBack }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const { anim: titleAnim, handleScroll } = useCollapsibleTitle();
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
 
@@ -108,10 +111,12 @@ export default function HfTokenScreen({ onBack }: Props) {
         },
       ]}
     >
-      <Text style={styles.settingsTitle}>Hugging Face</Text>
+      <CollapsibleTitle title="Hugging Face" anim={titleAnim} />
 
       <ScrollView
         style={{ flex: 1 }}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}

@@ -8,12 +8,14 @@ const { SystemBars } = NativeModules as {
   };
 };
 
-function isColorLight(hex: string): boolean {
+export function isColorLight(hex: string): boolean {
+  if (!hex || hex.toLowerCase() === 'transparent') return false;
   const c = hex.replace('#', '');
   if (c.length < 6) return false;
   const r = parseInt(c.substring(0, 2), 16);
   const g = parseInt(c.substring(2, 4), 16);
   const b = parseInt(c.substring(4, 6), 16);
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return false;
   const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
   return luminance > 180;
 }
@@ -47,26 +49,46 @@ export function lerpHexColor(from: string, to: string, t: number): string {
   );
 }
 
+export interface SystemBarThemeOptions {
+  statusBarColor: string;
+  /** Defaults to statusBarColor (or 'transparent' if statusBarColor is transparent). */
+  navBarColor?: string;
+  /**
+   * Explicit icon contrast override.
+   * If not provided, computed from statusBarColor, or if transparent, from navBarColor.
+   */
+  darkIcons?: boolean;
+}
+
 /**
- * Native chrome: status and nav bars share the same opaque shell hex so top
- * and bottom system chrome match. That color also paints the window / decor
- * (and pre-35 Android bar colors) so physical edges never show a 1px gap.
+ * Native chrome: status and nav bars can be styled independently.
+ * Allows transparent status bar with an opaque nav bar shell.
  * API 35+ ignores bar colors; the window fill is what seals the edge.
- * `statusBarColor` also drives light/dark glyph contrast.
  */
 export function applySystemBarTheme({
   statusBarColor,
   navBarColor,
-}: {
-  statusBarColor: string;
-  /** Defaults to statusBarColor — shell / frost endpoint. */
-  navBarColor?: string;
-}) {
+  darkIcons,
+}: SystemBarThemeOptions) {
+  const SystemBars = (NativeModules as {
+    SystemBars?: {
+      setSystemBarColors: (status: string, nav: string, darkIcons: boolean) => void;
+    };
+  }).SystemBars;
+
   if (!SystemBars) {
     return;
   }
 
-  const darkIcons = isColorLight(statusBarColor);
-  const nav = navBarColor ?? statusBarColor;
-  SystemBars.setSystemBarColors(statusBarColor, nav, darkIcons);
+  const isTransparent = statusBarColor.toLowerCase() === 'transparent';
+  const nav = navBarColor ?? (isTransparent ? 'transparent' : statusBarColor);
+
+  const resolvedDarkIcons =
+    typeof darkIcons === 'boolean'
+      ? darkIcons
+      : isTransparent
+        ? (nav !== 'transparent' ? isColorLight(nav) : false)
+        : isColorLight(statusBarColor);
+
+  SystemBars.setSystemBarColors(statusBarColor, nav, resolvedDarkIcons);
 }

@@ -11,9 +11,9 @@ class SystemBarsModule(private val ctx: ReactApplicationContext)
   override fun getName() = "SystemBars"
 
   /**
-   * Status and nav bars share the opaque shell hex (window / decor / pre-35
-   * bar colors) so top and bottom system chrome match and physical edges
-   * never show a 1px gap.
+   * Status and navigation bars can be styled independently.
+   * Status bar supports Color.TRANSPARENT for edge-to-edge layouts (e.g. history panel,
+   * chat quick panel), while navigation bar retains an opaque or custom shell color.
    */
   @ReactMethod
   fun setSystemBarColors(statusColor: String, navColor: String, darkIcons: Boolean) {
@@ -22,13 +22,7 @@ class SystemBarsModule(private val ctx: ReactApplicationContext)
     activity.runOnUiThread {
       val status = parseBarColor(statusColor)
       val nav = parseBarColor(navColor)
-      // Prefer nav, then status — never seal with transparent.
-      val fill = when {
-        nav != Color.TRANSPARENT -> nav
-        status != Color.TRANSPARENT -> status
-        else -> return@runOnUiThread
-      }
-      SystemBarChrome.apply(activity.window, fill, darkIcons)
+      SystemBarChrome.apply(activity.window, status, nav, darkIcons)
     }
   }
 
@@ -37,8 +31,16 @@ class SystemBarsModule(private val ctx: ReactApplicationContext)
     if (c.isEmpty() || c.equals("transparent", ignoreCase = true)) {
       return Color.TRANSPARENT
     }
+    val hex = if (c.startsWith("#")) c.substring(1) else c
+    val normalized = when (hex.length) {
+      3 -> "#" + hex.map { "$it$it" }.joinToString("")
+      4 -> "#" + hex.map { "$it$it" }.joinToString("")
+      6 -> "#$hex"
+      8 -> "#$hex"
+      else -> c
+    }
     return try {
-      Color.parseColor(if (c.startsWith("#")) c else "#$c")
+      Color.parseColor(if (normalized.startsWith("#")) normalized else "#$normalized")
     } catch (_: IllegalArgumentException) {
       Color.TRANSPARENT
     }

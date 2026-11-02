@@ -24,11 +24,14 @@ import {
 } from "../components/FloatingBackButton";
 import { BottomSheet } from "../components/BottomSheet";
 import { SegmentedTabBar } from "../components/SegmentedTabBar";
+import { useCollapsibleTitle } from "../hooks/useCollapsibleTitle";
+import { CollapsibleTitle } from "../components/CollapsibleTitle";
 import {
   LibraryCardEnter,
   useLibraryCardEnter,
 } from "../components/LibraryCardEnter";
-import { FrostedPanel, SETTINGS_BLOCK } from "../components/FrostedGlass";
+import { FrostedGlass, FrostedPanel, SETTINGS_BLOCK } from "../components/FrostedGlass";
+import { animateLayout } from "../utils/animationConfig";
 import {
   useFloatingBackBottom,
   useScrollPadForFloatingBack,
@@ -270,6 +273,7 @@ export default function TasksLibraryScreen({
 }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const { anim: titleAnim, handleScroll } = useCollapsibleTitle();
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
 
@@ -616,14 +620,16 @@ export default function TasksLibraryScreen({
             <TouchableOpacity
               onPress={() => onEditTask(null)}
               style={{
-                backgroundColor: theme.colors.surface,
+                backgroundColor: "transparent",
                 borderColor: theme.colors.border,
                 borderWidth: 1,
                 paddingHorizontal: 20,
                 paddingVertical: 12,
                 borderRadius: 20,
+                overflow: "hidden",
               }}
             >
+              <FrostedGlass style={StyleSheet.absoluteFillObject} blurAmount={14} />
               <Text
                 style={{
                   color: theme.colors.text,
@@ -639,19 +645,23 @@ export default function TasksLibraryScreen({
             <TouchableOpacity
               onPress={handleAddMorningBrief}
               style={{
-                backgroundColor: theme.colors.primary,
+                backgroundColor: "transparent",
+                borderColor: theme.colors.border,
+                borderWidth: 1,
                 paddingHorizontal: 20,
                 paddingVertical: 12,
                 borderRadius: 20,
+                overflow: "hidden",
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
               }}
             >
-              <Ionicons name="sunny-outline" size={18} color={theme.colors.primaryText} />
+              <FrostedGlass style={StyleSheet.absoluteFillObject} blurAmount={14} tintOpacity={0.65} />
+              <Ionicons name="sunny-outline" size={18} color={theme.colors.text} />
               <Text
                 style={{
-                  color: theme.colors.primaryText,
+                  color: theme.colors.text,
                   fontSize: 15,
                   fontWeight: "600",
                   fontFamily: "Poppins",
@@ -760,7 +770,10 @@ export default function TasksLibraryScreen({
                 <TouchableOpacity
                   activeOpacity={0.85}
                   onPress={() =>
-                    setExpandedId((id) => (id === task.id ? null : task.id))
+                    {
+                    animateLayout();
+                    setExpandedId((id) => (id === task.id ? null : task.id));
+                  }
                   }
                   style={{ flex: 1 }}
                 >
@@ -859,22 +872,41 @@ export default function TasksLibraryScreen({
                         </Text>
                       </TouchableOpacity>
                     )}
+                  </View>
+                </TouchableOpacity>
+                <View
+                  style={{
+                    alignItems: "flex-end",
+                    justifyContent: "space-between",
+                    minHeight: 52,
+                  }}
+                >
+                  <Switch
+                    value={task.enabled}
+                    onValueChange={(v) => void handleToggle(task, v)}
+                    trackColor={{
+                      false: theme.colors.border,
+                      true: theme.colors.primary,
+                    }}
+                    thumbColor={theme.colors.card}
+                  />
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      animateLayout();
+                      setExpandedId((id) => (id === task.id ? null : task.id));
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={{ marginTop: 8 }}
+                    accessibilityLabel={expanded ? "Collapse task details" : "Expand task details"}
+                  >
                     <Icon
                       name={expanded ? "expand-less" : "expand-more"}
                       size={22}
                       color={theme.colors.textSecondary}
                     />
-                  </View>
-                </TouchableOpacity>
-                <Switch
-                  value={task.enabled}
-                  onValueChange={(v) => void handleToggle(task, v)}
-                  trackColor={{
-                    false: theme.colors.border,
-                    true: theme.colors.primary,
-                  }}
-                  thumbColor={theme.colors.card}
-                />
+                  </TouchableOpacity>
+                </View>
               </View>
 
               {expanded ? (
@@ -1456,10 +1488,12 @@ export default function TasksLibraryScreen({
         { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
       ]}
     >
-      <Text style={styles.settingsTitle}>Tasks</Text>
+      <CollapsibleTitle title="Tasks" anim={titleAnim} />
 
       <ScrollView
         style={{ flex: 1 }}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: contentPadBottom }}
         showsVerticalScrollIndicator={false}
       >

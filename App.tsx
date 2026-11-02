@@ -134,6 +134,26 @@ function AppContent(): React.JSX.Element {
     }
   }, []);
 
+  type PageType =
+    | "onboarding"
+    | "modelSelection"
+    | "conversation"
+    | "settings"
+    | "stages"
+    | "personas"
+    | "perspectives"
+    | "perspectiveEditor"
+    | "personaEditor"
+    | "tasks"
+    | "taskEditor"
+    | "taskRunDetail"
+    | "modelSettings"
+    | "info"
+    | "diagnostics"
+    | "hfToken"
+    | "storage";
+  const [currentPage, setCurrentPage] = useState<PageType>("conversation");
+
   // Frosted chrome open (history drawer OR quick model/persona panel) —
   // drives status/nav bar and the frost band to the same endpoint.
   const [frostedChromeOpen, setFrostedChromeOpen] = useState(false);
@@ -144,24 +164,31 @@ function AppContent(): React.JSX.Element {
   // (Native theme defaults are black; matching React background must not skip the write.)
   const lastShellColorRef = useRef<string>("");
 
-  // Status + nav share the opaque shell hex so top/bottom chrome match.
+  // Status + nav bars can be styled independently.
+  // Status bar is transparent in conversation or when frosted chrome is active (R2).
   // Native window/decor fill seals physical edges (API 35 ignores bar colors).
-  // Each push relayouts the window, so it fires once per endpoint — stepping a
-  // crossfade through it frame by frame stalled whatever was animating.
-  const applyShellColor = useCallback((hex: string) => {
-    if (hex === lastShellColorRef.current) return;
-    lastShellColorRef.current = hex;
-    applySystemBarTheme({ statusBarColor: hex, navBarColor: hex });
-  }, []);
+  const applyShellColor = useCallback((statusHex: string, navHex: string) => {
+    const key = `${statusHex}:${navHex}:${theme.mode}`;
+    if (key === lastShellColorRef.current) return;
+    lastShellColorRef.current = key;
+    applySystemBarTheme({
+      statusBarColor: statusHex,
+      navBarColor: navHex,
+      darkIcons: theme.mode === "light",
+    });
+  }, [theme.mode]);
 
   useEffect(() => {
     setShellBackground(theme.colors.background);
-    applyShellColor(
-      frostedChromeOpen
-        ? frostedPanelSystemBarColor(theme.mode)
-        : theme.colors.background,
-    );
-  }, [frostedChromeOpen, theme.mode, theme.colors.background, applyShellColor]);
+    // In chat or when quick panel / history drawer is open, status bar is transparent (R2)
+    const isChatOrFrosted = currentPage === "conversation" || frostedChromeOpen;
+    const statusBarColor = isChatOrFrosted ? "transparent" : theme.colors.background;
+    const navBarColor = frostedChromeOpen
+      ? frostedPanelSystemBarColor(theme.mode)
+      : theme.colors.background;
+
+    applyShellColor(statusBarColor, navBarColor);
+  }, [frostedChromeOpen, currentPage, theme.mode, theme.colors.background, applyShellColor]);
 
   // The status band above the screens is ours to paint, so it frosts as an
   // opacity in step with the screen's own canvas — same duration, same easing.
@@ -191,25 +218,6 @@ function AppContent(): React.JSX.Element {
   const [conversation, setConversation] = useState<Message[]>(INITIAL_CONVERSATION);
   const [userInput, setUserInput] = useState<string>("");
   const [selectedGGUF, setSelectedGGUF] = useState<string | null>(null);
-  type PageType =
-    | "onboarding"
-    | "modelSelection"
-    | "conversation"
-    | "settings"
-    | "stages"
-    | "personas"
-    | "perspectives"
-    | "perspectiveEditor"
-    | "personaEditor"
-    | "tasks"
-    | "taskEditor"
-    | "taskRunDetail"
-    | "modelSettings"
-    | "info"
-    | "diagnostics"
-    | "hfToken"
-    | "storage";
-  const [currentPage, setCurrentPage] = useState<PageType>("conversation");
   const [modelSelectionStarterTab, setModelSelectionStarterTab] = useState<
     StarterShelfTabId | undefined
   >();
@@ -251,20 +259,12 @@ function AppContent(): React.JSX.Element {
     };
   }, [onboardingCover, currentPage, onboardingCoverOpacity]);
   /**
-   * Keep ConversationScreen mounted while visiting Settings so Back does not
-   * remount the chat (AmbientHue + MessageList) under PageFadeIn — that remount
-   * is the hitch. Drop the park when navigating anywhere else.
+   * Keep ConversationScreen permanently resident once bootstrapped.
+   * Navigating to and from ANY screen (Settings, ModelSelection, Personas,
+   * Perspectives, Tasks, Stages, Storage, Diagnostics, Info, HfToken)
+   * is an instantaneous visibility toggle, eliminating cold remount lag.
    */
-  const conversationResidentRef = useRef(true);
-  if (currentPage === "conversation") {
-    conversationResidentRef.current = true;
-  } else if (currentPage !== "settings") {
-    conversationResidentRef.current = false;
-  }
-  const keepConversation =
-    bootstrapped &&
-    (currentPage === "conversation" ||
-      (currentPage === "settings" && conversationResidentRef.current));
+  const keepConversation = bootstrapped;
   const conversationVisible = currentPage === "conversation";
 
   // First-run gate (mount once). About “Review” never clears the flag.
@@ -634,13 +634,22 @@ function AppContent(): React.JSX.Element {
     }
   }, []); // No dependencies - only uses state setters and imported functions
 
+  // Only rescan disk when entering screens where models may be modified externally.
+  // Avoid triggering heavy filesystem scans during chat transitions.
   useEffect(() => {
-    checkDownloadedModels();
-    // Load personas when navigating to relevant pages
-    if (currentPage === "personas" || currentPage === "conversation") {
+    if (currentPage === "modelSelection" || currentPage === "storage") {
+      checkDownloadedModels();
+    }
+    if (currentPage === "personas") {
       loadAvailablePersonas();
     }
   }, [currentPage, checkDownloadedModels, loadAvailablePersonas]);
+
+  // Initial scan on bootstrap
+  useEffect(() => {
+    checkDownloadedModels();
+    loadAvailablePersonas();
+  }, [checkDownloadedModels, loadAvailablePersonas]);
 
   /**
    * Navigate back to model selection screen
@@ -711,6 +720,26 @@ function AppContent(): React.JSX.Element {
     setConversation(messages);
     setCurrentChatId(chatId);
     setCurrentPage("conversation");
+  }, []);
+
+  const handleGoToModelSelection = useCallback(() => {
+    setCurrentPage("modelSelection");
+  }, []);
+
+  const handleOpenSettings = useCallback(() => {
+    setCurrentPage("settings");
+  }, []);
+
+  const handleOpenPerspectives = useCallback(() => {
+    setCurrentPage("perspectives");
+  }, []);
+
+  const handlePendingPerspectivePresetConsumed = useCallback(() => {
+    setPendingPerspectivePreset(null);
+  }, []);
+
+  const handleAmbientHueHandoffConsumed = useCallback(() => {
+    setAmbientHueHandoff(false);
   }, []);
 
   /**
@@ -911,39 +940,23 @@ function AppContent(): React.JSX.Element {
     >
       <StatusBar
         translucent
-        // Same opaque shell as the nav bar; icons via barStyle.
         barStyle={theme.mode === "dark" ? "light-content" : "dark-content"}
-        backgroundColor={shellBackground}
+        backgroundColor="transparent"
       />
-      {/*
-        Shell + native status/nav colors share one hex. Top inset keeps
-        titles/chrome out of the status bar; screens float Back with
-        insets.bottom + gap. Absolute edge seals cover subpixel gaps.
-      */}
-      <View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          top: 0,
-          height: 3,
-          backgroundColor: shellBackground,
-        }}
-      />
-      {/* Status band the screens don't paint — frosts with the chat canvas. */}
-      <Animated.View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          top: 0,
-          height: Math.max(insets.top, 3),
-          backgroundColor: frostedPanelSystemBarColor(theme.mode),
-          opacity: chromeFrost,
-        }}
-      />
+      {/* 3px edge seal only rendered when status bar is not transparent */}
+      {currentPage !== "conversation" && !frostedChromeOpen && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: 0,
+            height: 3,
+            backgroundColor: shellBackground,
+          }}
+        />
+      )}
       <View
         collapsable={false}
         style={{
@@ -1011,49 +1024,54 @@ function AppContent(): React.JSX.Element {
         <View
           collapsable={false}
           pointerEvents={conversationVisible ? "auto" : "none"}
-          // display:none parks the tree without tearing it down — returning from
-          // Settings is then a visibility flip, not a ConversationScreen remount.
-          style={conversationVisible ? { flex: 1 } : ({ display: "none" } as const)}
-        >
-          <PageFadeIn key="conversation" deferEnter={ambientHueHandoff}>
-            <ConversationScreen
-          conversation={conversation}
-          setConversation={setConversation}
-          userInput={userInput}
-          setUserInput={setUserInput}
-          scrollViewRef={scrollViewRef}
-          scrollPositionRef={scrollPositionRef}
-          contentHeightRef={contentHeightRef}
-          autoScrollEnabled={autoScrollEnabled}
-          setAutoScrollEnabled={setAutoScrollEnabled}
-          context={context}
-          currentChatId={currentChatId}
-          onChatIdChange={setCurrentChatId}
-          onLoadChat={handleLoadChat}
-          onNewChat={handleNewChat}
-          onBackToModelSelection={handleBackToModelSelection}
-          onGoToModelSelection={() => setCurrentPage("modelSelection")}
-          assistantDisplayMode={assistantDisplayMode}
-          chatFontSize={chatFontSize}
-          chromeScale={chromeScale}
-          onOpenSettings={() => setCurrentPage("settings")}
-          selectedGGUF={selectedGGUF}
-          setSelectedGGUF={setSelectedGGUF}
-          downloadedModels={downloadedModels}
-          setContext={setContext}
-          checkDownloadedModels={checkDownloadedModels}
-          selectedPersona={selectedPersona}
-          setSelectedPersona={setSelectedPersona}
-          onHistoryPanelChange={setFrostedChromeOpen}
-          shellBackground={shellBackground}
-          onOpenPerspectives={() => setCurrentPage("perspectives")}
-          pendingPerspectivePreset={pendingPerspectivePreset}
-          onPendingPerspectivePresetConsumed={() =>
-            setPendingPerspectivePreset(null)
+          style={
+            conversationVisible
+              ? { flex: 1, marginTop: -insets.top }
+              : ({ display: "none" } as const)
           }
-          ambientHueHandoff={ambientHueHandoff}
-          onAmbientHueHandoffConsumed={() => setAmbientHueHandoff(false)}
-          />
+        >
+          <PageFadeIn
+            key="conversation"
+            active={conversationVisible}
+            deferEnter={ambientHueHandoff}
+          >
+            <ConversationScreen
+              visible={conversationVisible}
+              conversation={conversation}
+              setConversation={setConversation}
+              userInput={userInput}
+              setUserInput={setUserInput}
+              scrollViewRef={scrollViewRef}
+              scrollPositionRef={scrollPositionRef}
+              contentHeightRef={contentHeightRef}
+              autoScrollEnabled={autoScrollEnabled}
+              setAutoScrollEnabled={setAutoScrollEnabled}
+              context={context}
+              currentChatId={currentChatId}
+              onChatIdChange={setCurrentChatId}
+              onLoadChat={handleLoadChat}
+              onNewChat={handleNewChat}
+              onBackToModelSelection={handleBackToModelSelection}
+              onGoToModelSelection={handleGoToModelSelection}
+              assistantDisplayMode={assistantDisplayMode}
+              chatFontSize={chatFontSize}
+              chromeScale={chromeScale}
+              onOpenSettings={handleOpenSettings}
+              selectedGGUF={selectedGGUF}
+              setSelectedGGUF={setSelectedGGUF}
+              downloadedModels={downloadedModels}
+              setContext={setContext}
+              checkDownloadedModels={checkDownloadedModels}
+              selectedPersona={selectedPersona}
+              setSelectedPersona={setSelectedPersona}
+              onHistoryPanelChange={setFrostedChromeOpen}
+              shellBackground={shellBackground}
+              onOpenPerspectives={handleOpenPerspectives}
+              pendingPerspectivePreset={pendingPerspectivePreset}
+              onPendingPerspectivePresetConsumed={handlePendingPerspectivePresetConsumed}
+              ambientHueHandoff={ambientHueHandoff}
+              onAmbientHueHandoffConsumed={handleAmbientHueHandoffConsumed}
+            />
           </PageFadeIn>
         </View>
       )}

@@ -20,6 +20,8 @@ import { useTheme } from '../context/ThemeContext';
 import { showAlert } from '../components/CustomAlert';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { FloatingBackButton } from '../components/FloatingBackButton';
+import { useCollapsibleTitle } from '../hooks/useCollapsibleTitle';
+import { CollapsibleTitle } from '../components/CollapsibleTitle';
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from '../utils/layoutInsets';
 import {
   runBenchmark,
@@ -46,7 +48,7 @@ import {
   type ModelPerformanceStats,
 } from '../services/performanceTracking';
 import { llamaProvider } from '../providers/llamaProvider';
-import { EASING, OVERLAY_MOTION } from '../utils/animationConfig';
+import { EASING, OVERLAY_MOTION, animateLayout } from '../utils/animationConfig';
 import {
   FrostedGlass,
   FrostedPanel,
@@ -173,6 +175,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   const { theme, isDark } = useTheme();
   const graphLineColor = isDark ? '#FFFFFF' : '#6B7280';
   const shared = createStyles(theme.colors);
+  const { anim: titleAnim, handleScroll } = useCollapsibleTitle();
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
   const { usageRecords, isLoading, error, clearUsageDataForModel, clearAllUsageData } = useUsageData();
@@ -732,10 +735,12 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   
   return (
     <View style={[{ flex: 1, backgroundColor: theme.colors.background, padding: 20 }]}>
-      <Text style={[shared.settingsTitle, { color: theme.colors.text }]}>Performance</Text>
+      <CollapsibleTitle title="Performance" anim={titleAnim} />
 
       <ScrollView
         style={stylesLocalWithTheme.scroll}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={[stylesLocalWithTheme.scrollContent, { paddingBottom: scrollPadBottom + MODEL_PILL_SCROLL_CLEARANCE }]}
         showsVerticalScrollIndicator={false}
       >
@@ -1169,7 +1174,10 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
             ))}
             {canExpandRecentRuns && (
               <TouchableOpacity
-                onPress={() => setRecentRunsExpanded((v) => !v)}
+                onPress={() => {
+                  animateLayout();
+                  setRecentRunsExpanded((v) => !v);
+                }}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: recentRunsExpanded }}
                 style={{

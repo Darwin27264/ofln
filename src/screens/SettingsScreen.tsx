@@ -20,6 +20,8 @@ import {
   FloatingBackButton,
   FloatingIconButton,
 } from "../components/FloatingBackButton";
+import { useCollapsibleTitle } from "../hooks/useCollapsibleTitle";
+import { CollapsibleTitle } from "../components/CollapsibleTitle";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import { EASING } from "../utils/animationConfig";
 import { getPersonas } from "../services/personaService";
@@ -218,6 +220,7 @@ export default function SettingsScreen({
   const { theme, toggleTheme, isDark, isTransitioning } = useTheme();
   const { ambientMotion, setAmbientMotion } = useAmbientMotion();
   const styles = createStyles(theme.colors);
+  const { anim: titleAnim, handleScroll } = useCollapsibleTitle();
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
   const tileLabelSize = chromeFontForRole("tile", chromeScale);
@@ -229,8 +232,16 @@ export default function SettingsScreen({
   const contentPadBottom = Math.max(scrollPadBottom, 92 + 32 + 16);
   const [viewportH, setViewportH] = useState(0);
   const [contentH, setContentH] = useState(0);
-  /** Only scroll when the tile grid is taller than the available area. */
-  const needsScroll = viewportH > 0 && contentH > viewportH + 1;
+  /** Only scroll when the tile grid is taller than the available area.
+   * Retain minimum viewport height (measured when title is expanded) so collapsing
+   * the title never causes needsScroll to flap false and snap the list to top.
+   */
+  const minViewportHRef = useRef(0);
+  if (viewportH > 0 && (minViewportHRef.current === 0 || viewportH < minViewportHRef.current)) {
+    minViewportHRef.current = viewportH;
+  }
+  const effectiveViewportH = minViewportHRef.current > 0 ? minViewportHRef.current : viewportH;
+  const needsScroll = effectiveViewportH > 0 && contentH > effectiveViewportH + 1;
   const [chatModeInfoOpen, setChatModeInfoOpen] = useState(false);
   const [quickSettingsOpen, setQuickSettingsOpen] = useState(false);
 
@@ -389,10 +400,12 @@ export default function SettingsScreen({
         },
       ]}
     >
-      <Text style={styles.settingsTitle}>Settings</Text>
+      <CollapsibleTitle title="Settings" anim={titleAnim} />
 
       <ScrollView
         style={{ flex: 1 }}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={{
           paddingBottom: needsScroll ? contentPadBottom : 0,
         }}

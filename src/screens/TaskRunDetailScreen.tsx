@@ -15,8 +15,11 @@ import Clipboard from "@react-native-clipboard/clipboard";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
+import { animateLayout } from "../utils/animationConfig";
 import { showAlert } from "../components/CustomAlert";
 import { FloatingBackButton } from "../components/FloatingBackButton";
+import { useCollapsibleTitle } from "../hooks/useCollapsibleTitle";
+import { CollapsibleTitle } from "../components/CollapsibleTitle";
 import {
   useFloatingBackBottom,
   useScrollPadForFloatingBack,
@@ -221,6 +224,7 @@ export default function TaskRunDetailScreen({
 }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const { anim: titleAnim, handleScroll } = useCollapsibleTitle();
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
 
@@ -385,12 +389,16 @@ export default function TaskRunDetailScreen({
         { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
       ]}
     >
-      <Text style={styles.settingsTitle} numberOfLines={2}>
-        {run.taskName}
-      </Text>
+      <CollapsibleTitle
+        title={run.taskName}
+        anim={titleAnim}
+        numberOfLines={2}
+      />
 
       <ScrollView
         style={{ flex: 1 }}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: scrollPadBottom + 72 }}
         showsVerticalScrollIndicator={false}
       >
@@ -970,7 +978,10 @@ export default function TaskRunDetailScreen({
 
                 {previousRuns.length > PREVIOUS_RUNS_PAGE ? (
                   <TouchableOpacity
-                    onPress={() => setShowAllPrevious((v) => !v)}
+                    onPress={() => {
+                      animateLayout();
+                      setShowAllPrevious((v) => !v);
+                    }}
                     activeOpacity={0.85}
                     style={{
                       paddingVertical: 12,

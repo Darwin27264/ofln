@@ -13,6 +13,8 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { FloatingBackButton } from "../components/FloatingBackButton";
+import { useCollapsibleTitle } from "../hooks/useCollapsibleTitle";
+import { CollapsibleTitle } from "../components/CollapsibleTitle";
 import { FrostedPanel, SETTINGS_BLOCK } from "../components/FrostedGlass";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 
@@ -292,6 +294,7 @@ function GuideCarousel({
 export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
   const { theme, isTransitioning } = useTheme();
   const styles = createStyles(theme.colors);
+  const { anim: titleAnim, handleScroll } = useCollapsibleTitle();
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
 
@@ -312,10 +315,12 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
         },
       ]}
     >
-      <Text style={styles.settingsTitle}>About</Text>
+      <CollapsibleTitle title="About" anim={titleAnim} />
 
       <ScrollView
         style={{ flex: 1 }}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
         showsVerticalScrollIndicator={false}
       >

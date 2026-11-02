@@ -11,6 +11,7 @@ import {
   TouchableWithoutFeedback,
   ScrollView,
   Animated,
+  Easing,
   Dimensions,
   Image,
   TextInput,
@@ -311,6 +312,7 @@ export type MessageListProps = {
    * newest messages until the user scrolls away.
    */
   threadKey?: string | null;
+  chatSwitchTrigger?: number;
 
   noMessages: boolean;
   isTemporaryMode: boolean;
@@ -374,6 +376,7 @@ export function MessageList({
   onEditUserMessage,
   onEditingChange,
   threadKey = null,
+  chatSwitchTrigger = 0,
   noMessages,
   isTemporaryMode,
   isPerspectiveMode = false,
@@ -446,6 +449,60 @@ export function MessageList({
     if (visible.length === 0) return;
     snapToNewest();
   }, [threadId, visible.length, snapToNewest]);
+
+  const threadFadeAnim = useRef(new Animated.Value(1)).current;
+  const threadTranslateAnim = useRef(new Animated.Value(0)).current;
+
+  const animatedThreadRef = useRef<string | null>(null);
+
+  // ONLY animate when the user explicitly switches/loads a chat from history
+  useEffect(() => {
+    if (!chatSwitchTrigger || chatSwitchTrigger === 0) return;
+
+    // Synchronize animatedThreadRef so threadId effect doesn't perform a conflicting double-animation
+    animatedThreadRef.current = threadId;
+
+    threadFadeAnim.setValue(0);
+    threadTranslateAnim.setValue(8);
+    Animated.parallel([
+      Animated.timing(threadFadeAnim, {
+        toValue: 1,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(threadTranslateAnim, {
+        toValue: 0,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [chatSwitchTrigger, threadId]);
+
+  useEffect(() => {
+    if (threadId !== animatedThreadRef.current && visible.length > 0) {
+      animatedThreadRef.current = threadId;
+      threadFadeAnim.setValue(0);
+      threadTranslateAnim.setValue(10);
+      Animated.parallel([
+        Animated.timing(threadFadeAnim, {
+          toValue: 1,
+          duration: 250,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(threadTranslateAnim, {
+          toValue: 0,
+          duration: 250,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else if (visible.length === 0) {
+      animatedThreadRef.current = null;
+    }
+  }, [threadId, visible.length]);
 
   const handleListScroll = useCallback(
     (event: any) => {
@@ -740,8 +797,14 @@ export function MessageList({
         setListSize({ width, height });
       }}
     >
-      <ScrollView
-        key={threadId}
+      <Animated.View
+        style={{
+          flex: 1,
+          opacity: threadFadeAnim,
+          transform: [{ translateY: threadTranslateAnim }],
+        }}
+      >
+        <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{
           flexGrow: 1,
@@ -1225,6 +1288,7 @@ export function MessageList({
           </Text>
         )}
       </ScrollView>
+      </Animated.View>
 
       {noMessages && (
         <Animated.View

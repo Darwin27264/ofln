@@ -41,6 +41,9 @@ import { FloatingBackButton } from "../components/FloatingBackButton";
 import { BottomSheet } from "../components/BottomSheet";
 import { SegmentedTabBar } from "../components/SegmentedTabBar";
 import { FrostedPanel, SETTINGS_BLOCK } from "../components/FrostedGlass";
+import { useCollapsibleTitle } from "../hooks/useCollapsibleTitle";
+import { CollapsibleTitle } from "../components/CollapsibleTitle";
+import { animateLayout } from "../utils/animationConfig";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import { pick, isErrorWithCode, errorCodes } from "@react-native-documents/picker";
 import { saveLocalModel, removeLocalModel, LocalModelInfo } from "../services/localModelService";
@@ -169,6 +172,7 @@ const REPUTABLE_AUTHORS = [
 export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const { anim: titleAnim, handleScroll } = useCollapsibleTitle();
   const iconCircleBg = theme.colors.card;
   const density = props.chromeScale ?? DEFAULT_CHROME_SCALE;
 
@@ -1800,7 +1804,10 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
         onDiscardPaused={() => handleDiscardPausedDownload(model.fileName)}
         onSettings={() => handleOpenSettings(model)}
         isExpanded={isExpanded}
-        onToggleExpand={() => setExpandedModelId(isExpanded ? null : modelKey)}
+        onToggleExpand={() => {
+          animateLayout();
+          setExpandedModelId(isExpanded ? null : modelKey);
+        }}
         isInitialAnimationPhase={skipEnter ? false : isInitialAnimationPhase.current}
         animatedModelIds={animatedModelIds}
         ramFit={ramFit}
@@ -1891,11 +1898,13 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
 
   return (
     <View style={[styles.container, { padding: 20, flex: 1, backgroundColor: theme.colors.background }]}>
-      <Text style={styles.settingsTitle}>Models</Text>
+      <CollapsibleTitle title="Models" anim={titleAnim} />
 
       {/* Scrollable content */}
       <ScrollView
         style={{ flex: 1 }}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
       >
@@ -2152,7 +2161,10 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                   {quickActionsCatalog.downloadable.length > 0 &&
                   (qaCatalogOpen || qaDownloadableHiddenCount > 0) ? (
                     <TouchableOpacity
-                      onPress={() => setQaCatalogOpen((open) => !open)}
+                      onPress={() => {
+                        animateLayout();
+                        setQaCatalogOpen((open) => !open);
+                      }}
                       activeOpacity={0.85}
                       style={{ marginTop: 4, marginBottom: 8 }}
                       accessibilityRole="button"
@@ -2321,7 +2333,10 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                 {wontFitStarterModels.length > 0 && (
                   <>
                     <TouchableOpacity
-                      onPress={() => setShowWontFitModels((prev) => !prev)}
+                      onPress={() => {
+                        animateLayout();
+                        setShowWontFitModels((prev) => !prev);
+                      }}
                       activeOpacity={0.85}
                       style={{ marginTop: 6, marginBottom: 10 }}
                       accessibilityRole="button"

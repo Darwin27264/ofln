@@ -1337,7 +1337,7 @@ export function HistoryDrawer({
           <View
             style={{
               position: 'absolute',
-              top: TOP_CHROME_TOP,
+              top: TOP_CHROME_TOP + topInset,
               right: 16,
               zIndex: 35,
             }}
@@ -1391,7 +1391,7 @@ export function HistoryDrawer({
             <Animated.View
               style={{
                 position: 'absolute',
-                top: TOP_CHROME_TOP + FILTER_PILL_SIZE + 6,
+                top: TOP_CHROME_TOP + topInset + FILTER_PILL_SIZE + 6,
                 right: 16,
                 minWidth: 168,
                 opacity: filterBackdropOpacity,
@@ -1448,7 +1448,7 @@ export function HistoryDrawer({
             overflow: 'hidden',
             height: multiselectHeaderHeight.interpolate({
               inputRange: [0, 1],
-              outputRange: [0, 60 + Math.max(0, topInset)],
+              outputRange: [0, Math.max(65, 60 + Math.max(0, topInset))],
             }),
           }}
         >
@@ -1548,7 +1548,7 @@ export function HistoryDrawer({
             paddingHorizontal: 16,
             // Room for collapsed centered search + Back / New chat
             paddingBottom: chromeBottom + BACK_ROW_H + SEARCH_PILL_H + 28,
-            paddingTop: isMultiselectMode ? 4 : TOP_CHROME_TOP,
+            paddingTop: isMultiselectMode ? 4 : TOP_CHROME_TOP + topInset,
           }}
           keyboardShouldPersistTaps="handled"
           removeClippedSubviews={false}

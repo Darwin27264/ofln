@@ -191,6 +191,8 @@ export type AmbientHueProps = {
   /** One-shot: arrive from onboarding edge layout → gather to center. */
   handoff?: boolean;
   onHandoffConsumed?: () => void;
+  /** When false (screen parked off-screen), animation loops are suspended to save CPU/GPU. */
+  visible?: boolean;
 };
 
 export function AmbientHue({
@@ -199,6 +201,7 @@ export function AmbientHue({
   mode = 'default',
   handoff = false,
   onHandoffConsumed,
+  visible = true,
 }: AmbientHueProps) {
   const { isDark } = useTheme();
   const { ambientMotion } = useAmbientMotion();
@@ -433,7 +436,7 @@ export function AmbientHue({
         mode={modeA}
         isDark={isDark}
         focus={focus}
-        motionEnabled={ambientMotion}
+        motionEnabled={ambientMotion && visible}
         layerOpacity={opacityA}
       />
       {slotBMounted ? (
@@ -441,7 +444,7 @@ export function AmbientHue({
           mode={modeB}
           isDark={isDark}
           focus={focus}
-          motionEnabled={ambientMotion}
+          motionEnabled={ambientMotion && visible}
           layerOpacity={opacityB}
         />
       ) : null}

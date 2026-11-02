@@ -21,6 +21,8 @@ import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
 import { FloatingBackButton } from "../components/FloatingBackButton";
+import { useCollapsibleTitle } from "../hooks/useCollapsibleTitle";
+import { CollapsibleTitle } from "../components/CollapsibleTitle";
 import { BottomSheet } from "../components/BottomSheet";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import {
@@ -246,6 +248,7 @@ export default function ModelSettingsScreen({
 }: ModelSettingsScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const { anim: titleAnim, handleScroll } = useCollapsibleTitle();
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
 
@@ -365,44 +368,17 @@ export default function ModelSettingsScreen({
         { padding: 20, flex: 1, backgroundColor: theme.colors.background },
       ]}
     >
-      {/* Header */}
-      <View
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          backgroundColor: "transparent",
-          zIndex: 1,
-          paddingHorizontal: 20,
-          paddingTop: 8,
-          paddingBottom: 12,
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <View style={{ flex: 1 }}>
-          <Text style={styles.settingsTitle}>Model Settings</Text>
-          <Text
-            style={{
-              fontSize: 14,
-              color: theme.colors.textSecondary,
-              fontFamily: "Poppins",
-              marginTop: 4,
-            }}
-          >
-            {model.name}
-          </Text>
-        </View>
-      </View>
+      <CollapsibleTitle
+        title="Model Settings"
+        subtitle={model.name}
+        anim={titleAnim}
+      />
 
       {/* Scrollable content */}
       <ScrollView
-        style={{
-          marginTop: 70,
-          flex: 1,
-        }}
+        style={{ flex: 1 }}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         showsVerticalScrollIndicator={true}
         contentContainerStyle={{
           paddingBottom: scrollPadBottom,

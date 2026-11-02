@@ -23,7 +23,9 @@
     "on-device"
   ],
   "scripts": {
-    "android": "react-native run-android",
+    "android": "react-native run-android --mode playDebug",
+    "android:fast": "react-native run-android --mode playDebug --active-arch-only",
+    "android:foss": "react-native run-android --mode fossDebug",
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "lint:ci": "eslint src/services/safeBootService.ts src/services/thermalService.ts src/services/ocrRamGuard.ts src/services/inferencePerfParams.ts src/services/ramFitService.ts src/services/ocrService.ts --max-warnings 9999",
@@ -36,7 +38,8 @@
     "android:uninstall": "adb uninstall com.ofln",
     "android:clean-emulator": "adb shell pm trim-caches 500M && adb uninstall com.ofln",
     "android:check-storage": "adb shell df -h",
-    "android:install": "node scripts/gradle.js installDebug",
+    "android:install": "node scripts/gradle.js installPlayDebug",
+    "android:install-foss": "node scripts/gradle.js installFossDebug",
     "android:build-release": "node scripts/gradle.js assembleRelease",
     "android:build-foss": "node scripts/gradle.js assembleFossRelease",
     "android:build-play": "node scripts/gradle.js assemblePlayRelease",

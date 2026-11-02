@@ -1,7 +1,8 @@
 import React from "react";
-import { Platform, StyleProp, TouchableOpacity, View, ViewStyle } from "react-native";
+import { Platform, StyleProp, StyleSheet, TouchableOpacity, View, ViewStyle } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { useTheme } from "../context/ThemeContext";
+import { FrostedGlass } from "./FrostedGlass";
 
 const ICON_SIZE = 24;
 
@@ -46,7 +47,7 @@ export function FloatingIconButton({
   disabled,
   style,
 }: IconButtonProps) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -58,17 +59,25 @@ export function FloatingIconButton({
       style={[
         FLOATING_ICON_BUTTON_CHROME,
         {
-          backgroundColor: theme.colors.primary,
+          backgroundColor: "transparent",
+          borderWidth: 1,
+          borderColor: theme.colors.border,
+          overflow: "hidden",
           opacity: disabled ? 0.5 : 1,
         },
         style,
       ]}
     >
+      <FrostedGlass
+        style={StyleSheet.absoluteFillObject}
+        blurAmount={14}
+        tintOpacity={isDark ? 0.58 : 0.5}
+      />
       <View style={ICON_SLOT}>
         <Ionicons
           name={icon}
           size={ICON_SIZE}
-          color={theme.colors.primaryText}
+          color={theme.colors.text}
           style={ICON_FONT_STYLE}
         />
       </View>

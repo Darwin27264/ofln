@@ -27,6 +27,8 @@ import {
   getSanitizedDiagnosticsString,
 } from "../utils/errorLogger";
 import { FloatingBackButton } from "../components/FloatingBackButton";
+import { useCollapsibleTitle } from "../hooks/useCollapsibleTitle";
+import { CollapsibleTitle } from "../components/CollapsibleTitle";
 import { BottomSheet } from "../components/BottomSheet";
 import { FrostedPanel, SETTINGS_BLOCK } from "../components/FrostedGlass";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
@@ -223,6 +225,7 @@ function SectionLabel({ label, color }: { label: string; color: string }) {
 export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const { anim: titleAnim, handleScroll } = useCollapsibleTitle();
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
   const [errorLogVisible, setErrorLogVisible] = useState(false);
@@ -724,10 +727,12 @@ export default function DiagnosticsScreen({ onBack, modelPath, onGoToModels }: P
         },
       ]}
     >
-      <Text style={styles.settingsTitle}>Diagnostics</Text>
+      <CollapsibleTitle title="Diagnostics" anim={titleAnim} />
 
       <ScrollView
         style={{ flex: 1 }}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
         showsVerticalScrollIndicator={false}
       >

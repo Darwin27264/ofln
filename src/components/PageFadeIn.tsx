@@ -2,14 +2,19 @@
  * Per-page enter transition: soft fade + slight scale from center.
  * Own Animated values per mount so every page (including Diagnostics) fades
  * in the same way — no shared global transition race.
+ *
+ * Supports an optional `active` prop for resident pages (e.g. ConversationScreen):
+ * when `active` transitions from false to true, the native-driven fade + scale
+ * plays without needing to remount the entire view tree.
  */
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Animated } from 'react-native';
 import { EASING, OVERLAY_MOTION } from '../utils/animationConfig';
 
 export function PageFadeIn({
   children,
   deferEnter = false,
+  active,
 }: {
   children: React.ReactNode;
   /**
@@ -17,24 +22,81 @@ export function PageFadeIn({
    * (tutorial → chat) otherwise burn the fade during layout, then pop in.
    */
   deferEnter?: boolean;
+  /**
+   * When provided, coordinates transition on visibility changes without remounting.
+   * Plays native-driven fade + scale transition when active transitions to true.
+   */
+  active?: boolean;
 }) {
-  const opacity = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(active === false ? 0 : 0)).current;
   const scale = useRef(new Animated.Value(OVERLAY_MOTION.FROM_SCALE)).current;
   const [settled, setSettled] = useState(false);
   const deferRef = useRef(deferEnter);
+  deferRef.current = deferEnter;
 
-  // useLayoutEffect: start from invisible before paint so we never flash opaque.
+  const prevActiveRef = useRef<boolean | undefined>(undefined);
+  const animRef = useRef<Animated.CompositeAnimation | null>(null);
+  const rafOuterRef = useRef(0);
+  const rafInnerRef = useRef(0);
+  const settleRafRef = useRef(0);
+
+  const stopActiveAnimation = () => {
+    if (rafOuterRef.current) {
+      cancelAnimationFrame(rafOuterRef.current);
+      rafOuterRef.current = 0;
+    }
+    if (rafInnerRef.current) {
+      cancelAnimationFrame(rafInnerRef.current);
+      rafInnerRef.current = 0;
+    }
+    if (settleRafRef.current) {
+      cancelAnimationFrame(settleRafRef.current);
+      settleRafRef.current = 0;
+    }
+    if (animRef.current) {
+      animRef.current.stop();
+      animRef.current = null;
+    }
+  };
+
   useLayoutEffect(() => {
+    const isFirstMount = prevActiveRef.current === undefined;
+    const prevActive = prevActiveRef.current;
+    prevActiveRef.current = active;
+
+    // Case 1: Dormant on first mount
+    if (isFirstMount && active === false) {
+      stopActiveAnimation();
+      opacity.setValue(0);
+      scale.setValue(OVERLAY_MOTION.FROM_SCALE);
+      setSettled(false);
+      return;
+    }
+
+    // Case 2: Became dormant (active changed to false)
+    if (!isFirstMount && active === false) {
+      stopActiveAnimation();
+      opacity.setValue(0);
+      scale.setValue(OVERLAY_MOTION.FROM_SCALE);
+      setSettled(false);
+      return;
+    }
+
+    // Case 3: Re-render without active state change (stayed true, or stayed undefined)
+    if (!isFirstMount && active === prevActive) {
+      return;
+    }
+
+    // Case 4: Enter animation:
+    // Either first mount with active !== false (including active === undefined),
+    // or active flipped from false -> true.
+    stopActiveAnimation();
     opacity.setValue(0);
     scale.setValue(OVERLAY_MOTION.FROM_SCALE);
     setSettled(false);
 
-    let rafOuter = 0;
-    let rafInner = 0;
-    let animation: Animated.CompositeAnimation | null = null;
-
     const start = () => {
-      animation = Animated.parallel([
+      const animation = Animated.parallel([
         Animated.timing(opacity, {
           toValue: 1,
           duration: OVERLAY_MOTION.FADE_IN_MS,
@@ -48,6 +110,7 @@ export function PageFadeIn({
           useNativeDriver: true,
         }),
       ]);
+      animRef.current = animation;
 
       animation.start(({ finished }) => {
         if (!finished) return;
@@ -55,8 +118,9 @@ export function PageFadeIn({
         // transforms (e.g. chat greeting translateY) don't hitch mid-commit.
         opacity.setValue(1);
         scale.setValue(1);
-        requestAnimationFrame(() => {
+        settleRafRef.current = requestAnimationFrame(() => {
           setSettled(true);
+          settleRafRef.current = 0;
         });
       });
     };
@@ -64,19 +128,20 @@ export function PageFadeIn({
     if (deferRef.current) {
       // Two frames: first commits opacity 0, second starts the fade after
       // the mount hitch so the motion is actually on screen.
-      rafOuter = requestAnimationFrame(() => {
-        rafInner = requestAnimationFrame(start);
+      rafOuterRef.current = requestAnimationFrame(() => {
+        rafInnerRef.current = requestAnimationFrame(start);
       });
     } else {
       start();
     }
+  }, [active]);
 
+  // Clean up timers and animations on unmount
+  useEffect(() => {
     return () => {
-      if (rafOuter) cancelAnimationFrame(rafOuter);
-      if (rafInner) cancelAnimationFrame(rafInner);
-      animation?.stop();
+      stopActiveAnimation();
     };
-  }, [opacity, scale]);
+  }, []);
 
   // After settle, drop animated opacity/scale so Android overlays under the
   // page are not left on a perpetual native opacity layer.

@@ -20,6 +20,8 @@ import { useTheme } from '../context/ThemeContext';
 import { showAlert } from '../components/CustomAlert';
 import { FloatingBackButton } from '../components/FloatingBackButton';
 import { BottomSheet } from '../components/BottomSheet';
+import { useCollapsibleTitle } from '../hooks/useCollapsibleTitle';
+import { CollapsibleTitle } from '../components/CollapsibleTitle';
 import { FrostedPanel, SETTINGS_BLOCK } from '../components/FrostedGlass';
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from '../utils/layoutInsets';
 import { formatBytesShort } from '../utils/diskPreflight';
@@ -195,6 +197,7 @@ export default function StorageScreen({
 }: StorageScreenProps) {
   const { theme, setThemeMode } = useTheme();
   const styles = createStyles(theme.colors);
+  const { anim: titleAnim, handleScroll } = useCollapsibleTitle();
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
 
@@ -465,10 +468,12 @@ export default function StorageScreen({
         { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
       ]}
     >
-      <Text style={styles.settingsTitle}>Storage</Text>
+      <CollapsibleTitle title="Storage" anim={titleAnim} />
 
       <ScrollView
         style={{ flex: 1 }}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
         showsVerticalScrollIndicator={false}
         refreshControl={

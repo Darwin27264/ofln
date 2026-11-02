@@ -34,6 +34,7 @@ import {
   StyleSheet,
   Share,
   Alert,
+  InteractionManager,
 } from "react-native";
 import { launchImageLibrary, launchCamera } from "react-native-image-picker";
 
@@ -258,9 +259,11 @@ interface Props {
   /** One-shot: ambient hue gathers from onboarding into the chat center. */
   ambientHueHandoff?: boolean;
   onAmbientHueHandoffConsumed?: () => void;
+  /** Chat screen visibility status for residency and background suspension */
+  visible?: boolean;
 }
 
-export default function ConversationScreen({
+const ConversationScreen = React.memo(function ConversationScreen({
   conversation: conversationProp,
   setConversation,
   userInput,
@@ -295,13 +298,13 @@ export default function ConversationScreen({
   onPendingPerspectivePresetConsumed,
   ambientHueHandoff = false,
   onAmbientHueHandoffConsumed,
+  visible = true,
 }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
   const insets = useSafeAreaInsets();
-  // Content is edge-to-edge under the transparent nav; drawer chrome clears it.
-  // Status is already padded by App's paddingTop — do not double-count top.
-  const layoutTopInset = 0;
+  // Content is edge-to-edge under the transparent status and nav bars; drawer and pills clear status bar using layoutTopInset.
+  const layoutTopInset = insets.top;
   const layoutBottomInset = insets.bottom;
   // Soft inset rows that sit calmly on the frosted selector panel.
   const selectorFrost = useMemo(() => {
@@ -457,6 +460,8 @@ export default function ConversationScreen({
 
   // Temporary mode (only before the first user message).
   const [isTemporaryMode, setIsTemporaryMode] = useState(false);
+  const [chatSwitchAnimTrigger, setChatSwitchAnimTrigger] = useState(0);
+  const [chatSwitchKey, setChatSwitchKey] = useState(0);
   /** Perspective debate mode — exit only via new chat. */
   const [isPerspectiveMode, setIsPerspectiveMode] = useState(false);
   const [activePerspectivePreset, setActivePerspectivePreset] =
@@ -870,28 +875,32 @@ export default function ConversationScreen({
   }, [selectedGGUF]);
 
   // Initialize + prefetch history so the drawer has cards ready before first open.
+  // Defer via InteractionManager so SQLite I/O and state updates do not hitch enter transitions.
   useEffect(() => {
     let cancelled = false;
-    const gen = ++historyLoadGenRef.current;
-    (async () => {
-      await chatHistoryService.initialize();
-      if (cancelled || gen !== historyLoadGenRef.current) return;
-      try {
-        const chats = await chatHistoryService.getAllChats();
+    const task = InteractionManager.runAfterInteractions(() => {
+      const gen = ++historyLoadGenRef.current;
+      (async () => {
+        await chatHistoryService.initialize();
         if (cancelled || gen !== historyLoadGenRef.current) return;
-        const withMeta = await attachPerspectiveMetaToChats(chats);
-        if (cancelled || gen !== historyLoadGenRef.current) return;
-        if (isPanelAnimatingRef.current && chatHistoryRef.current.length > 0) {
-          pendingHistoryRef.current = withMeta as ChatConversation[];
-          return;
+        try {
+          const chats = await chatHistoryService.getAllChats();
+          if (cancelled || gen !== historyLoadGenRef.current) return;
+          const withMeta = await attachPerspectiveMetaToChats(chats);
+          if (cancelled || gen !== historyLoadGenRef.current) return;
+          if (isPanelAnimatingRef.current && chatHistoryRef.current.length > 0) {
+            pendingHistoryRef.current = withMeta as ChatConversation[];
+            return;
+          }
+          setChatHistory(withMeta as ChatConversation[]);
+        } catch (error) {
+          console.error('Error loading chat history:', error);
         }
-        setChatHistory(withMeta as ChatConversation[]);
-      } catch (error) {
-        console.error('Error loading chat history:', error);
-      }
-    })();
+      })();
+    });
     return () => {
       cancelled = true;
+      task.cancel();
     };
   }, []);
 
@@ -1207,6 +1216,8 @@ export default function ConversationScreen({
     (chat: ChatConversation) => {
       closePanelThen(() => {
         setAutoScrollEnabled(true);
+        setChatSwitchAnimTrigger((k) => k + 1);
+        setChatSwitchKey((k) => k + 1);
         onLoadChat(chat.id, chat.messages);
         if (chat.isPerspective && chat.perspectivePresetSnapshot) {
           setIsPerspectiveMode(true);
@@ -1329,6 +1340,7 @@ export default function ConversationScreen({
     // Clear App identity/seed first so the next render never pairs a stale
     // currentChatId with the emptied hook transcript (that reloads old chat).
     setContextBannerDismissed(false);
+    setChatSwitchKey((k) => k + 1);
     setIsPerspectiveMode(false);
     setActivePerspectivePreset(null);
     setPerspectiveSnapshot(null);
@@ -2063,6 +2075,16 @@ export default function ConversationScreen({
     };
   }, [showToast]);
 
+  // Clean up audio and microphone capture when chat screen is parked off-screen
+  useEffect(() => {
+    if (visible === false) {
+      if (isListening) {
+        void stopListening();
+      }
+      void stopSpeaking();
+    }
+  }, [visible, isListening]);
+
   /** Toggle platform STT into the composer. */
   const handleMicPress = useCallback(async () => {
     if (isGenerating || isLoading || isOcrRunning) return;
@@ -2608,6 +2630,7 @@ export default function ConversationScreen({
     if (Platform.OS !== "android") return;
 
     const handleBackPress = () => {
+      if (!visible) return false;
       if (isModelSelectorVisible && !isLoadingModel) {
         closeModelSelector();
         return true;
@@ -2625,7 +2648,7 @@ export default function ConversationScreen({
 
     const subscription = BackHandler.addEventListener("hardwareBackPress", handleBackPress);
     return () => subscription.remove();
-  }, [isModelSelectorVisible, isLoadingModel, isPanelOpen, closeModelSelector, togglePanel]);
+  }, [visible, isModelSelectorVisible, isLoadingModel, isPanelOpen, closeModelSelector, togglePanel]);
 
   // Regenerate assistant message (ChatGPT / Claude / Gemini pattern):
   // keep the prompting user turn + prior context, drop that reply and anything
@@ -2966,13 +2989,14 @@ export default function ConversationScreen({
           }
           handoff={ambientHueHandoff}
           onHandoffConsumed={onAmbientHueHandoffConsumed}
+          visible={visible}
         />
 
         {/* Soft fade under top pills — never fully opaque */}
-        <View style={styles.topFade} pointerEvents="none">
+        <View style={[styles.topFade, { height: TOP_FADE_HEIGHT + layoutTopInset }]} pointerEvents="none">
           <Svg
             width={Dimensions.get("window").width}
-            height={TOP_FADE_HEIGHT}
+            height={TOP_FADE_HEIGHT + layoutTopInset}
             preserveAspectRatio="none"
           >
             <Defs>
@@ -2987,7 +3011,7 @@ export default function ConversationScreen({
               x="0"
               y="0"
               width={Dimensions.get("window").width}
-              height={TOP_FADE_HEIGHT}
+              height={TOP_FADE_HEIGHT + layoutTopInset}
               fill="url(#chatTopFade)"
             />
           </Svg>
@@ -2998,7 +3022,11 @@ export default function ConversationScreen({
         <Animated.View
           style={[{ zIndex: 10, pointerEvents: isPanelOpen ? 'none' : 'auto' }, chromeEnterStyle]}
         >
-          <TouchableOpacity style={styles.topLeftPill} onPress={togglePanel} activeOpacity={0.85}>
+          <TouchableOpacity
+            style={[styles.topLeftPill, { top: layoutTopInset + 8 }]}
+            onPress={togglePanel}
+            activeOpacity={0.85}
+          >
             <FrostedGlass style={StyleSheet.absoluteFillObject} />
             <Ionicons name="reorder-two-outline" size={23} color={theme.colors.text} />
           </TouchableOpacity>
@@ -3006,6 +3034,7 @@ export default function ConversationScreen({
             style={[
               styles.topLeftPill,
               {
+                top: layoutTopInset + 8,
                 left: 73,
                 maxWidth: screenWidth * 0.45,
                 minHeight: 42,
@@ -3092,7 +3121,7 @@ export default function ConversationScreen({
           {isTemporaryMode && hasStartedChat && (
             <Text style={{
               position: 'absolute',
-              top: 8, // Same top position as button
+              top: layoutTopInset + 8, // Same top position as button
               left: 73 + screenWidth * 0.4 + 8, // Position right of model selector
               zIndex: 10,
               color: theme.colors.textTertiary,
@@ -3107,7 +3136,7 @@ export default function ConversationScreen({
 
         {/* Top-right container for temporary mode/new chat and settings buttons */}
         {/* Keep buttons mounted but behind panel when open */}
-        <Animated.View style={[styles.topRightButtons, { pointerEvents: isPanelOpen ? 'none' : 'auto' }, chromeEnterStyle]}>
+        <Animated.View style={[styles.topRightButtons, { top: layoutTopInset + 8, pointerEvents: isPanelOpen ? 'none' : 'auto' }, chromeEnterStyle]}>
           {!hasStartedChat ? (
             isPerspectiveMode ? (
               // Perspective armed but idle — New Chat cancels / resets Perspective
@@ -3253,7 +3282,8 @@ export default function ConversationScreen({
           speakingVisibleIndex={speakingVisibleIndex}
           onEditUserMessage={handleEditUserMessage}
           onEditingChange={setIsEditingMessage}
-          threadKey={currentChatId}
+          threadKey={currentChatId ? `${currentChatId}-${chatSwitchKey}` : `new-${chatSwitchKey}`}
+          chatSwitchTrigger={chatSwitchAnimTrigger}
           noMessages={noMessages}
           isTemporaryMode={isTemporaryMode}
           isPerspectiveMode={isPerspectiveMode}
@@ -4000,4 +4030,6 @@ export default function ConversationScreen({
       </View>
     </View>
   );
-}
+});
+
+export default ConversationScreen;

@@ -13,9 +13,12 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { createStyles } from '../styles/styles';
 import { useTheme } from '../context/ThemeContext';
+import { animateLayout } from '../utils/animationConfig';
 import { showAlert } from '../components/CustomAlert';
 import { FloatingBackButton } from '../components/FloatingBackButton';
 import { BottomSheet } from '../components/BottomSheet';
+import { useCollapsibleTitle } from '../hooks/useCollapsibleTitle';
+import { CollapsibleTitle } from '../components/CollapsibleTitle';
 import {
   LibraryCardEnter,
   useLibraryCardEnter,
@@ -43,6 +46,7 @@ export default function PerspectivesLibraryScreen({
 }: PerspectivesLibraryScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const { anim: titleAnim, handleScroll } = useCollapsibleTitle();
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
 
@@ -113,10 +117,12 @@ export default function PerspectivesLibraryScreen({
         { padding: 20, flex: 1, backgroundColor: theme.colors.background },
       ]}
     >
-      <Text style={styles.settingsTitle}>Perspective</Text>
+      <CollapsibleTitle title="Perspective" anim={titleAnim} />
 
       <ScrollView
         style={{ flex: 1 }}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
       >
@@ -222,7 +228,10 @@ export default function PerspectivesLibraryScreen({
                   alignItems: 'center',
                 }}
                 onPress={() =>
-                  setExpandedPresetId(isExpanded ? null : preset.id)
+                  {
+                    animateLayout();
+                    setExpandedPresetId(isExpanded ? null : preset.id);
+                  }
                 }
                 activeOpacity={0.7}
               >

@@ -2,7 +2,38 @@
  * Centralized animation configuration for consistent, native-driver motion.
  */
 
-import { Easing, Platform } from 'react-native';
+import { Easing, Platform, UIManager, LayoutAnimation } from 'react-native';
+
+if (
+  Platform.OS === 'android' &&
+  typeof (UIManager as any)?.setLayoutAnimationEnabledExperimental === 'function'
+) {
+  (UIManager as any).setLayoutAnimationEnabledExperimental(true);
+}
+
+/** Smooth layout animation when items, accordions, or dropdowns expand/collapse */
+export function animateLayout(duration: number = 220): void {
+  try {
+    if (typeof LayoutAnimation?.configureNext === 'function') {
+      LayoutAnimation.configureNext({
+        duration,
+        create: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+          property: LayoutAnimation.Properties.opacity,
+        },
+        update: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+        },
+        delete: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+          property: LayoutAnimation.Properties.opacity,
+        },
+      });
+    }
+  } catch {
+    // Graceful fallback if unsupported
+  }
+}
 
 /** Standard durations tuned for mobile responsiveness. */
 export const ANIMATION_DURATIONS = {

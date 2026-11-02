@@ -18,6 +18,7 @@ import { FrostedGlass } from './FrostedGlass';
 import { useFadeScalePresence } from '../hooks/useFadeScalePresence';
 import { OVERLAY_MOTION } from '../utils/animationConfig';
 import { useFloatingBackBottom } from '../utils/layoutInsets';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface BottomSheetProps {
   visible: boolean;
@@ -51,6 +52,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   onCloseComplete,
 }) => {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   // Same bottom clearance as floating Back — avoids hugging the system nav.
   const bottomInset = useFloatingBackBottom();
   const opacity = useRef(new Animated.Value(0)).current;
@@ -97,7 +99,11 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
     <View style={styles.root} pointerEvents="box-none">
       <TouchableWithoutFeedback onPress={onClose}>
         <Animated.View
-          style={[styles.overlay, { opacity }]}
+          style={[
+            styles.overlay,
+            insets.top > 0 ? { top: -insets.top } : null,
+            { opacity },
+          ]}
           pointerEvents={visible ? 'auto' : 'none'}
         />
       </TouchableWithoutFeedback>

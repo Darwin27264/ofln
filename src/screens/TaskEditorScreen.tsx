@@ -27,6 +27,8 @@ import { useTheme } from "../context/ThemeContext";
 import { showAlert } from "../components/CustomAlert";
 import { BottomSheet } from "../components/BottomSheet";
 import { FloatingBackButton } from "../components/FloatingBackButton";
+import { useCollapsibleTitle } from "../hooks/useCollapsibleTitle";
+import { CollapsibleTitle } from "../components/CollapsibleTitle";
 import { PersonaAvatar } from "../components/PersonaAvatar";
 import {
   useFloatingBackBottom,
@@ -35,6 +37,7 @@ import {
 import {
   ANIMATION_DURATIONS,
   EASING,
+  animateLayout,
 } from "../utils/animationConfig";
 import {
   buildNewScheduledTask,
@@ -443,6 +446,7 @@ export default function TaskEditorScreen({
 }: Props) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const { anim: titleAnim, handleScroll } = useCollapsibleTitle();
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
   const isEditMode = !!task;
@@ -754,12 +758,15 @@ export default function TaskEditorScreen({
         { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
       ]}
     >
-      <Text style={styles.settingsTitle}>
-        {isEditMode ? "Edit task" : "New task"}
-      </Text>
+      <CollapsibleTitle
+        title={isEditMode ? "Edit task" : "New task"}
+        anim={titleAnim}
+      />
 
       <ScrollView
         style={{ flex: 1 }}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -1149,7 +1156,10 @@ export default function TaskEditorScreen({
         </View>
 
         <TouchableOpacity
-          onPress={() => setShowMore((v) => !v)}
+          onPress={() => {
+          animateLayout();
+          setShowMore((v) => !v);
+        }}
           style={{
             flexDirection: "row",
             alignItems: "center",

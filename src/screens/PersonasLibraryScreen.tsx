@@ -15,10 +15,13 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { createStyles } from "../styles/styles";
 import { useTheme } from "../context/ThemeContext";
+import { animateLayout } from "../utils/animationConfig";
 import { showAlert } from "../components/CustomAlert";
 import { PersonaCard } from "../components/PersonaCard";
 import { FloatingBackButton } from "../components/FloatingBackButton";
 import { BottomSheet } from "../components/BottomSheet";
+import { useCollapsibleTitle } from "../hooks/useCollapsibleTitle";
+import { CollapsibleTitle } from "../components/CollapsibleTitle";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
 import {
   getPersonas,
@@ -45,6 +48,7 @@ export default function PersonasLibraryScreen({
 }: PersonasLibraryScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme.colors);
+  const { anim: titleAnim, handleScroll } = useCollapsibleTitle();
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
 
@@ -183,6 +187,7 @@ export default function PersonasLibraryScreen({
   );
 
   const handleToggleExpand = useCallback((personaId: string) => {
+    animateLayout();
     setExpandedPersonaId((current) => (current === personaId ? null : personaId));
   }, []);
 
@@ -282,10 +287,12 @@ export default function PersonasLibraryScreen({
 
   return (
       <View style={[styles.container, { padding: 20, flex: 1, backgroundColor: theme.colors.background }]}>
-      <Text style={styles.settingsTitle}>Personas</Text>
+      <CollapsibleTitle title="Personas" anim={titleAnim} />
 
       <ScrollView
         style={{ flex: 1 }}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: scrollPadBottom }}
       >
