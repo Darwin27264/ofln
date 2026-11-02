@@ -425,8 +425,11 @@ export function MessageList({
   const contentHeightRef = useRef(0);
   const viewportHeightRef = useRef(0);
 
-  if (activeThreadRef.current !== threadId) {
+  const lastActiveTriggerRef = useRef(chatSwitchTrigger);
+
+  if (activeThreadRef.current !== threadId || lastActiveTriggerRef.current !== chatSwitchTrigger) {
     activeThreadRef.current = threadId;
+    lastActiveTriggerRef.current = chatSwitchTrigger;
     stickToNewestRef.current = true;
   }
 
@@ -452,19 +455,19 @@ export function MessageList({
 
   const threadFadeAnim = useRef(new Animated.Value(1)).current;
   const threadTranslateAnim = useRef(new Animated.Value(0)).current;
-
-  const animatedThreadRef = useRef<string | null>(null);
+  const threadAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+  const lastAnimatedTriggerRef = useRef(0);
 
   // ONLY animate when the user explicitly switches/loads a chat from history
   useEffect(() => {
-    if (!chatSwitchTrigger || chatSwitchTrigger === 0) return;
+    if (!chatSwitchTrigger || chatSwitchTrigger <= lastAnimatedTriggerRef.current) return;
+    lastAnimatedTriggerRef.current = chatSwitchTrigger;
 
-    // Synchronize animatedThreadRef so threadId effect doesn't perform a conflicting double-animation
-    animatedThreadRef.current = threadId;
+    threadAnimRef.current?.stop();
 
     threadFadeAnim.setValue(0);
     threadTranslateAnim.setValue(8);
-    Animated.parallel([
+    const anim = Animated.parallel([
       Animated.timing(threadFadeAnim, {
         toValue: 1,
         duration: 220,
@@ -477,32 +480,18 @@ export function MessageList({
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-    ]).start();
-  }, [chatSwitchTrigger, threadId]);
+    ]);
+    threadAnimRef.current = anim;
+    anim.start(({ finished }) => {
+      if (finished) {
+        threadAnimRef.current = null;
+      }
+    });
 
-  useEffect(() => {
-    if (threadId !== animatedThreadRef.current && visible.length > 0) {
-      animatedThreadRef.current = threadId;
-      threadFadeAnim.setValue(0);
-      threadTranslateAnim.setValue(10);
-      Animated.parallel([
-        Animated.timing(threadFadeAnim, {
-          toValue: 1,
-          duration: 250,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(threadTranslateAnim, {
-          toValue: 0,
-          duration: 250,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else if (visible.length === 0) {
-      animatedThreadRef.current = null;
-    }
-  }, [threadId, visible.length]);
+    return () => {
+      threadAnimRef.current?.stop();
+    };
+  }, [chatSwitchTrigger]);
 
   const handleListScroll = useCallback(
     (event: any) => {

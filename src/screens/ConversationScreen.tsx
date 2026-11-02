@@ -109,7 +109,7 @@ import {
   errorCodes,
   types as documentPickerTypes,
 } from "@react-native-documents/picker";
-import { useAIChat } from "../hooks/useAIChat";
+import { useAIChat, ChatMessage } from "../hooks/useAIChat";
 import { llamaProvider } from "../providers/llamaProvider";
 import {
   isModelAutoloadSuppressed,
@@ -461,7 +461,6 @@ const ConversationScreen = React.memo(function ConversationScreen({
   // Temporary mode (only before the first user message).
   const [isTemporaryMode, setIsTemporaryMode] = useState(false);
   const [chatSwitchAnimTrigger, setChatSwitchAnimTrigger] = useState(0);
-  const [chatSwitchKey, setChatSwitchKey] = useState(0);
   /** Perspective debate mode — exit only via new chat. */
   const [isPerspectiveMode, setIsPerspectiveMode] = useState(false);
   const [activePerspectivePreset, setActivePerspectivePreset] =
@@ -1216,9 +1215,9 @@ const ConversationScreen = React.memo(function ConversationScreen({
     (chat: ChatConversation) => {
       closePanelThen(() => {
         setAutoScrollEnabled(true);
-        setChatSwitchAnimTrigger((k) => k + 1);
-        setChatSwitchKey((k) => k + 1);
+        aiChat.loadChat(chat.id, chat.messages as ChatMessage[]);
         onLoadChat(chat.id, chat.messages);
+        setChatSwitchAnimTrigger((k) => k + 1);
         if (chat.isPerspective && chat.perspectivePresetSnapshot) {
           setIsPerspectiveMode(true);
           setPerspectiveSnapshot(
@@ -1246,7 +1245,7 @@ const ConversationScreen = React.memo(function ConversationScreen({
         setIsTemporaryMode(false);
       });
     },
-    [onLoadChat, closePanelThen, setAutoScrollEnabled],
+    [onLoadChat, closePanelThen, setAutoScrollEnabled, aiChat.loadChat],
   );
 
   // Helper function to format month/year
@@ -1340,7 +1339,6 @@ const ConversationScreen = React.memo(function ConversationScreen({
     // Clear App identity/seed first so the next render never pairs a stale
     // currentChatId with the emptied hook transcript (that reloads old chat).
     setContextBannerDismissed(false);
-    setChatSwitchKey((k) => k + 1);
     setIsPerspectiveMode(false);
     setActivePerspectivePreset(null);
     setPerspectiveSnapshot(null);
@@ -3282,7 +3280,7 @@ const ConversationScreen = React.memo(function ConversationScreen({
           speakingVisibleIndex={speakingVisibleIndex}
           onEditUserMessage={handleEditUserMessage}
           onEditingChange={setIsEditingMessage}
-          threadKey={currentChatId ? `${currentChatId}-${chatSwitchKey}` : `new-${chatSwitchKey}`}
+          threadKey={currentChatId ?? 'new'}
           chatSwitchTrigger={chatSwitchAnimTrigger}
           noMessages={noMessages}
           isTemporaryMode={isTemporaryMode}

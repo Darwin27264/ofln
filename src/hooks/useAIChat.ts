@@ -55,6 +55,8 @@ import type {
   ModelStatus,
 } from '../types/ai';
 
+export type { ChatMessage };
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export interface UseAIChatOptions {
@@ -116,6 +118,8 @@ export interface UseAIChatReturn {
   /** Alias for regenerating the latest assistant reply. */
   reload: () => Promise<void>;
   newChat: () => void;
+  /** Immediately load an existing chat transcript and bind its identity synchronously. */
+  loadChat: (chatId: string, loadedMessages: ChatMessage[]) => void;
   summarizeContext: () => Promise<boolean>;
   isLoading: boolean;
   isGenerating: boolean;
@@ -1127,6 +1131,27 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     onChatIdChangeRef.current?.(null);
   }, [abortInFlight, commitMessages]);
 
+  const loadChat = useCallback(
+    (chatId: string, loadedMessages: ChatMessage[]) => {
+      persistEpochRef.current += 1;
+      abortInFlight();
+
+      const nextMessages =
+        loadedMessages && loadedMessages.length > 0
+          ? loadedMessages
+          : [SYSTEM_MESSAGE];
+      commitMessages(nextMessages);
+      setInput('');
+      setCurrentThought('');
+      setError(null);
+      setShowTrimNotice(false);
+      chatIdRef.current = chatId;
+      lastSyncedChatIdRef.current = chatId;
+      onChatIdChangeRef.current?.(chatId);
+    },
+    [abortInFlight, commitMessages],
+  );
+
   const summarizeContext = useCallback(async (): Promise<boolean> => {
     if (isGeneratingRef.current || messagesRef.current.length <= 4) {
       return false;
@@ -1190,6 +1215,7 @@ export function useAIChat(options: UseAIChatOptions): UseAIChatReturn {
     editUserAndRegenerate,
     reload,
     newChat,
+    loadChat,
     summarizeContext,
     isLoading,
     isGenerating,

@@ -884,5 +884,118 @@ describe('Milestone 3: Chat Screen Transition Lag Mitigation', () => {
       expect((flatStyle.opacity as any)._value).toBe(1);
       expect((flatStyle.transform[0].translateY as any)._value).toBe(0);
     });
+
+    test('does NOT restart or duplicate animation on subsequent renders when chatSwitchTrigger is unchanged', () => {
+      let tree: renderer.ReactTestRenderer | null = null;
+      act(() => {
+        tree = renderer.create(
+          <MessageList
+            {...defaultMessageListProps}
+            threadKey="thread-1"
+            chatSwitchTrigger={1}
+            conversation={createMockMessages(2)}
+          />
+        );
+      });
+
+      // Advance halfway through the 220ms animation (~110ms)
+      act(() => {
+        jest.advanceTimersByTime(110);
+      });
+
+      const animatedViews = tree!.root.findAllByType(Animated.View);
+      const threadWrapper = animatedViews.find((v) => {
+        const style = Array.isArray(v.props.style) ? Object.assign({}, ...v.props.style) : v.props.style;
+        return style?.opacity !== undefined && style?.transform !== undefined;
+      });
+      const midwayStyle = Array.isArray(threadWrapper!.props.style)
+        ? Object.assign({}, ...threadWrapper!.props.style)
+        : threadWrapper!.props.style;
+      const midwayOpacity = (midwayStyle.opacity as any)._value;
+
+      // Opacity should be mid-flight (greater than 0, less than 1)
+      expect(midwayOpacity).toBeGreaterThan(0.2);
+      expect(midwayOpacity).toBeLessThan(0.95);
+
+      // Re-render with new messages and different threadKey, but SAME chatSwitchTrigger (trigger was not incremented)
+      act(() => {
+        tree!.update(
+          <MessageList
+            {...defaultMessageListProps}
+            threadKey="thread-2"
+            chatSwitchTrigger={1}
+            conversation={createMockMessages(5)}
+          />
+        );
+      });
+
+      const reRenderedStyle = Array.isArray(threadWrapper!.props.style)
+        ? Object.assign({}, ...threadWrapper!.props.style)
+        : threadWrapper!.props.style;
+      const reRenderedOpacity = (reRenderedStyle.opacity as any)._value;
+
+      // Crucial assertion: Opacity must NOT have snapped back to 0!
+      expect(reRenderedOpacity).toBeGreaterThanOrEqual(midwayOpacity);
+
+      // Settle remaining time
+      act(() => {
+        jest.advanceTimersByTime(200);
+      });
+
+      expect((reRenderedStyle.opacity as any)._value).toBe(1);
+      expect((reRenderedStyle.transform[0].translateY as any)._value).toBe(0);
+    });
+
+    test('rapid consecutive chatSwitchTrigger increments cancel previous animation and settle cleanly', () => {
+      let tree: renderer.ReactTestRenderer | null = null;
+      act(() => {
+        tree = renderer.create(
+          <MessageList
+            {...defaultMessageListProps}
+            threadKey="thread-1"
+            chatSwitchTrigger={1}
+            conversation={createMockMessages(2)}
+          />
+        );
+      });
+
+      // Run 50ms into animation
+      act(() => {
+        jest.advanceTimersByTime(50);
+      });
+
+      // Rapidly switch again to chatSwitchTrigger = 2
+      act(() => {
+        tree!.update(
+          <MessageList
+            {...defaultMessageListProps}
+            threadKey="thread-2"
+            chatSwitchTrigger={2}
+            conversation={createMockMessages(4)}
+          />
+        );
+      });
+
+      const animatedViews = tree!.root.findAllByType(Animated.View);
+      const threadWrapper = animatedViews.find((v) => {
+        const style = Array.isArray(v.props.style) ? Object.assign({}, ...v.props.style) : v.props.style;
+        return style?.opacity !== undefined && style?.transform !== undefined;
+      });
+      const newAnimStyle = Array.isArray(threadWrapper!.props.style)
+        ? Object.assign({}, ...threadWrapper!.props.style)
+        : threadWrapper!.props.style;
+
+      // Fresh animation reset to starting values
+      expect((newAnimStyle.opacity as any)._value).toBe(0);
+      expect((newAnimStyle.transform[0].translateY as any)._value).toBe(8);
+
+      // Complete second animation
+      act(() => {
+        jest.advanceTimersByTime(300);
+      });
+
+      expect((newAnimStyle.opacity as any)._value).toBe(1);
+      expect((newAnimStyle.transform[0].translateY as any)._value).toBe(0);
+    });
   });
 });
