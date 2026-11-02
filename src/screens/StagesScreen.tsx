@@ -20,6 +20,7 @@ import { useTheme } from '../context/ThemeContext';
 import { showAlert } from '../components/CustomAlert';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { FloatingBackButton } from '../components/FloatingBackButton';
+import { BottomSheet } from '../components/BottomSheet';
 import { useCollapsibleTitle } from '../hooks/useCollapsibleTitle';
 import { CollapsibleTitle } from '../components/CollapsibleTitle';
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from '../utils/layoutInsets';
@@ -181,6 +182,8 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
   const { usageRecords, isLoading, error, clearUsageDataForModel, clearAllUsageData } = useUsageData();
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [modalVisible, setModalVisible] = useState(false);
+  const [accelModalOpen, setAccelModalOpen] = useState(false);
+  const [suggestionsModalOpen, setSuggestionsModalOpen] = useState(false);
   const [graphType, setGraphType] = useState<'tps' | 'inf' | null>(null);
   const [recentRunsExpanded, setRecentRunsExpanded] = useState(false);
   const userTouchedRef = useRef(false);
@@ -732,6 +735,8 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
 
     return suggestions;
   };
+
+  const suggestions = getSuggestions();
   
   return (
     <View style={[{ flex: 1, backgroundColor: theme.colors.background, padding: 20 }]}>
@@ -895,81 +900,134 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           </Text>
         </FrostedPanel>
 
-        {/* Hardware acceleration — available vs currently on */}
-        <FrostedPanel style={stylesLocalWithTheme.statusCard}>
-          <View style={stylesLocalWithTheme.statusHeader}>
-            <Ionicons name="hardware-chip-outline" size={20} color={theme.colors.text} />
-            <Text style={[stylesLocalWithTheme.statusTitle, { color: theme.colors.text }]}>
-              Hardware acceleration
-            </Text>
-          </View>
-          {accelStatus ? (
-            <>
-              <View style={stylesLocalWithTheme.statusRow}>
-                <Text style={[stylesLocalWithTheme.statusLabel, { color: theme.colors.textSecondary }]}>
-                  Available
+        {/* Hardware acceleration & Suggestions — compact side-by-side boxes */}
+        <View style={{ flexDirection: 'row', width: '100%', gap: 10, marginBottom: SETTINGS_BLOCK.gap }}>
+          {/* Hardware acceleration compact box */}
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={0.85}
+            onPress={() => setAccelModalOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Hardware acceleration details"
+          >
+            <FrostedPanel style={[stylesLocalWithTheme.statusCard, stylesLocalWithTheme.compactHalfCard]}>
+              <View style={stylesLocalWithTheme.compactHeader}>
+                <Ionicons name="hardware-chip-outline" size={18} color={theme.colors.text} />
+                <Text
+                  style={[stylesLocalWithTheme.compactTitle, { color: theme.colors.text }]}
+                  numberOfLines={1}
+                >
+                  Hardware
                 </Text>
-                <View style={stylesLocalWithTheme.statusValueWrap}>
-                  <View
-                    style={[
-                      stylesLocalWithTheme.statusDot,
-                      {
-                        backgroundColor: accelStatus.available
-                          ? theme.colors.success
-                          : theme.colors.textSecondary,
-                      },
-                    ]}
-                  />
-                  <Text style={[stylesLocalWithTheme.statusValue, { color: theme.colors.text }]}>
-                    {accelStatus.available ? accelStatus.availableLabel : 'Not available'}
-                  </Text>
-                </View>
               </View>
-              <View style={stylesLocalWithTheme.statusRow}>
-                <Text style={[stylesLocalWithTheme.statusLabel, { color: theme.colors.textSecondary }]}>
-                  Currently on
-                </Text>
-                <View style={stylesLocalWithTheme.statusValueWrap}>
+
+              <View style={stylesLocalWithTheme.compactContent}>
+                <View style={stylesLocalWithTheme.compactStatusRow}>
                   <View
                     style={[
                       stylesLocalWithTheme.statusDot,
                       {
                         backgroundColor:
-                          accelStatus.on === true
+                          accelStatus?.on === true
                             ? theme.colors.success
-                            : accelStatus.on === false
+                            : accelStatus?.on === false
                               ? theme.colors.warning
                               : theme.colors.textSecondary,
                       },
                     ]}
                   />
                   <Text
-                    style={[stylesLocalWithTheme.statusValue, { color: theme.colors.text }]}
-                    numberOfLines={2}
+                    style={[stylesLocalWithTheme.compactPrimaryValue, { color: theme.colors.text }]}
+                    numberOfLines={1}
                   >
-                    {accelStatus.on === true
-                      ? `On · ${accelStatus.onLabel}`
-                      : accelStatus.on === false
-                        ? accelStatus.onLabel
-                        : 'No model loaded'}
+                    {accelStatus?.on === true
+                      ? 'On'
+                      : accelStatus?.on === false
+                        ? 'CPU'
+                        : 'Idle'}
                   </Text>
                 </View>
+
+                <Text
+                  style={[stylesLocalWithTheme.compactSubCaption, { color: theme.colors.textSecondary }]}
+                  numberOfLines={1}
+                >
+                  {accelStatus?.on === true
+                    ? accelStatus.onLabel
+                    : accelStatus?.available
+                      ? `Avail: ${accelStatus.availableLabel}`
+                      : 'CPU Only'}
+                </Text>
               </View>
-            </>
-          ) : (
-            <Text style={[stylesLocalWithTheme.statusHint, { color: theme.colors.textSecondary }]}>
-              Checking device backends…
-            </Text>
-          )}
-          <Text
-            style={[
-              stylesLocalWithTheme.statusHint,
-              { color: theme.colors.textTertiary, marginTop: 10 },
-            ]}
+
+              <View style={stylesLocalWithTheme.compactFooter}>
+                <Text style={[stylesLocalWithTheme.compactFooterText, { color: theme.colors.textTertiary }]}>
+                  Details
+                </Text>
+                <Ionicons name="chevron-forward" size={13} color={theme.colors.textTertiary} />
+              </View>
+            </FrostedPanel>
+          </TouchableOpacity>
+
+          {/* Suggestions compact box */}
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={0.85}
+            onPress={() => setSuggestionsModalOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Performance suggestions details"
           >
-            Q4_0 / Q6_K may use GPU or NPU on Android. Metrics are private to your device.
-          </Text>
-        </FrostedPanel>
+            <FrostedPanel style={[stylesLocalWithTheme.statusCard, stylesLocalWithTheme.compactHalfCard]}>
+              <View style={stylesLocalWithTheme.compactHeader}>
+                <Ionicons name="bulb-outline" size={18} color={theme.colors.accent || theme.colors.text} />
+                <Text
+                  style={[stylesLocalWithTheme.compactTitle, { color: theme.colors.text }]}
+                  numberOfLines={1}
+                >
+                  Suggestions
+                </Text>
+              </View>
+
+              <View style={stylesLocalWithTheme.compactContent}>
+                <View style={stylesLocalWithTheme.compactStatusRow}>
+                  <View
+                    style={[
+                      stylesLocalWithTheme.statusDot,
+                      {
+                        backgroundColor:
+                          suggestions.length === 0 || (stats && stats.avgTps >= 18)
+                            ? theme.colors.success
+                            : theme.colors.accent || theme.colors.warning,
+                      },
+                    ]}
+                  />
+                  <Text
+                    style={[stylesLocalWithTheme.compactPrimaryValue, { color: theme.colors.text }]}
+                    numberOfLines={1}
+                  >
+                    {suggestions.length === 0 || (stats && stats.avgTps >= 18)
+                      ? 'Optimal'
+                      : `${suggestions.length} tip${suggestions.length === 1 ? '' : 's'}`}
+                  </Text>
+                </View>
+
+                <Text
+                  style={[stylesLocalWithTheme.compactSubCaption, { color: theme.colors.textSecondary }]}
+                  numberOfLines={2}
+                >
+                  {suggestions[0] || 'Strong performance'}
+                </Text>
+              </View>
+
+              <View style={stylesLocalWithTheme.compactFooter}>
+                <Text style={[stylesLocalWithTheme.compactFooterText, { color: theme.colors.textTertiary }]}>
+                  View all
+                </Text>
+                <Ionicons name="chevron-forward" size={13} color={theme.colors.textTertiary} />
+              </View>
+            </FrostedPanel>
+          </TouchableOpacity>
+        </View>
 
         {/* On-device Benchmark & Reddit Card */}
         <FrostedPanel style={stylesLocalWithTheme.statusCard}>
@@ -1045,20 +1103,21 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
                   flexDirection: 'row',
                   justifyContent: 'center',
                   alignItems: 'center',
-                  gap: 6,
+                  paddingVertical: 12,
+                  gap: 8,
                 },
               ]}
             >
               {isBenchmarking ? (
                 <>
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color={theme.colors.primaryText} />
                   <Text style={stylesLocalWithTheme.btnText}>
                     {benchmarkStage || 'Benchmarking…'}
                   </Text>
                 </>
               ) : (
                 <>
-                  <Ionicons name="play" size={16} color="#FFFFFF" />
+                  <Ionicons name="play" size={16} color={theme.colors.primaryText} />
                   <Text style={stylesLocalWithTheme.btnText}>
                     {benchmarkResult ? 'Re-run benchmark' : 'Run benchmark'}
                   </Text>
@@ -1076,11 +1135,12 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
                     backgroundColor: theme.colors.surface,
                     borderColor: theme.colors.border,
                     borderWidth: 1,
-                    paddingHorizontal: 12,
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
                     flexDirection: 'row',
                     justifyContent: 'center',
                     alignItems: 'center',
-                    gap: 6,
+                    gap: 8,
                   },
                 ]}
               >
@@ -1091,17 +1151,6 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
               </TouchableOpacity>
             )}
           </View>
-        </FrostedPanel>
-
-        {/* Suggestions */}
-        <FrostedPanel style={stylesLocalWithTheme.suggestionCard}>
-          <View style={stylesLocalWithTheme.suggestionHeader}>
-            <Text style={[stylesLocalWithTheme.suggestionTitle, { color: theme.colors.text }]}>Suggestions</Text>
-            <Ionicons name="bulb-outline" size={22} color={theme.colors.text} />
-          </View>
-          {getSuggestions().map((msg, i) => (
-            <Text key={i} style={[stylesLocalWithTheme.suggestionText, { color: theme.colors.textSecondary }]}>{msg}</Text>
-          ))}
         </FrostedPanel>
 
         {/* Personal tok/s history — preview 5, expand for all */}
@@ -1332,6 +1381,213 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
           </TouchableWithoutFeedback>
         </TouchableOpacity>
       </Modal>
+
+      {/* Hardware acceleration detail popup */}
+      <BottomSheet
+        visible={accelModalOpen}
+        onClose={() => setAccelModalOpen(false)}
+        title="Hardware Acceleration"
+        subtitle="Device inference & backend configuration"
+        fitContent
+      >
+        <View style={{ paddingBottom: 8 }}>
+          {/* Status Row */}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: theme.colors.surface,
+              padding: 14,
+              borderRadius: 16,
+              marginBottom: 16,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: theme.colors.border,
+            }}
+          >
+            <View
+              style={[
+                stylesLocalWithTheme.statusDot,
+                {
+                  width: 10,
+                  height: 10,
+                  borderRadius: 5,
+                  backgroundColor:
+                    accelStatus?.on === true
+                      ? theme.colors.success
+                      : accelStatus?.on === false
+                        ? theme.colors.warning
+                        : theme.colors.textSecondary,
+                },
+              ]}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontFamily: 'Poppins',
+                  fontSize: 15,
+                  fontWeight: '600',
+                  color: theme.colors.text,
+                }}
+              >
+                {accelStatus?.on === true
+                  ? `Active · ${accelStatus.onLabel}`
+                  : accelStatus?.on === false
+                    ? `Inactive · ${accelStatus.onLabel}`
+                    : 'No model loaded'}
+              </Text>
+              <Text
+                style={{
+                  fontFamily: 'Poppins',
+                  fontSize: 12,
+                  color: theme.colors.textSecondary,
+                  marginTop: 2,
+                }}
+              >
+                Available: {accelStatus?.available ? accelStatus.availableLabel : 'Not available'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Details Section */}
+          <Text
+            style={{
+              fontFamily: 'Poppins',
+              fontSize: 14,
+              fontWeight: '600',
+              color: theme.colors.text,
+              marginBottom: 8,
+            }}
+          >
+            About Mobile Acceleration
+          </Text>
+          <Text
+            style={{
+              fontFamily: 'Poppins',
+              fontSize: 13,
+              color: theme.colors.textSecondary,
+              lineHeight: 20,
+              marginBottom: 10,
+            }}
+          >
+            • Q4_0 and Q6_K quantizations automatically take advantage of GPU and NPU hardware shaders on Android for faster prompt ingestion and decoding.
+          </Text>
+          <Text
+            style={{
+              fontFamily: 'Poppins',
+              fontSize: 13,
+              color: theme.colors.textSecondary,
+              lineHeight: 20,
+              marginBottom: 10,
+            }}
+          >
+            • If acceleration is available on your device but inference is running on CPU, check GPU Layers in Model Settings and ensure a compatible quantization is loaded.
+          </Text>
+          <Text
+            style={{
+              fontFamily: 'Poppins',
+              fontSize: 13,
+              color: theme.colors.textSecondary,
+              lineHeight: 20,
+              marginBottom: 20,
+            }}
+          >
+            • All inference and hardware benchmarks execute 100% offline and locally on your phone. Zero telemetry leaves your device.
+          </Text>
+
+          {/* Dismiss button */}
+          <TouchableOpacity
+            onPress={() => setAccelModalOpen(false)}
+            style={[
+              stylesLocalWithTheme.btn,
+              {
+                backgroundColor: theme.colors.primary,
+                paddingVertical: 12,
+                borderRadius: 24,
+              },
+            ]}
+          >
+            <Text style={[stylesLocalWithTheme.btnText, { color: theme.colors.primaryText }]}>
+              Close
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </BottomSheet>
+
+      {/* Suggestions detail popup */}
+      <BottomSheet
+        visible={suggestionsModalOpen}
+        onClose={() => setSuggestionsModalOpen(false)}
+        title="Performance Suggestions"
+        subtitle={selectedModel ? `Tailored for ${selectedModel}` : 'Device optimization recommendations'}
+        fitContent
+      >
+        <View style={{ paddingBottom: 8 }}>
+          {suggestions.map((suggestion, idx) => (
+            <View
+              key={idx}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'flex-start',
+                backgroundColor: theme.colors.surface,
+                padding: 12,
+                borderRadius: 14,
+                marginBottom: 10,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: theme.colors.border,
+                gap: 10,
+              }}
+            >
+              <Ionicons
+                name="bulb-outline"
+                size={18}
+                color={theme.colors.accent || theme.colors.warning}
+                style={{ marginTop: 2 }}
+              />
+              <Text
+                style={{
+                  flex: 1,
+                  fontFamily: 'Poppins',
+                  fontSize: 13,
+                  color: theme.colors.text,
+                  lineHeight: 19,
+                }}
+              >
+                {suggestion}
+              </Text>
+            </View>
+          ))}
+
+          <Text
+            style={{
+              fontFamily: 'Poppins',
+              fontSize: 12,
+              color: theme.colors.textTertiary,
+              lineHeight: 18,
+              marginTop: 4,
+              marginBottom: 20,
+            }}
+          >
+            Tip: Adjusting GPU layers, context window (n_ctx), or temperature in Model Settings can significantly affect memory footprint and response latency.
+          </Text>
+
+          {/* Dismiss button */}
+          <TouchableOpacity
+            onPress={() => setSuggestionsModalOpen(false)}
+            style={[
+              stylesLocalWithTheme.btn,
+              {
+                backgroundColor: theme.colors.primary,
+                paddingVertical: 12,
+                borderRadius: 24,
+              },
+            ]}
+          >
+            <Text style={[stylesLocalWithTheme.btnText, { color: theme.colors.primaryText }]}>
+              Got It
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </BottomSheet>
 
       {/* Navigation buttons */}
       <View style={[stylesLocalWithTheme.fixedBtn, { left: 15, bottom: backBottom, backgroundColor: "transparent" }]}>
@@ -1597,10 +1853,59 @@ const createStylesLocal = (colors: any) => StyleSheet.create({
   },
   btnText: {
     color: colors.primaryText,
-    fontSize: 20,
+    fontSize: 16,
+    fontWeight: '600',
     fontFamily: 'Poppins',
-    marginLeft: 8,
+    textAlign: 'center',
+    includeFontPadding: false,
+  },
+  compactHalfCard: {
+    padding: 14,
+    height: 138,
+    marginBottom: 0,
+    justifyContent: 'space-between',
+  },
+  compactHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  compactTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    fontFamily: 'Poppins',
+    flexShrink: 1,
+  },
+  compactContent: {
+    marginVertical: 2,
+  },
+  compactStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 2,
+  },
+  compactPrimaryValue: {
+    fontSize: 17,
+    fontWeight: '700',
+    fontFamily: 'Poppins',
+    flexShrink: 1,
+  },
+  compactSubCaption: {
+    fontSize: 12,
+    fontFamily: 'Poppins',
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  compactFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 2,
+  },
+  compactFooterText: {
+    fontSize: 11,
+    fontFamily: 'Poppins',
+    fontWeight: '500',
   },
 });
 
