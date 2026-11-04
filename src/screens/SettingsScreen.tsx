@@ -329,16 +329,27 @@ export default function SettingsScreen({
   useEffect(() => {
     Animated.timing(darkModeAnim, {
       toValue: isDark ? 1 : 0,
-      ...TOGGLE_ANIMATION_CONFIG,
+      duration: 180,
+      easing: EASING.STANDARD,
+      useNativeDriver: false,
     }).start();
   }, [isDark, darkModeAnim]);
+
+  const handleToggleTheme = () => {
+    if (isTransitioning) return;
+    const nextIsDark = !isDark;
+    Animated.timing(darkModeAnim, {
+      toValue: nextIsDark ? 1 : 0,
+      duration: 320,
+      easing: EASING.STANDARD,
+      useNativeDriver: false,
+    }).start();
+    toggleTheme();
+  };
+
   const darkModeBackground = darkModeAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["transparent", theme.colors.primary],
-  });
-  const darkModeTextColor = darkModeAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [theme.colors.text, theme.colors.primaryText],
+    outputRange: ["transparent", "#FFFFFF"],
   });
 
   const mutedBadgeBg = isDark
@@ -705,13 +716,13 @@ export default function SettingsScreen({
             icon={isDark ? "moon" : "moon-outline"}
             label={"Dark\nMode"}
             stat={isDark ? "On" : "Off"}
-            onPress={toggleTheme}
+            onPress={handleToggleTheme}
             overlayColor={darkModeBackground}
-            iconColor={isDark ? theme.colors.primaryText : theme.colors.text}
-            labelColor={darkModeTextColor}
+            iconColor="#000000"
+            labelColor="#000000"
             iconCircleBg={isDark ? iconCircleOn : iconCircleDefault}
             badgeBg={isDark ? onBadgeBg : mutedBadgeBg}
-            badgeTextColor={isDark ? theme.colors.primaryText : mutedBadgeText}
+            badgeTextColor="#000000"
             chromeScale={chromeScale}
           />
         </View>

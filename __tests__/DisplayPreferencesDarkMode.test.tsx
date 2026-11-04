@@ -218,7 +218,7 @@ describe('SettingsScreen - Dark Mode and Chat Mode text visibility', () => {
     const darkModeStyle = Array.isArray(darkModeLabelNode!.props.style)
       ? Object.assign({}, ...darkModeLabelNode!.props.style)
       : darkModeLabelNode!.props.style;
-    expect(darkModeStyle.color).toBe('rgba(0, 0, 0, 1)');
+    expect(darkModeStyle.color).toBe('#000000');
 
     // Find "On" stat badges in SettingsTile
     const onTileStatBadges = root.findAll((node) => {
@@ -282,6 +282,6 @@ describe('SettingsScreen - Dark Mode and Chat Mode text visibility', () => {
     const darkModeStyle = Array.isArray(darkModeLabelNode!.props.style)
       ? Object.assign({}, ...darkModeLabelNode!.props.style)
       : darkModeLabelNode!.props.style;
-    expect(darkModeStyle.color).toBe('rgba(0, 0, 0, 1)');
+    expect(darkModeStyle.color).toBe('#000000');
   });
 });

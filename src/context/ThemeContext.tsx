@@ -124,6 +124,7 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
   const [isInitialized, setIsInitialized] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [fadeColor, setFadeColor] = useState<string>('#000000');
   const previousThemeMode = useRef<ThemeMode>('dark');
   // Fade overlay sits *above* the tree — never wraps children — so Modals /
   // absolute overlays under screens are not put inside a native opacity layer.
@@ -154,10 +155,11 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setIsTransitioning(true);
 
     const newMode = themeMode === 'light' ? 'dark' : 'light';
+    setFadeColor(newMode === 'dark' ? '#000000' : '#FFFFFF');
 
     Animated.timing(fadeOverlay, {
-      toValue: 0.35,
-      duration: 150,
+      toValue: 0.32,
+      duration: 140,
       easing: Easing.out(Easing.ease),
       useNativeDriver: true,
     }).start(() => {
@@ -170,7 +172,7 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
       Animated.timing(fadeOverlay, {
         toValue: 0,
-        duration: 200,
+        duration: 180,
         easing: Easing.in(Easing.ease),
         useNativeDriver: true,
       }).start(() => {
@@ -213,7 +215,7 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             styles.fadeOverlay,
             {
               opacity: fadeOverlay,
-              backgroundColor: '#000000',
+              backgroundColor: fadeColor,
             },
           ]}
         />
