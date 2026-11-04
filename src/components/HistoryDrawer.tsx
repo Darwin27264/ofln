@@ -1844,14 +1844,18 @@ export function HistoryDrawer({
             style={[
               topRightPillStyle,
               {
-                backgroundColor: '#FFFFFF',
-                borderColor: 'rgba(0,0,0,0.08)',
+                backgroundColor: theme.mode === 'dark' ? '#252525' : '#FFFFFF',
+                borderColor: theme.mode === 'dark' ? theme.colors.border : 'rgba(0,0,0,0.08)',
               },
             ]}
             activeOpacity={0.85}
             accessibilityLabel="New chat"
           >
-            <Ionicons name="add-outline" size={23} color="#111111" />
+            <Ionicons
+              name="add-outline"
+              size={23}
+              color={theme.mode === 'dark' ? theme.colors.text : '#111111'}
+            />
           </TouchableOpacity>
         </View>
       </Animated.View>

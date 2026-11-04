@@ -47,7 +47,7 @@ export const SETTINGS_BLOCK = {
   tintDark: 0.62,
   tintLight: 0.52,
   glassBgDark: "rgba(255, 255, 255, 0.05)",
-  glassBgLight: "rgba(255, 255, 255, 0.72)",
+  glassBgLight: "rgba(234, 236, 240, 0.92)",
   borderDark: "rgba(255, 255, 255, 0.12)",
   borderLight: "rgba(0, 0, 0, 0.08)",
 } as const;

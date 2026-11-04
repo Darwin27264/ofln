@@ -71,7 +71,7 @@ const BLOB_GEOM: readonly AmbientBlobGeom[] = [
     duration: 4700,
     swatch: 'soft',
     peakDark: 0.19,
-    peakLight: 0.115,
+    peakLight: 0.22,
   },
   {
     id: 'left',
@@ -86,7 +86,7 @@ const BLOB_GEOM: readonly AmbientBlobGeom[] = [
     duration: 5400,
     swatch: 'deep',
     peakDark: 0.13,
-    peakLight: 0.08,
+    peakLight: 0.18,
   },
   {
     id: 'right',
@@ -101,7 +101,7 @@ const BLOB_GEOM: readonly AmbientBlobGeom[] = [
     duration: 5050,
     swatch: 'fade',
     peakDark: 0.13,
-    peakLight: 0.08,
+    peakLight: 0.18,
   },
   {
     id: 'low',
@@ -116,7 +116,7 @@ const BLOB_GEOM: readonly AmbientBlobGeom[] = [
     duration: 5800,
     swatch: 'soft',
     peakDark: 0.1,
-    peakLight: 0.06,
+    peakLight: 0.14,
   },
 ];
 

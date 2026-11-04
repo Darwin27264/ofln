@@ -59,9 +59,14 @@ export function FloatingIconButton({
       style={[
         FLOATING_ICON_BUTTON_CHROME,
         {
-          backgroundColor: "transparent",
+          backgroundColor: isDark ? "transparent" : "rgba(0, 0, 0, 0.08)",
           borderWidth: 1,
-          borderColor: theme.colors.border,
+          borderColor: isDark ? theme.colors.border : "rgba(0, 0, 0, 0.16)",
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: isDark ? 0 : 0.08,
+          shadowRadius: 4,
+          elevation: isDark ? 0 : 2,
           overflow: "hidden",
           opacity: disabled ? 0.5 : 1,
         },

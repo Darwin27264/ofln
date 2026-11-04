@@ -60,11 +60,11 @@ export const InputListeningGlow = React.memo(function InputListeningGlow({
   // dissolve instead of showing a rim, blending pale core → burnt rim.
   const micBloomStops = useMemo(
     () =>
-      hueRampStops(isDark ? 0.62 : 0.44, [colors.fade, colors.soft, colors.deep]),
+      hueRampStops(isDark ? 0.62 : 0.58, [colors.fade, colors.soft, colors.deep]),
     [isDark, colors],
   );
   const driftBloomStops = useMemo(
-    () => hueRampStops(isDark ? 0.42 : 0.28, [colors.soft, colors.deep]),
+    () => hueRampStops(isDark ? 0.42 : 0.38, [colors.soft, colors.deep]),
     [isDark, colors],
   );
 

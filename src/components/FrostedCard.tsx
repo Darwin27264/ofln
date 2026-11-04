@@ -47,7 +47,7 @@ export const FrostedCard: React.FC<FrostedCardProps> = ({
           overflow: "hidden",
           backgroundColor: isDark
             ? "rgba(255, 255, 255, 0.05)"
-            : "rgba(255, 255, 255, 0.72)",
+            : "rgba(234, 236, 240, 0.92)",
           borderWidth: 1,
           borderColor: isDark
             ? "rgba(255, 255, 255, 0.12)"

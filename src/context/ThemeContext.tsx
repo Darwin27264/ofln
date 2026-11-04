@@ -49,22 +49,22 @@ const lightTheme: Theme = {
   colors: {
     // Soft elevation vs white — visible, but not muddy on list cards.
     background: '#FFFFFF',
-    surface: '#F7F7F7',
-    card: '#F4F4F4',
+    surface: '#ECEEF2',
+    card: '#EAECEF',
     overlay: 'rgba(0, 0, 0, 0.1)',
 
     text: '#000000',
     textSecondary: '#334155',
     textTertiary: '#64748B',
 
-    border: '#E2E8F0',
-    borderLight: '#F1F5F9',
+    border: '#D8DCE2',
+    borderLight: '#E8ECF0',
 
     primary: '#000000',
     primaryText: '#FFFFFF',
-    secondary: '#F0F0F0',
+    secondary: '#E2E5E9',
     // Matches AmbientHue / lava deepLight + onboarding Next
-    accent: '#D48E2F',
+    accent: '#D97706',
     accentText: '#FFFFFF',
 
     success: '#34C759',

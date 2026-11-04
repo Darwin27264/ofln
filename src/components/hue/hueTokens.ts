@@ -20,9 +20,9 @@ export const AMBIENT_GOLD = {
   deepDark: '#F5A623',
   softDark: '#FFC845',
   fadeDark: '#FFF0B8',
-  deepLight: '#D48E2F',
-  softLight: '#E8B040',
-  fadeLight: '#F5D78A',
+  deepLight: '#D97706',
+  softLight: '#F59E0B',
+  fadeLight: '#FBBF24',
 } as const;
 
 /** Cool violet — ephemeral / temporary mode. */
@@ -30,9 +30,9 @@ export const AMBIENT_VIOLET = {
   deepDark: '#8B7CF6',
   softDark: '#B4A7FB',
   fadeDark: '#D4CCFD',
-  deepLight: '#6D5BD0',
-  softLight: '#9B8CE8',
-  fadeLight: '#C5BBF0',
+  deepLight: '#7C3AED',
+  softLight: '#8B5CF6',
+  fadeLight: '#A78BFA',
 } as const;
 
 /** Soft teal — multi-speaker / perspective mode. */
@@ -40,9 +40,9 @@ export const AMBIENT_TEAL = {
   deepDark: '#2DB8A8',
   softDark: '#5ED4C6',
   fadeDark: '#A8EBE3',
-  deepLight: '#1F9A8C',
-  softLight: '#4AB8AA',
-  fadeLight: '#9AD9D1',
+  deepLight: '#0D9488',
+  softLight: '#14B8A6',
+  fadeLight: '#2DD4BF',
 } as const;
 
 /** Chat mode drives the hue family; gold is the only one promoted to `accent`. */

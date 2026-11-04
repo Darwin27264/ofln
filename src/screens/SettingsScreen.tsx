@@ -587,8 +587,14 @@ export default function SettingsScreen({
             height: 32,
             borderRadius: 16,
             overflow: "hidden",
+            backgroundColor: isDark ? "transparent" : "rgba(0, 0, 0, 0.08)",
             borderWidth: 1,
-            borderColor: theme.colors.border,
+            borderColor: isDark ? theme.colors.border : "rgba(0, 0, 0, 0.16)",
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: isDark ? 0 : 0.08,
+            shadowRadius: 4,
+            elevation: isDark ? 0 : 2,
             alignItems: "center",
             justifyContent: "center",
           }}
@@ -601,7 +607,7 @@ export default function SettingsScreen({
           <Ionicons
             name="options-outline"
             size={20}
-            color={theme.colors.textSecondary}
+            color={theme.colors.text}
           />
         </TouchableOpacity>
       </View>
