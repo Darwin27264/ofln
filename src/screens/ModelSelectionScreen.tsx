@@ -1946,9 +1946,9 @@ export default function ModelSelectionScreen(props: ModelSelectionScreenProps) {
                       padding: 16,
                       shadowColor: "#000",
                       shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.1,
+                      shadowOpacity: theme.mode === "dark" ? 0.1 : 0,
                       shadowRadius: 4,
-                      elevation: 2,
+                      elevation: theme.mode === "dark" ? 2 : 0,
                     }}
                   >
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>

@@ -7,6 +7,7 @@ import {
   Platform,
   StyleSheet,
   View,
+  Animated,
   ViewProps,
   type StyleProp,
   type ViewStyle,
@@ -164,7 +165,7 @@ export function SolidChrome({ style }: { style?: StyleProp<ViewStyle> }) {
 
 type FrostedPanelProps = ViewProps & {
   /** Optional wash over frost (e.g. perf level / On-state tint). */
-  overlayColor?: string;
+  overlayColor?: string | Animated.AnimatedInterpolation<string | number>;
 };
 
 /**
@@ -195,9 +196,9 @@ export function FrostedPanel({
             : SETTINGS_BLOCK.borderLight,
           shadowColor: "#000",
           shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: isDark ? 0.16 : 0.06,
+          shadowOpacity: isDark ? 0.16 : 0,
           shadowRadius: 10,
-          elevation: 3,
+          elevation: isDark ? 3 : 0,
         },
         style,
       ]}
@@ -208,11 +209,11 @@ export function FrostedPanel({
         tintOpacity={isDark ? SETTINGS_BLOCK.tintDark : SETTINGS_BLOCK.tintLight}
       />
       {overlayColor != null ? (
-        <View
+        <Animated.View
           pointerEvents="none"
           style={[
             StyleSheet.absoluteFillObject,
-            { backgroundColor: overlayColor },
+            { backgroundColor: overlayColor as any },
           ]}
         />
       ) : null}

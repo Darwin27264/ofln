@@ -55,9 +55,9 @@ export const FrostedCard: React.FC<FrostedCardProps> = ({
           marginBottom: 12,
           shadowColor: "#000",
           shadowOffset: { width: 0, height: 3 },
-          shadowOpacity: isDark ? 0.18 : 0.06,
+          shadowOpacity: isDark ? 0.18 : 0,
           shadowRadius: 8,
-          elevation: 2,
+          elevation: isDark ? 2 : 0,
         },
         style,
       ]}

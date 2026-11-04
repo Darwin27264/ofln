@@ -29,6 +29,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import { SolidChrome, frostedPanelSystemBarColor, SETTINGS_BLOCK } from './FrostedGlass';
 import { FloatingBackButton } from './FloatingBackButton';
+import { StaggerFadeIn } from './StaggerFadeIn';
 import { useTheme, type Theme } from '../context/ThemeContext';
 import type { ChatConversation, Message } from '../services/chatHistoryService';
 import {
@@ -1087,23 +1088,30 @@ export function HistoryDrawer({
     : null;
   const isPinned = selectedMenuChat?.pinned || false;
 
-  const renderCard = (chat: ChatConversation) => (
-    <ChatHistoryCard
+  const renderCard = (chat: ChatConversation, globalIndex: number = 0) => (
+    <StaggerFadeIn
       key={chat.id}
-      chat={chat}
-      currentChatId={currentChatId}
-      theme={theme}
-      onPress={() => (isMultiselectMode ? onToggleSelect(chat.id) : onChatPress(chat))}
-      onLongPress={(e) => onChatLongPress(chat, e)}
-      isEditing={editingChatId === chat.id}
-      editingTitle={editingTitle}
-      onEditingTitleChange={onEditingTitleChange}
-      onRenameSave={onRenameSave}
-      onRenameCancel={onRenameCancel}
-      isMultiselectMode={isMultiselectMode}
-      isSelected={selectedChatIds.has(chat.id)}
-      onToggleSelect={() => onToggleSelect(chat.id)}
-    />
+      index={globalIndex}
+      active={isPanelOpen && !isLoadingHistory}
+      offset={10}
+      staggerMs={20}
+    >
+      <ChatHistoryCard
+        chat={chat}
+        currentChatId={currentChatId}
+        theme={theme}
+        onPress={() => (isMultiselectMode ? onToggleSelect(chat.id) : onChatPress(chat))}
+        onLongPress={(e) => onChatLongPress(chat, e)}
+        isEditing={editingChatId === chat.id}
+        editingTitle={editingTitle}
+        onEditingTitleChange={onEditingTitleChange}
+        onRenameSave={onRenameSave}
+        onRenameCancel={onRenameCancel}
+        isMultiselectMode={isMultiselectMode}
+        isSelected={selectedChatIds.has(chat.id)}
+        onToggleSelect={() => onToggleSelect(chat.id)}
+      />
+    </StaggerFadeIn>
   );
 
   const emptyPeriodMessage =
@@ -1649,7 +1657,12 @@ export function HistoryDrawer({
             <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
               {/* Left column shares filter Y baseline */}
               <View style={{ flex: 1, paddingRight: GAP / 2 }}>
-                {leftColumn.map(renderCard)}
+                {leftColumn.map((chat) =>
+                  renderCard(
+                    chat,
+                    Math.max(0, visibleChats.findIndex((c) => c.id === chat.id)),
+                  ),
+                )}
               </View>
               {/* Right column starts below filter — staggered vertical rhythm */}
               <View
@@ -1659,7 +1672,12 @@ export function HistoryDrawer({
                   paddingTop: RIGHT_COLUMN_TOP_INSET,
                 }}
               >
-                {rightColumn.map(renderCard)}
+                {rightColumn.map((chat) =>
+                  renderCard(
+                    chat,
+                    Math.max(0, visibleChats.findIndex((c) => c.id === chat.id)),
+                  ),
+                )}
               </View>
             </View>
           )}

@@ -431,9 +431,9 @@ export const ModelCard: React.FC<ModelCardProps> = React.memo(({
             borderColor: theme.colors.border,
             shadowColor: "#000",
             shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.1,
+            shadowOpacity: theme.mode === "dark" ? 0.1 : 0,
             shadowRadius: 4,
-            elevation: 2,
+            elevation: theme.mode === "dark" ? 2 : 0,
             overflow: "hidden",
           },
           isDownloaded && {

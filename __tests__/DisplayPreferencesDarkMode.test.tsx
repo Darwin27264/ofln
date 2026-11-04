@@ -163,11 +163,19 @@ describe('SettingsScreen - Dark Mode and Chat Mode text visibility', () => {
   };
 
   beforeEach(() => {
+    jest.useFakeTimers();
     mockIsDark = true;
     jest.clearAllMocks();
   });
 
-  it('renders white text for Chat Mode and Dark Mode tiles when enabled in dark mode', async () => {
+  afterEach(() => {
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+    jest.useRealTimers();
+  });
+
+  it('renders high-contrast text and active overlays for Chat Mode and Dark Mode tiles when enabled in dark mode', async () => {
     mockIsDark = true;
     let tree!: renderer.ReactTestRenderer;
 
@@ -183,23 +191,23 @@ describe('SettingsScreen - Dark Mode and Chat Mode text visibility', () => {
 
     await act(async () => {
       touchables[0].props.onPress();
+      jest.advanceTimersByTime(350);
       await Promise.resolve();
     });
 
     // Find all Text nodes in tree
     const textNodes = root.findAllByType(Text);
 
-    // Find Chat Mode label
+    // Find Chat Mode label - with active white button overlay, text is primaryText (black)
     const chatModeLabelNode = textNodes.find((t) => {
       const child = Array.isArray(t.props.children) ? t.props.children.join('') : String(t.props.children ?? '');
       return child === 'Chat\nMode';
     });
     expect(chatModeLabelNode).toBeDefined();
-    // Verify it is WHITE (#FFFFFF), not black (#000000)
     const chatModeStyle = Array.isArray(chatModeLabelNode!.props.style)
       ? Object.assign({}, ...chatModeLabelNode!.props.style)
       : chatModeLabelNode!.props.style;
-    expect(chatModeStyle.color).toBe('#FFFFFF');
+    expect(chatModeStyle.color).toBe('rgba(0, 0, 0, 1)');
 
     // Find Dark Mode label
     const darkModeLabelNode = textNodes.find((t) => {
@@ -210,14 +218,13 @@ describe('SettingsScreen - Dark Mode and Chat Mode text visibility', () => {
     const darkModeStyle = Array.isArray(darkModeLabelNode!.props.style)
       ? Object.assign({}, ...darkModeLabelNode!.props.style)
       : darkModeLabelNode!.props.style;
-    expect(darkModeStyle.color).toBe('#FFFFFF');
+    expect(darkModeStyle.color).toBe('rgba(0, 0, 0, 1)');
 
     // Find "On" stat badges in SettingsTile
     const onTileStatBadges = root.findAll((node) => {
       if (node.type !== Text) return false;
       const child = Array.isArray(node.props.children) ? node.props.children.join('') : String(node.props.children ?? '');
       if (child !== 'On') return false;
-      // Filter to tile stat badges by checking style
       const style = Array.isArray(node.props.style) ? Object.assign({}, ...node.props.style) : node.props.style;
       return style && style.fontSize === 12; // blockStatText fontSize is 12
     });
@@ -226,26 +233,26 @@ describe('SettingsScreen - Dark Mode and Chat Mode text visibility', () => {
       const style = Array.isArray(badge.props.style)
         ? Object.assign({}, ...badge.props.style)
         : badge.props.style;
-      expect(style.color).toBe('#FFFFFF');
+      expect(style.color).toBe('#000000');
     }
 
     // Find Ionicons in the tiles
     const icons = root.findAll((node) => node.type === 'Ionicons');
     const chatIcon = icons.find((i) => i.props.name === 'chatbubble-outline');
     expect(chatIcon).toBeDefined();
-    expect(chatIcon!.props.color).toBe('#FFFFFF');
+    expect(chatIcon!.props.color).toBe('#000000');
 
     const darkIcon = icons.find((i) => i.props.name === 'moon');
     expect(darkIcon).toBeDefined();
-    expect(darkIcon!.props.color).toBe('#FFFFFF');
+    expect(darkIcon!.props.color).toBe('#000000');
   });
 
-  it('renders black text for Chat Mode and Dark Mode tiles when in light mode', async () => {
+  it('renders black text when tiles are off in light mode and white text when turned on', async () => {
     mockIsDark = false;
     let tree!: renderer.ReactTestRenderer;
 
     await act(async () => {
-      tree = renderer.create(<SettingsScreen {...defaultProps} assistantDisplayMode="bubble" />);
+      tree = renderer.create(<SettingsScreen {...defaultProps} assistantDisplayMode="direct" />);
       await Promise.resolve();
     });
 
@@ -253,6 +260,7 @@ describe('SettingsScreen - Dark Mode and Chat Mode text visibility', () => {
     const touchables = root.findAll((node) => node.props.accessibilityLabel === 'Display preferences');
     await act(async () => {
       touchables[0].props.onPress();
+      jest.advanceTimersByTime(350);
       await Promise.resolve();
     });
 
@@ -264,7 +272,8 @@ describe('SettingsScreen - Dark Mode and Chat Mode text visibility', () => {
     const chatModeStyle = Array.isArray(chatModeLabelNode!.props.style)
       ? Object.assign({}, ...chatModeLabelNode!.props.style)
       : chatModeLabelNode!.props.style;
-    expect(chatModeStyle.color).toBe('#000000');
+    // When OFF in light mode: black text on light frost
+    expect(chatModeStyle.color).toBe('rgba(0, 0, 0, 1)');
 
     const darkModeLabelNode = textNodes.find((t) => {
       const child = Array.isArray(t.props.children) ? t.props.children.join('') : String(t.props.children ?? '');
@@ -273,6 +282,6 @@ describe('SettingsScreen - Dark Mode and Chat Mode text visibility', () => {
     const darkModeStyle = Array.isArray(darkModeLabelNode!.props.style)
       ? Object.assign({}, ...darkModeLabelNode!.props.style)
       : darkModeLabelNode!.props.style;
-    expect(darkModeStyle.color).toBe('#000000');
+    expect(darkModeStyle.color).toBe('rgba(0, 0, 0, 1)');
   });
 });
