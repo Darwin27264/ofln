@@ -388,6 +388,8 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = React.memo(
     );
   },
   (prevProps, nextProps) =>
+    prevProps.theme.mode === nextProps.theme.mode &&
+    prevProps.theme === nextProps.theme &&
     prevProps.chat.id === nextProps.chat.id &&
     prevProps.chat.title === nextProps.chat.title &&
     prevProps.chat.preview === nextProps.chat.preview &&
