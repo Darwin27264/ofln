@@ -284,4 +284,50 @@ describe('SettingsScreen - Dark Mode and Chat Mode text visibility', () => {
       : darkModeLabelNode!.props.style;
     expect(darkModeStyle.color).toBe('#000000');
   });
+
+  it('synchronously invokes toggleTheme upon tapping Dark Mode tile', async () => {
+    mockIsDark = false;
+    mockToggleTheme.mockClear();
+    let tree!: renderer.ReactTestRenderer;
+
+    await act(async () => {
+      tree = renderer.create(<SettingsScreen {...defaultProps} assistantDisplayMode="direct" />);
+      await Promise.resolve();
+    });
+
+    const root = tree.root;
+    // Open Display preferences dropdown
+    const displayPrefButton = root.find((node) => node.props.accessibilityLabel === 'Display preferences');
+    await act(async () => {
+      displayPrefButton.props.onPress();
+      jest.advanceTimersByTime(350);
+      await Promise.resolve();
+    });
+
+    // Find the touchable for Dark Mode tile
+    const textNodes = root.findAllByType(Text);
+    const darkModeText = textNodes.find((t) => {
+      const child = Array.isArray(t.props.children) ? t.props.children.join('') : String(t.props.children ?? '');
+      return child === 'Dark\nMode';
+    });
+    expect(darkModeText).toBeDefined();
+
+    // Climb up to TouchableOpacity with onPress
+    let parent = darkModeText!.parent;
+    let touchable: any = null;
+    while (parent) {
+      if (typeof parent.props.onPress === 'function') {
+        touchable = parent;
+        break;
+      }
+      parent = parent.parent;
+    }
+
+    expect(touchable).toBeDefined();
+    await act(async () => {
+      touchable.props.onPress();
+    });
+
+    expect(mockToggleTheme).toHaveBeenCalledTimes(1);
+  });
 });

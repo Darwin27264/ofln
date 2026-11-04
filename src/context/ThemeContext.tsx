@@ -155,29 +155,23 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setIsTransitioning(true);
 
     const newMode = themeMode === 'light' ? 'dark' : 'light';
+    setThemeMode(newMode);
+    previousThemeMode.current = newMode;
+
+    AsyncStorage.setItem(THEME_STORAGE_KEY, newMode).catch((error) => {
+      console.error('Error saving theme:', error);
+    });
+
     setFadeColor(newMode === 'dark' ? '#000000' : '#FFFFFF');
+    fadeOverlay.setValue(0.2);
 
     Animated.timing(fadeOverlay, {
-      toValue: 0.32,
-      duration: 140,
+      toValue: 0,
+      duration: 250,
       easing: Easing.out(Easing.ease),
       useNativeDriver: true,
     }).start(() => {
-      setThemeMode(newMode);
-      previousThemeMode.current = newMode;
-
-      AsyncStorage.setItem(THEME_STORAGE_KEY, newMode).catch((error) => {
-        console.error('Error saving theme:', error);
-      });
-
-      Animated.timing(fadeOverlay, {
-        toValue: 0,
-        duration: 180,
-        easing: Easing.in(Easing.ease),
-        useNativeDriver: true,
-      }).start(() => {
-        setIsTransitioning(false);
-      });
+      setIsTransitioning(false);
     });
   };
 
