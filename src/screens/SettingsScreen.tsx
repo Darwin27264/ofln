@@ -329,11 +329,23 @@ export default function SettingsScreen({
   useEffect(() => {
     Animated.timing(darkModeAnim, {
       toValue: isDark ? 1 : 0,
-      duration: 600,
+      duration: 400,
       easing: EASING.STANDARD,
       useNativeDriver: false,
     }).start();
   }, [isDark, darkModeAnim]);
+
+  const handleToggleTheme = () => {
+    if (isTransitioning) return;
+    const nextIsDark = !isDark;
+    Animated.timing(darkModeAnim, {
+      toValue: nextIsDark ? 1 : 0,
+      duration: 400,
+      easing: EASING.STANDARD,
+      useNativeDriver: false,
+    }).start();
+    toggleTheme();
+  };
 
   const darkModeBackground = darkModeAnim.interpolate({
     inputRange: [0, 1],
@@ -703,7 +715,7 @@ export default function SettingsScreen({
             icon={isDark ? "moon" : "moon-outline"}
             label={"Dark\nMode"}
             stat={isDark ? "On" : "Off"}
-            onPress={toggleTheme}
+            onPress={handleToggleTheme}
             overlayColor={darkModeBackground}
             iconColor="#000000"
             labelColor="#000000"

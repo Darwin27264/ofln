@@ -124,7 +124,6 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
   const [isInitialized, setIsInitialized] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const [fadeColor, setFadeColor] = useState<string>('#000000');
   const previousThemeMode = useRef<ThemeMode>('dark');
   // Fade overlay sits *above* the tree — never wraps children — so Modals /
   // absolute overlays under screens are not put inside a native opacity layer.
@@ -154,27 +153,31 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (isTransitioning) return;
     setIsTransitioning(true);
 
-    const oldMode = themeMode;
-    const newMode = oldMode === 'light' ? 'dark' : 'light';
-    setThemeMode(newMode);
-    previousThemeMode.current = newMode;
+    const newMode = themeMode === 'light' ? 'dark' : 'light';
 
-    AsyncStorage.setItem(THEME_STORAGE_KEY, newMode).catch((error) => {
-      console.error('Error saving theme:', error);
-    });
-
-    // Start overlay with the prior theme background to eliminate harsh luminance flash,
-    // then slowly dissolve over 500ms so eyes adjust comfortably without strain.
-    setFadeColor(oldMode === 'dark' ? '#0A0A0A' : '#FFFFFF');
-    fadeOverlay.setValue(0.8);
-
+    // Softly dim with black (never white to prevent flashes) to midpoint,
+    // swap theme at the dimmest point, then smoothly reveal the new theme.
     Animated.timing(fadeOverlay, {
-      toValue: 0,
-      duration: 600,
-      easing: Easing.bezier(0.4, 0, 0.2, 1),
+      toValue: 0.35,
+      duration: 160,
+      easing: Easing.out(Easing.ease),
       useNativeDriver: true,
     }).start(() => {
-      setIsTransitioning(false);
+      setThemeMode(newMode);
+      previousThemeMode.current = newMode;
+
+      AsyncStorage.setItem(THEME_STORAGE_KEY, newMode).catch((error) => {
+        console.error('Error saving theme:', error);
+      });
+
+      Animated.timing(fadeOverlay, {
+        toValue: 0,
+        duration: 240,
+        easing: Easing.in(Easing.ease),
+        useNativeDriver: true,
+      }).start(() => {
+        setIsTransitioning(false);
+      });
     });
   }, [isTransitioning, themeMode, fadeOverlay]);
 
@@ -215,7 +218,7 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             styles.fadeOverlay,
             {
               opacity: fadeOverlay,
-              backgroundColor: fadeColor,
+              backgroundColor: '#000000',
               zIndex: isTransitioning ? 100000 : -1,
               elevation: isTransitioning ? 100000 : 0,
             },
