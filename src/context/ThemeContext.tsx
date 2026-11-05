@@ -170,7 +170,7 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     Animated.timing(fadeOverlay, {
       toValue: 0,
-      duration: 500,
+      duration: 600,
       easing: Easing.bezier(0.4, 0, 0.2, 1),
       useNativeDriver: true,
     }).start(() => {
@@ -209,18 +209,18 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     <ThemeContext.Provider value={contextValue}>
       <View style={styles.root}>
         {children}
-        {isTransitioning ? (
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              styles.fadeOverlay,
-              {
-                opacity: fadeOverlay,
-                backgroundColor: fadeColor,
-              },
-            ]}
-          />
-        ) : null}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.fadeOverlay,
+            {
+              opacity: fadeOverlay,
+              backgroundColor: fadeColor,
+              zIndex: isTransitioning ? 100000 : -1,
+              elevation: isTransitioning ? 100000 : 0,
+            },
+          ]}
+        />
       </View>
     </ThemeContext.Provider>
   );
@@ -240,7 +240,5 @@ const styles = StyleSheet.create({
   },
   fadeOverlay: {
     ...StyleSheet.absoluteFillObject,
-    zIndex: 100000,
-    elevation: 100000,
   },
 });

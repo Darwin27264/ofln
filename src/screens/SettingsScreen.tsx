@@ -329,7 +329,7 @@ export default function SettingsScreen({
   useEffect(() => {
     Animated.timing(darkModeAnim, {
       toValue: isDark ? 1 : 0,
-      duration: 500,
+      duration: 600,
       easing: EASING.STANDARD,
       useNativeDriver: false,
     }).start();
@@ -337,7 +337,7 @@ export default function SettingsScreen({
 
   const darkModeBackground = darkModeAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["transparent", "#FFFFFF"],
+    outputRange: ["rgba(255, 255, 255, 0)", "#FFFFFF"],
   });
 
   const mutedBadgeBg = isDark
