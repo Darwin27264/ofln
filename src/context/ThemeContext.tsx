@@ -154,7 +154,8 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (isTransitioning) return;
     setIsTransitioning(true);
 
-    const newMode = themeMode === 'light' ? 'dark' : 'light';
+    const oldMode = themeMode;
+    const newMode = oldMode === 'light' ? 'dark' : 'light';
     setThemeMode(newMode);
     previousThemeMode.current = newMode;
 
@@ -162,13 +163,15 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       console.error('Error saving theme:', error);
     });
 
-    setFadeColor(newMode === 'dark' ? '#000000' : '#FFFFFF');
-    fadeOverlay.setValue(0.2);
+    // Start overlay with the prior theme background to eliminate harsh luminance flash,
+    // then slowly dissolve over 500ms so eyes adjust comfortably without strain.
+    setFadeColor(oldMode === 'dark' ? '#0A0A0A' : '#FFFFFF');
+    fadeOverlay.setValue(0.8);
 
     Animated.timing(fadeOverlay, {
       toValue: 0,
-      duration: 250,
-      easing: Easing.out(Easing.ease),
+      duration: 500,
+      easing: Easing.bezier(0.4, 0, 0.2, 1),
       useNativeDriver: true,
     }).start(() => {
       setIsTransitioning(false);

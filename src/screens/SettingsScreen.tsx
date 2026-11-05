@@ -329,7 +329,7 @@ export default function SettingsScreen({
   useEffect(() => {
     Animated.timing(darkModeAnim, {
       toValue: isDark ? 1 : 0,
-      duration: 250,
+      duration: 500,
       easing: EASING.STANDARD,
       useNativeDriver: false,
     }).start();
