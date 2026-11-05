@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo, ReactNode } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -150,7 +150,7 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     loadTheme();
   }, []);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     if (isTransitioning) return;
     setIsTransitioning(true);
 
@@ -173,46 +173,51 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }).start(() => {
       setIsTransitioning(false);
     });
-  };
+  }, [isTransitioning, themeMode, fadeOverlay]);
 
   /** Quiet apply (backup / restore) — no crossfade. */
-  const applyThemeMode = (mode: ThemeMode) => {
+  const applyThemeMode = useCallback((mode: ThemeMode) => {
     if (mode !== 'light' && mode !== 'dark') return;
     setThemeMode(mode);
     previousThemeMode.current = mode;
     AsyncStorage.setItem(THEME_STORAGE_KEY, mode).catch((error) => {
       console.error('Error saving theme:', error);
     });
-  };
+  }, []);
 
   const theme = themeMode === 'dark' ? darkTheme : lightTheme;
+
+  const contextValue = useMemo(
+    () => ({
+      theme,
+      toggleTheme,
+      setThemeMode: applyThemeMode,
+      isDark: themeMode === 'dark',
+      isTransitioning,
+    }),
+    [theme, toggleTheme, applyThemeMode, themeMode, isTransitioning],
+  );
 
   if (!isInitialized) {
     return null;
   }
 
   return (
-    <ThemeContext.Provider
-      value={{
-        theme,
-        toggleTheme,
-        setThemeMode: applyThemeMode,
-        isDark: themeMode === 'dark',
-        isTransitioning,
-      }}
-    >
+    <ThemeContext.Provider value={contextValue}>
       <View style={styles.root}>
         {children}
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.fadeOverlay,
-            {
-              opacity: fadeOverlay,
-              backgroundColor: fadeColor,
-            },
-          ]}
-        />
+        {isTransitioning ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.fadeOverlay,
+              {
+                opacity: fadeOverlay,
+                backgroundColor: fadeColor,
+              },
+            ]}
+          />
+        ) : null}
       </View>
     </ThemeContext.Provider>
   );

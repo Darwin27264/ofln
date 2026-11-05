@@ -391,7 +391,6 @@ export default function SettingsScreen({
           padding: 20,
           flex: 1,
           backgroundColor: theme.colors.background,
-          opacity: isTransitioning ? 0.95 : 1,
         },
       ]}
     >

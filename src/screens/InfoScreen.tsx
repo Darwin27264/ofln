@@ -311,7 +311,6 @@ export default function InfoScreen({ onBack, onReviewOnboarding }: Props) {
           padding: 20,
           flex: 1,
           backgroundColor: theme.colors.background,
-          opacity: isTransitioning ? 0.95 : 1,
         },
       ]}
     >

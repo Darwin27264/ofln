@@ -34,7 +34,8 @@ export function PageFadeIn({
   const deferRef = useRef(deferEnter);
   deferRef.current = deferEnter;
 
-  const prevActiveRef = useRef<boolean | undefined>(undefined);
+  const isMountedRef = useRef(false);
+  const prevActiveRef = useRef<boolean | undefined>(active);
   const animRef = useRef<Animated.CompositeAnimation | null>(null);
   const rafOuterRef = useRef(0);
   const rafInnerRef = useRef(0);
@@ -60,7 +61,8 @@ export function PageFadeIn({
   };
 
   useLayoutEffect(() => {
-    const isFirstMount = prevActiveRef.current === undefined;
+    const isFirstMount = !isMountedRef.current;
+    isMountedRef.current = true;
     const prevActive = prevActiveRef.current;
     prevActiveRef.current = active;
 
@@ -134,6 +136,10 @@ export function PageFadeIn({
     } else {
       start();
     }
+
+    return () => {
+      stopActiveAnimation();
+    };
   }, [active]);
 
   // Clean up timers and animations on unmount
