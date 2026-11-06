@@ -901,7 +901,7 @@ const StagesScreen: FC<Props> = ({ downloadedModels, onBack }) => {
         </FrostedPanel>
 
         {/* Hardware acceleration & Suggestions — compact side-by-side boxes */}
-        <View style={{ flexDirection: 'row', width: '100%', gap: 10, marginBottom: SETTINGS_BLOCK.gap }}>
+        <View style={{ flexDirection: 'row', width: '100%', gap: SETTINGS_BLOCK.gutter * 2, marginBottom: SETTINGS_BLOCK.gap }}>
           {/* Hardware acceleration compact box */}
           <TouchableOpacity
             style={{ flex: 1 }}

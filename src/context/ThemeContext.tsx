@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo, ReactNode } from 'react';
-import { Animated, Easing, StyleSheet, View } from 'react-native';
+import { Animated, StyleSheet, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { EASING, THEME_TRANSITION } from '../utils/animationConfig';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -125,9 +126,30 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [isInitialized, setIsInitialized] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const previousThemeMode = useRef<ThemeMode>('dark');
+  // Sync guard — React state alone can miss a double-tap before re-render.
+  const transitioningRef = useRef(false);
+  // Bumped on unmount so in-flight cover/RAF/dissolve callbacks become no-ops.
+  const transitionGenerationRef = useRef(0);
   // Fade overlay sits *above* the tree — never wraps children — so Modals /
   // absolute overlays under screens are not put inside a native opacity layer.
   const fadeOverlay = useRef(new Animated.Value(0)).current;
+  const coverAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+  const rafIdsRef = useRef<number[]>([]);
+
+  const clearRafs = () => {
+    for (const id of rafIdsRef.current) cancelAnimationFrame(id);
+    rafIdsRef.current = [];
+  };
+
+  /** Run `fn` after `frames` animation frames (native paint settle). */
+  const afterFrames = (frames: number, fn: () => void) => {
+    if (frames <= 0) {
+      fn();
+      return;
+    }
+    const id = requestAnimationFrame(() => afterFrames(frames - 1, fn));
+    rafIdsRef.current.push(id);
+  };
 
   useEffect(() => {
     const loadTheme = async () => {
@@ -149,37 +171,82 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     loadTheme();
   }, []);
 
+  useEffect(() => {
+    return () => {
+      transitionGenerationRef.current += 1;
+      coverAnimRef.current?.stop();
+      clearRafs();
+      transitioningRef.current = false;
+    };
+  }, []);
+
   const toggleTheme = useCallback(() => {
-    if (isTransitioning) return;
+    if (transitioningRef.current) return;
+    transitioningRef.current = true;
     setIsTransitioning(true);
 
     const newMode = themeMode === 'light' ? 'dark' : 'light';
+    const generation = transitionGenerationRef.current;
 
-    // Softly dim with black (never white to prevent flashes) to midpoint,
-    // swap theme at the dimmest point, then smoothly reveal the new theme.
-    Animated.timing(fadeOverlay, {
-      toValue: 0.35,
-      duration: 160,
-      easing: Easing.out(Easing.ease),
+    // Soft black cover → opaque, swap tokens only under full cover, then dissolve.
+    // Never use a white cover (reads as a flash). Semi-opaque covers let the new
+    // theme luminance peek through mid-dissolve — that was the remaining flash.
+    //
+    // Do not stop()/restart mid-flight: transitioningRef blocks re-entry, and
+    // stop()'s finished:false callback would clear the guard while RAFs still run.
+    clearRafs();
+
+    const coverIn = Animated.timing(fadeOverlay, {
+      toValue: THEME_TRANSITION.COVER_OPACITY,
+      duration: THEME_TRANSITION.COVER_IN_MS,
+      easing: EASING.EASE_OUT,
       useNativeDriver: true,
-    }).start(() => {
-      setThemeMode(newMode);
-      previousThemeMode.current = newMode;
+    });
+    coverAnimRef.current = coverIn;
 
-      AsyncStorage.setItem(THEME_STORAGE_KEY, newMode).catch((error) => {
-        console.error('Error saving theme:', error);
-      });
+    coverIn.start(({ finished }) => {
+      if (!finished || generation !== transitionGenerationRef.current) {
+        // Unmount/interrupt only — re-entry is blocked, so this is not a restart path.
+        if (generation === transitionGenerationRef.current) {
+          fadeOverlay.setValue(0);
+          transitioningRef.current = false;
+          setIsTransitioning(false);
+        }
+        return;
+      }
 
-      Animated.timing(fadeOverlay, {
-        toValue: 0,
-        duration: 240,
-        easing: Easing.in(Easing.ease),
-        useNativeDriver: true,
-      }).start(() => {
-        setIsTransitioning(false);
+      // Settle opaque cover on the native side before swapping tokens.
+      afterFrames(THEME_TRANSITION.SETTLE_FRAMES, () => {
+        if (generation !== transitionGenerationRef.current) return;
+
+        setThemeMode(newMode);
+        previousThemeMode.current = newMode;
+
+        AsyncStorage.setItem(THEME_STORAGE_KEY, newMode).catch((error) => {
+          console.error('Error saving theme:', error);
+        });
+
+        // Let the new theme commit under the still-opaque cover, then dissolve.
+        afterFrames(THEME_TRANSITION.SETTLE_FRAMES, () => {
+          if (generation !== transitionGenerationRef.current) return;
+
+          const dissolve = Animated.timing(fadeOverlay, {
+            toValue: 0,
+            duration: THEME_TRANSITION.DISSOLVE_MS,
+            easing: EASING.STANDARD,
+            useNativeDriver: true,
+          });
+          coverAnimRef.current = dissolve;
+          dissolve.start(({ finished: dissolveFinished }) => {
+            if (generation !== transitionGenerationRef.current) return;
+            if (!dissolveFinished) fadeOverlay.setValue(0);
+            transitioningRef.current = false;
+            setIsTransitioning(false);
+          });
+        });
       });
     });
-  }, [isTransitioning, themeMode, fadeOverlay]);
+  }, [themeMode, fadeOverlay]);
 
   /** Quiet apply (backup / restore) — no crossfade. */
   const applyThemeMode = useCallback((mode: ThemeMode) => {
@@ -219,8 +286,11 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             {
               opacity: fadeOverlay,
               backgroundColor: '#000000',
-              zIndex: isTransitioning ? 100000 : -1,
-              elevation: isTransitioning ? 100000 : 0,
+              // Above CustomAlert (200000) and all in-tree absolute overlays so
+              // theme swap never flashes through an open alert. Idle opacity is
+              // 0 and pointerEvents stay none — alerts remain tappable.
+              zIndex: 300000,
+              elevation: 300000,
             },
           ]}
         />

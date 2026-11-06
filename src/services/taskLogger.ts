@@ -25,7 +25,28 @@ function stringifyDetails(details?: unknown): string | undefined {
   if (details === undefined || details === null) return undefined;
   if (typeof details === 'string') return details;
   if (details instanceof Error) {
-    return details.stack || details.message;
+    // Prefer stack; when native bridges only say "Unknown error", keep message
+    // but surface any extra enumerable fields via JSON.
+    const stack = details.stack?.trim();
+    if (stack && !/^Error: Unknown error$/i.test(stack.split('\n')[0] || '')) {
+      return stack;
+    }
+    try {
+      const own = Object.getOwnPropertyNames(details).filter((k) => k !== 'stack');
+      if (own.length > 0) {
+        const dumped: Record<string, unknown> = {};
+        for (const k of own) {
+          dumped[k] = (details as unknown as Record<string, unknown>)[k];
+        }
+        const s = JSON.stringify(dumped, null, 2);
+        if (s && s !== '{}' && s !== '{\n  "message": "Unknown error"\n}') {
+          return `${details.message || 'Unknown error'}\n${s}`;
+        }
+      }
+    } catch {
+      /* fall through */
+    }
+    return stack || details.message;
   }
   try {
     return JSON.stringify(details, null, 2);

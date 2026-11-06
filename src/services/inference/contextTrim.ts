@@ -8,9 +8,81 @@ export type TrimableMessage = {
   content: string | unknown;
 };
 
+/**
+ * Conservative vs chat banner (~3.5): URL-heavy source text tokenizes denser,
+ * and chat templates eat extra tokens. Under-estimating chars/token caused
+ * "fits in trim, context_full at native" Unknown errors on emulator n_ctx=1024.
+ */
+const CHARS_PER_TOKEN = 3.0;
+/** Reserve tokens for chat-template overhead beyond n_predict. */
+const TEMPLATE_OVERHEAD_TOKENS = 192;
+const TRUNCATION_MARKER = '\n\n[…truncated for context…]';
+
 function contentLength(content: string | unknown): number {
   if (typeof content === 'string') return content.length;
   return JSON.stringify(content).length;
+}
+
+function contextCharBudget(n_ctx: number, n_predict: number): number {
+  return Math.max(0, n_ctx - n_predict - TEMPLATE_OVERHEAD_TOKENS) * CHARS_PER_TOKEN;
+}
+
+function truncateStringToChars(content: string, maxChars: number): string {
+  if (maxChars <= 0) return '';
+  if (content.length <= maxChars) return content;
+  if (maxChars <= TRUNCATION_MARKER.length) {
+    return content.slice(0, maxChars);
+  }
+  return content.slice(0, maxChars - TRUNCATION_MARKER.length) + TRUNCATION_MARKER;
+}
+
+/**
+ * When system + current turn alone exceed the context budget (common for
+ * Source Monitor tasks: exactly 2 messages with a large fetched body),
+ * shrink the last string user message so native completion does not OOM /
+ * throw opaque "Unknown error".
+ */
+export function fitMessagesToCharBudget<T extends TrimableMessage>(
+  messages: T[],
+  budgetChars: number,
+): T[] {
+  if (messages.length === 0) return messages;
+  // n_predict ≥ n_ctx yields a 0 budget — do not wipe the turn; caller already
+  // kept system + anchor. Real loads use n_ctx ≥ 512 so this is test/edge only.
+  if (budgetChars <= 0) return messages;
+
+  const total =
+    messages.reduce((sum, m) => sum + contentLength(m.content) + 20, 0) - 20;
+  if (total <= budgetChars) return messages;
+
+  let truncIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user' && typeof messages[i].content === 'string') {
+      truncIdx = i;
+      break;
+    }
+  }
+  if (truncIdx < 0) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (typeof messages[i].content === 'string') {
+        truncIdx = i;
+        break;
+      }
+    }
+  }
+  if (truncIdx < 0) return messages;
+
+  const other = total - contentLength(messages[truncIdx].content);
+  const maxForTarget = Math.max(0, Math.floor(budgetChars - other));
+  const content = messages[truncIdx].content as string;
+  if (content.length <= maxForTarget) return messages;
+
+  const next = messages.slice();
+  next[truncIdx] = {
+    ...messages[truncIdx],
+    content: truncateStringToChars(content, maxForTarget),
+  };
+  return next;
 }
 
 /**
@@ -21,16 +93,22 @@ function contentLength(content: string | unknown): number {
  * chat (last message is user) and Perspective multi-seat turns (user topic
  * followed by one or more assistant replies) so the real topic is never
  * dropped when the list ends on an assistant.
+ *
+ * Also clamps oversized single-turn bodies (system+user) that previously
+ * bypassed trim when `messages.length <= 2`.
  */
 export function trimConversation<T extends TrimableMessage>(
   messages: T[],
   n_ctx: number,
   n_predict: number,
 ): T[] {
-  if (messages.length <= 2) return messages;
+  const budgetChars = contextCharBudget(n_ctx, n_predict);
 
-  const CHARS_PER_TOKEN = 3.5;
-  let budgetChars = Math.max(0, n_ctx - n_predict - 128) * CHARS_PER_TOKEN;
+  if (messages.length <= 2) {
+    return fitMessagesToCharBudget(messages, budgetChars);
+  }
+
+  let remaining = budgetChars;
 
   const systemMsg = messages[0];
 
@@ -47,24 +125,27 @@ export function trimConversation<T extends TrimableMessage>(
   const anchorTail = messages.slice(anchorStart);
   const history = messages.slice(1, anchorStart);
 
-  budgetChars -= contentLength(systemMsg.content);
+  remaining -= contentLength(systemMsg.content);
   for (const m of anchorTail) {
-    budgetChars -= contentLength(m.content);
+    remaining -= contentLength(m.content);
   }
 
-  if (budgetChars <= 0 || history.length === 0) {
-    return [systemMsg, ...anchorTail];
+  if (remaining <= 0 || history.length === 0) {
+    return fitMessagesToCharBudget([systemMsg, ...anchorTail], budgetChars);
   }
 
   const kept: T[] = [];
   for (let i = history.length - 1; i >= 0; i--) {
     const msgLen = contentLength(history[i].content) + 20;
-    if (budgetChars - msgLen < 0) break;
-    budgetChars -= msgLen;
+    if (remaining - msgLen < 0) break;
+    remaining -= msgLen;
     kept.unshift(history[i]);
   }
 
-  return [systemMsg, ...kept, ...anchorTail];
+  return fitMessagesToCharBudget(
+    [systemMsg, ...kept, ...anchorTail],
+    budgetChars,
+  );
 }
 
 export type ConversationTrimResult<T extends TrimableMessage> = {

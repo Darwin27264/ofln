@@ -783,7 +783,11 @@ export function MessageList({
       style={{ flex: 1, position: 'relative' }}
       onLayout={(e) => {
         const { width, height } = e.nativeEvent.layout;
-        setListSize({ width, height });
+        setListSize((prev) =>
+          Math.abs(prev.width - width) < 1 && Math.abs(prev.height - height) < 1
+            ? prev
+            : { width, height },
+        );
       }}
     >
       <Animated.View
@@ -1299,29 +1303,61 @@ export function MessageList({
           ]}
           pointerEvents="box-none"
         >
-          {isTemporaryMode && (
-            <Ionicons
-              name="flash"
-              size={36}
-              color={theme.colors.text}
-              style={{ marginBottom: 12 }}
-            />
-          )}
-          {isPerspectiveMode && !isTemporaryMode && (
+          {isPerspectiveMode ? (
             <Ionicons
               name="git-compare-outline"
               size={36}
               color={theme.colors.text}
               style={{ marginBottom: 12 }}
             />
+          ) : (
+            // Absolute so default empty-chat layout stays tight; opacity is
+            // native-driven with the temp explanation (no layout thrash).
+            <Animated.View
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                top: -48,
+                left: 0,
+                right: 0,
+                alignItems: 'center',
+                opacity: tempModeExplanationAnim,
+                transform: [
+                  {
+                    translateY: tempModeExplanationAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [8, 0],
+                    }),
+                  },
+                ],
+              }}
+            >
+              <Ionicons name="flash" size={36} color={theme.colors.text} />
+            </Animated.View>
           )}
-          <Text style={styles.greetingText}>
-            {isTemporaryMode
-              ? 'Temporary Mode'
-              : isPerspectiveMode
-                ? 'Perspective'
-                : greetingLine}
-          </Text>
+          {isPerspectiveMode ? (
+            <Text style={styles.greetingText}>Perspective</Text>
+          ) : (
+            <View style={{ width: '100%', alignItems: 'center' }}>
+              <Animated.Text
+                style={[
+                  styles.greetingText,
+                  {
+                    position: 'absolute',
+                    opacity: tempModeExplanationAnim,
+                  },
+                ]}
+                pointerEvents="none"
+              >
+                Temporary Mode
+              </Animated.Text>
+              <Animated.Text
+                style={[styles.greetingText, { opacity: presetMessagesAnim }]}
+              >
+                {greetingLine}
+              </Animated.Text>
+            </View>
+          )}
 
           <Animated.View
             style={{
@@ -1332,37 +1368,7 @@ export function MessageList({
             }}
             pointerEvents={keyboardPadding > 0 ? 'none' : 'box-none'}
           >
-            {isTemporaryMode ? (
-              <Animated.View
-                style={{
-                  opacity: tempModeExplanationAnim,
-                  transform: [
-                    {
-                      translateY: tempModeExplanationAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [10, 0],
-                      }),
-                    },
-                  ],
-                  width: '100%',
-                  alignItems: 'center',
-                }}
-              >
-                <Text
-                  style={{
-                    color: theme.colors.text,
-                    fontSize: 18,
-                    fontFamily: 'Poppins',
-                    textAlign: 'center',
-                    lineHeight: 24,
-                    paddingHorizontal: 20,
-                  }}
-                >
-                  Conversations in temporary mode are not saved. This chat will not appear in
-                  history. Photos still run on-device OCR before the model sees them.
-                </Text>
-              </Animated.View>
-            ) : isPerspectiveMode ? (
+            {isPerspectiveMode ? (
               <View
                 style={{
                   width: '100%',
@@ -1385,68 +1391,110 @@ export function MessageList({
                 </Text>
               </View>
             ) : (
-              <Animated.View
-                style={{
-                  opacity: presetMessagesAnim,
-                  transform: [
-                    {
-                      translateY: presetMessagesAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [10, 0],
-                      }),
-                    },
-                  ],
-                  alignItems: 'center',
-                  width: '100%',
-                }}
-              >
-                {presetMessages.map((preset, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    onPress={() => onPresetMessage(preset)}
-                    activeOpacity={0.75}
+              // Keep both layers mounted and opacity-crossfade. Swapping via
+              // isTemporaryMode remounted every preset FrostedGlass/BlurView
+              // and made the toggle hitch on the JS/native bridge.
+              <View style={{ width: '100%', alignItems: 'center' }}>
+                <Animated.View
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    opacity: tempModeExplanationAnim,
+                    transform: [
+                      {
+                        translateY: tempModeExplanationAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [10, 0],
+                        }),
+                      },
+                    ],
+                    zIndex: 1,
+                  }}
+                  pointerEvents={isTemporaryMode ? 'auto' : 'none'}
+                >
+                  <Text
                     style={{
+                      color: theme.colors.text,
+                      fontSize: 18,
+                      fontFamily: 'Poppins',
+                      textAlign: 'center',
+                      lineHeight: 24,
                       paddingHorizontal: 20,
-                      paddingVertical: 12,
-                      borderRadius: 30,
-                      borderWidth: StyleSheet.hairlineWidth,
-                      borderColor:
-                        theme.mode === 'dark'
-                          ? 'rgba(255,255,255,0.18)'
-                          : 'rgba(0,0,0,0.08)',
-                      marginBottom: index < presetMessages.length - 1 ? 8 : 0,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      minWidth: 200,
-                      overflow: 'hidden',
                     }}
                   >
-                    <FrostedGlass
-                      style={StyleSheet.absoluteFillObject}
-                      blurAmount={18}
-                      tintOpacity={theme.mode === 'dark' ? 0.16 : 0.28}
-                      inverted={theme.mode === 'dark'}
-                    />
-                    <Ionicons
-                      name={presetIcons[preset] as any}
-                      size={20}
-                      color={theme.colors.text}
-                      style={{ marginRight: 8 }}
-                    />
-                    <Text
+                    Conversations in temporary mode are not saved. This chat will not appear in
+                    history. Photos still run on-device OCR before the model sees them.
+                  </Text>
+                </Animated.View>
+                <Animated.View
+                  style={{
+                    opacity: presetMessagesAnim,
+                    transform: [
+                      {
+                        translateY: presetMessagesAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [10, 0],
+                        }),
+                      },
+                    ],
+                    alignItems: 'center',
+                    width: '100%',
+                  }}
+                  pointerEvents={isTemporaryMode ? 'none' : 'box-none'}
+                >
+                  {presetMessages.map((preset, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      onPress={() => onPresetMessage(preset)}
+                      activeOpacity={0.75}
                       style={{
-                        color: theme.colors.text,
-                        fontSize: 16,
-                        fontFamily: 'Poppins',
-                        textAlign: 'center',
+                        paddingHorizontal: 20,
+                        paddingVertical: 12,
+                        borderRadius: 30,
+                        borderWidth: StyleSheet.hairlineWidth,
+                        borderColor:
+                          theme.mode === 'dark'
+                            ? 'rgba(255,255,255,0.18)'
+                            : 'rgba(0,0,0,0.08)',
+                        marginBottom: index < presetMessages.length - 1 ? 8 : 0,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minWidth: 200,
+                        overflow: 'hidden',
                       }}
                     >
-                      {preset}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </Animated.View>
+                      <FrostedGlass
+                        style={StyleSheet.absoluteFillObject}
+                        blurAmount={18}
+                        tintOpacity={theme.mode === 'dark' ? 0.16 : 0.28}
+                        inverted={theme.mode === 'dark'}
+                      />
+                      <Ionicons
+                        name={presetIcons[preset] as any}
+                        size={20}
+                        color={theme.colors.text}
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text
+                        style={{
+                          color: theme.colors.text,
+                          fontSize: 16,
+                          fontFamily: 'Poppins',
+                          textAlign: 'center',
+                        }}
+                      >
+                        {preset}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </Animated.View>
+              </View>
             )}
           </Animated.View>
         </Animated.View>

@@ -1,5 +1,5 @@
 // SettingsScreen.tsx
-import React, { useRef, useEffect, useState, useCallback } from "react";
+import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   ViewStyle,
   TextStyle,
   StyleSheet,
+  InteractionManager,
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { createStyles } from "../styles/styles";
@@ -20,10 +21,11 @@ import {
   FloatingBackButton,
   FloatingIconButton,
 } from "../components/FloatingBackButton";
+import { FadeInWhenReady } from "../components/FadeInWhenReady";
 import { useCollapsibleTitle } from "../hooks/useCollapsibleTitle";
 import { CollapsibleTitle } from "../components/CollapsibleTitle";
 import { useFloatingBackBottom, useScrollPadForFloatingBack } from "../utils/layoutInsets";
-import { EASING } from "../utils/animationConfig";
+import { EASING, THEME_TRANSITION } from "../utils/animationConfig";
 import { getPersonas } from "../services/personaService";
 import { getPerspectivePresets } from "../services/perspectiveService";
 import { countEnabledTasks } from "../services/taskService";
@@ -138,16 +140,17 @@ function SettingsTile({
         <View style={[styles.blockIconCircle, { backgroundColor: iconCircleBg }]}>
           <Ionicons name={icon as any} size={18} color={iconColor} />
         </View>
-        {showStat ? (
-          <View style={[styles.blockStatBadge, { backgroundColor: badgeBg }]}>
-            <Text
-              style={[styles.blockStatText, { color: badgeTextColor }]}
-              numberOfLines={1}
-            >
-              {stat}
-            </Text>
-          </View>
-        ) : null}
+        <FadeInWhenReady
+          ready={showStat}
+          style={[styles.blockStatBadge, { backgroundColor: badgeBg }]}
+        >
+          <Text
+            style={[styles.blockStatText, { color: badgeTextColor }]}
+            numberOfLines={1}
+          >
+            {stat}
+          </Text>
+        </FadeInWhenReady>
         <View style={styles.blockTextContainer}>
           {typeof labelColor === "string" || labelColor == null ? (
             <Text
@@ -215,7 +218,8 @@ export default function SettingsScreen({
 }: Props) {
   const { theme, toggleTheme, isDark, isTransitioning } = useTheme();
   const { ambientMotion, setAmbientMotion } = useAmbientMotion();
-  const styles = createStyles(theme.colors);
+  // Colors are static per mode — avoid rebuilding ~650 StyleSheet rules on every stats tick.
+  const styles = useMemo(() => createStyles(theme.colors), [theme.mode]);
   const { anim: titleAnim, handleScroll } = useCollapsibleTitle();
   const backBottom = useFloatingBackBottom();
   const scrollPadBottom = useScrollPadForFloatingBack();
@@ -249,33 +253,48 @@ export default function SettingsScreen({
   const [storageChatCount, setStorageChatCount] = useState<number | null>(null);
 
   const loadStats = useCallback(async () => {
+    const next: {
+      perfLevel: PerformanceLevel | null;
+      personaCount: number | null;
+      perspectiveCount: number | null;
+      tasksActiveCount: number | null;
+      storageUsedLabel: string | null;
+      storageChatCount: number | null;
+    } = {
+      perfLevel: null,
+      personaCount: null,
+      perspectiveCount: null,
+      tasksActiveCount: null,
+      storageUsedLabel: null,
+      storageChatCount: null,
+    };
+
     try {
       const records = await loadUsageRecords();
       const averages = computeUsageAverages(records);
-      setPerfLevel(averages?.performanceLevel ?? null);
+      next.perfLevel = averages?.performanceLevel ?? null;
     } catch {
-      setPerfLevel(null);
+      /* keep null */
     }
 
     try {
       const personas = await getPersonas();
-      setPersonaCount(personas.length);
+      next.personaCount = personas.length;
     } catch {
-      setPersonaCount(null);
+      /* keep null */
     }
 
     try {
       const presets = await getPerspectivePresets();
-      setPerspectiveCount(presets.length);
+      next.perspectiveCount = presets.length;
     } catch {
-      setPerspectiveCount(null);
+      /* keep null */
     }
 
     try {
-      const n = await countEnabledTasks();
-      setTasksActiveCount(n);
+      next.tasksActiveCount = await countEnabledTasks();
     } catch {
-      setTasksActiveCount(null);
+      /* keep null */
     }
 
     try {
@@ -284,16 +303,31 @@ export default function SettingsScreen({
         chatHistoryService.getAllChats(),
       ]);
       const bytes = sumStoredModelBytes(models);
-      setStorageUsedLabel(bytes > 0 ? formatBytesShort(bytes) : null);
-      setStorageChatCount(chats.length);
+      next.storageUsedLabel = bytes > 0 ? formatBytesShort(bytes) : null;
+      next.storageChatCount = chats.length;
     } catch {
-      setStorageUsedLabel(null);
-      setStorageChatCount(null);
+      /* keep null */
     }
+
+    setPerfLevel(next.perfLevel);
+    setPersonaCount(next.personaCount);
+    setPerspectiveCount(next.perspectiveCount);
+    setTasksActiveCount(next.tasksActiveCount);
+    setStorageUsedLabel(next.storageUsedLabel);
+    setStorageChatCount(next.storageChatCount);
   }, []);
 
+  // Defer disk/SQLite work until after PageFadeIn so enter motion isn't hitching.
   useEffect(() => {
-    loadStats();
+    let cancelled = false;
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (cancelled) return;
+      void loadStats();
+    });
+    return () => {
+      cancelled = true;
+      task.cancel();
+    };
   }, [loadStats]);
 
   // For Chat Mode, "on" means bubble mode.
@@ -326,21 +360,25 @@ export default function SettingsScreen({
   });
 
   const darkModeAnim = useRef(new Animated.Value(isDark ? 1 : 0)).current;
+  // Quiet sync only (backup restore / end-of-transition drift). While the cover
+  // runs, handleToggleTheme owns the chip — do not restart on isDark swap.
   useEffect(() => {
+    if (isTransitioning) return;
     Animated.timing(darkModeAnim, {
       toValue: isDark ? 1 : 0,
-      duration: 400,
+      duration: 200,
       easing: EASING.STANDARD,
       useNativeDriver: false,
     }).start();
-  }, [isDark, darkModeAnim]);
+  }, [isDark, isTransitioning, darkModeAnim]);
 
   const handleToggleTheme = () => {
     if (isTransitioning) return;
     const nextIsDark = !isDark;
+    // Kick the chip with full cover→settle→dissolve so it finishes with the overlay.
     Animated.timing(darkModeAnim, {
       toValue: nextIsDark ? 1 : 0,
-      duration: 400,
+      duration: THEME_TRANSITION.TOTAL_MS,
       easing: EASING.STANDARD,
       useNativeDriver: false,
     }).start();
@@ -556,45 +594,44 @@ export default function SettingsScreen({
                     gap: 6,
                   }}
                 >
-                  {storageUsedLabel ? (
-                    <View
-                      style={{
-                        paddingHorizontal: 10,
-                        paddingVertical: 5,
-                        borderRadius: 20,
-                        backgroundColor: mutedBadgeBg,
-                      }}
+                  <FadeInWhenReady
+                    ready={!!storageUsedLabel}
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                      borderRadius: 20,
+                      backgroundColor: mutedBadgeBg,
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.blockStatText,
+                        { color: mutedBadgeText },
+                      ]}
                     >
-                      <Text
-                        style={[
-                          styles.blockStatText,
-                          { color: mutedBadgeText },
-                        ]}
-                      >
-                        {storageUsedLabel} used
-                      </Text>
-                    </View>
-                  ) : null}
-                  {storageChatCount != null ? (
-                    <View
-                      style={{
-                        paddingHorizontal: 10,
-                        paddingVertical: 5,
-                        borderRadius: 20,
-                        backgroundColor: mutedBadgeBg,
-                      }}
+                      {storageUsedLabel} used
+                    </Text>
+                  </FadeInWhenReady>
+                  <FadeInWhenReady
+                    ready={storageChatCount != null}
+                    delay={40}
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                      borderRadius: 20,
+                      backgroundColor: mutedBadgeBg,
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.blockStatText,
+                        { color: mutedBadgeText },
+                      ]}
                     >
-                      <Text
-                        style={[
-                          styles.blockStatText,
-                          { color: mutedBadgeText },
-                        ]}
-                      >
-                        {storageChatCount} conversation
-                        {storageChatCount === 1 ? "" : "s"}
-                      </Text>
-                    </View>
-                  ) : null}
+                      {storageChatCount} conversation
+                      {storageChatCount === 1 ? "" : "s"}
+                    </Text>
+                  </FadeInWhenReady>
                 </View>
                 <View style={styles.blockTextContainer}>
                   <Text

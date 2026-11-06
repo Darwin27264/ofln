@@ -31,13 +31,11 @@ function assertKeychainAvailable(): void {
 }
 
 export function isHuggingFaceUrl(url: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    // Only the main site — NOT cdn-lfs / cas-bridge (Bearer breaks CDN downloads).
-    return host === 'huggingface.co';
-  } catch {
-    return /^https?:\/\/huggingface\.co([/:?]|$)/i.test(url);
-  }
+  // Hermes-safe: avoid `new URL(...).hostname` (partial URL polyfill).
+  const m = (url || '').trim().match(/^https?:\/\/([^\/?#]+)/i);
+  const host = (m?.[1] || '').toLowerCase();
+  // Only the main site — NOT cdn-lfs / cas-bridge (Bearer breaks CDN downloads).
+  return host === 'huggingface.co';
 }
 
 export async function getHfToken(): Promise<string | null> {

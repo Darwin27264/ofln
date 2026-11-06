@@ -49,6 +49,11 @@ class LlamaProviderService {
   private languageModel: LanguageModel | null = null;
   private modelInstance: any = null; // @react-native-ai/llama model instance
   private lastWarning: string | null = null;
+  /**
+   * Actual n_ctx used for the live native context (may be RAM-/emulator-/bare-
+   * fallback clamped below model settings). Used by trim/inject budgets.
+   */
+  private loadedNCtx: number | null = null;
   private status: ModelStatus = {
     state: 'idle',
     modelPath: null,
@@ -69,6 +74,26 @@ class LlamaProviderService {
 
   getLastWarning(): string | null {
     return this.lastWarning;
+  }
+
+  /** Context window of the currently loaded native session, or null if unloaded. */
+  getLoadedNCtx(): number | null {
+    if (this.loadedNCtx != null && this.loadedNCtx > 0) {
+      return this.loadedNCtx;
+    }
+    // Hot-reload / older sessions: try common llama.rn fields.
+    try {
+      const ctx = this.modelInstance?.getContext?.();
+      for (const c of [ctx?.n_ctx, ctx?.contextSize, ctx?.params?.n_ctx]) {
+        if (typeof c === 'number' && c > 0) {
+          this.loadedNCtx = c;
+          return c;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return null;
   }
 
   subscribe(listener: StatusListener): () => void {
@@ -358,9 +383,13 @@ class LlamaProviderService {
         return opts;
       };
 
+      /** Tracks whether the successful prepare used bare (n_ctx≤512) params. */
+      let preparedBare = false;
+
       const prepareOnce = async (bare: boolean) => {
         this.modelInstance = llama.languageModel(modelPath, buildOptions(bare));
         await this.modelInstance.prepare();
+        preparedBare = bare;
       };
 
       const prepareWithBareFallback = async (label: string) => {
@@ -480,6 +509,9 @@ class LlamaProviderService {
         );
 
         this.languageModel = this.modelInstance as LanguageModel;
+        this.loadedNCtx = preparedBare
+          ? Math.min(512, resolved.n_ctx)
+          : resolved.n_ctx;
 
         this.setStatus({
           state: 'ready',
@@ -492,7 +524,11 @@ class LlamaProviderService {
         // Successful intentional load ends Safe Mode autoload suppress.
         void setSuppressModelAutoload(false);
 
-        console.log('[LlamaProvider] Model ready:', modelPath.split('/').pop());
+        console.log(
+          '[LlamaProvider] Model ready:',
+          modelPath.split('/').pop(),
+          `n_ctx=${this.loadedNCtx}`,
+        );
 
         return true;
       } catch (error) {
@@ -551,6 +587,7 @@ class LlamaProviderService {
       this.modelInstance = null;
       this.languageModel = null;
       this.lastWarning = null;
+      this.loadedNCtx = null;
       setRuntimeAccelerationState(null);
       this.setStatus({
         state: 'unloaded',

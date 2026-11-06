@@ -14,6 +14,7 @@ import {
   formatScheduleSummary,
   isValidHttpUrl,
   normalizeSchedule,
+  preferSourceFeedUrl,
 } from '../src/utils/taskScheduleHelpers';
 import {
   htmlToPlainText,
@@ -118,10 +119,31 @@ describe('taskScheduleHelpers', () => {
     expect(d.getHours()).toBe(9);
   });
 
-  it('validates http(s) urls', () => {
+  it('validates http(s) urls without URL.protocol', () => {
     expect(isValidHttpUrl('https://example.com/feed')).toBe(true);
+    expect(isValidHttpUrl('http://example.com:8080/path?q=1')).toBe(true);
     expect(isValidHttpUrl('ftp://example.com')).toBe(false);
     expect(isValidHttpUrl('not a url')).toBe(false);
+    expect(isValidHttpUrl('https://user:pass@example.com')).toBe(false);
+    expect(isValidHttpUrl('javascript:alert(1)')).toBe(false);
+  });
+
+  it('rewrites HN homepage to RSS feed URL', () => {
+    expect(preferSourceFeedUrl('https://news.ycombinator.com')).toBe(
+      'https://news.ycombinator.com/rss',
+    );
+    expect(preferSourceFeedUrl('https://news.ycombinator.com/')).toBe(
+      'https://news.ycombinator.com/rss',
+    );
+    expect(preferSourceFeedUrl('https://www.news.ycombinator.com')).toBe(
+      'https://news.ycombinator.com/rss',
+    );
+    expect(preferSourceFeedUrl('https://news.ycombinator.com/rss')).toBe(
+      'https://news.ycombinator.com/rss',
+    );
+    expect(preferSourceFeedUrl('https://example.com')).toBe(
+      'https://example.com',
+    );
   });
 });
 
@@ -179,7 +201,7 @@ describe('taskService validators', () => {
     expect(isScheduledTask(brief)).toBe(true);
     expect(brief.name).toBe('Morning Brief');
     expect(brief.kind).toBe('source_monitor');
-    expect(brief.sourceUrl).toContain('news.ycombinator.com');
+    expect(brief.sourceUrl).toBe('https://news.ycombinator.com/rss');
     expect(brief.schedule.cadence).toBe('daily');
     expect(brief.schedule.hour).toBe(7);
     expect(brief.schedule.minute).toBe(30);

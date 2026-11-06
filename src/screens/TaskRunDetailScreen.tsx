@@ -18,6 +18,7 @@ import { useTheme } from "../context/ThemeContext";
 import { animateLayout } from "../utils/animationConfig";
 import { showAlert } from "../components/CustomAlert";
 import { FloatingBackButton } from "../components/FloatingBackButton";
+import { MessageMarkdown } from "../components/MessageMarkdown";
 import { useCollapsibleTitle } from "../hooks/useCollapsibleTitle";
 import { CollapsibleTitle } from "../components/CollapsibleTitle";
 import {
@@ -605,17 +606,13 @@ export default function TaskRunDetailScreen({
           </View>
 
           {run.resultText ? (
-            <Text
-              style={{
-                color: theme.colors.text,
-                fontFamily: "Poppins",
-                fontSize: 16,
-                lineHeight: 24,
-              }}
-              selectable
-            >
-              {run.resultText}
-            </Text>
+            <MessageMarkdown
+              content={run.resultText}
+              color={theme.colors.text}
+              fontSize={16}
+              lineHeight={24}
+              fontFamily="Poppins"
+            />
           ) : (
             <Text
               style={{

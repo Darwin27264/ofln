@@ -13,13 +13,18 @@ import { EASING, OVERLAY_MOTION } from '../utils/animationConfig';
 
 export function PageFadeIn({
   children,
-  deferEnter = false,
+  /**
+   * Default true: remounting screens (Settings, Models, …) finish first paint
+   * before the fade starts so blur/layout hitch doesn't eat the enter motion.
+   * Pass false for already-warm resident trees (e.g. Conversation return).
+   */
+  deferEnter = true,
   active,
 }: {
   children: React.ReactNode;
   /**
    * Wait until after the first paint before starting. Heavy first mounts
-   * (tutorial → chat) otherwise burn the fade during layout, then pop in.
+   * otherwise burn the fade during layout, then pop in.
    */
   deferEnter?: boolean;
   /**

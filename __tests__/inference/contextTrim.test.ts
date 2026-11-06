@@ -2,6 +2,7 @@ import {
   applyConversationTrim,
   buildSummarizationPrompt,
   consolidateWithSummary,
+  fitMessagesToCharBudget,
   formatPinnedEarlierSummary,
   partitionForSummarization,
   trimConversation,
@@ -14,6 +15,36 @@ describe('trimConversation', () => {
       { role: 'user', content: 'Hi' },
     ];
     expect(trimConversation(messages, 2048, 256)).toEqual(messages);
+  });
+
+  it('clamps oversized system+user (task-style) prompts to fit n_ctx', () => {
+    const huge = 'NEWS '.repeat(3000); // ~15k chars
+    const messages = [
+      { role: 'system', content: 'You are a concise analyst.' },
+      { role: 'user', content: `Summarize:\n\n${huge}` },
+    ];
+    // n_ctx=512, n_predict=128 → (512-128-192)*3.0 = 576 chars budget
+    const trimmed = trimConversation(messages, 512, 128);
+    expect(trimmed).toHaveLength(2);
+    expect(trimmed[0]).toEqual(messages[0]);
+    expect(typeof trimmed[1].content).toBe('string');
+    expect((trimmed[1].content as string).length).toBeLessThan(messages[1].content.length);
+    expect((trimmed[1].content as string).length).toBeLessThanOrEqual(700);
+    expect(trimmed[1].content as string).toContain('[…truncated for context…]');
+  });
+
+  it('clamps ~5k char prompts under emulator n_ctx=1024', () => {
+    // Reproduces Morning Brief failure: settings.n_ctx=2048 but loaded n_ctx=1024.
+    const body = 'x'.repeat(4933);
+    const messages = [
+      { role: 'system', content: 'You are a concise analyst on this phone.' },
+      { role: 'user', content: body },
+    ];
+    const trimmed = trimConversation(messages, 1024, 256);
+    const userLen = (trimmed[1].content as string).length;
+    // Budget ≈ (1024-256-192)*3 = 1728, minus system chars.
+    expect(userLen).toBeLessThan(4933);
+    expect(userLen).toBeLessThanOrEqual(1800);
   });
 
   it('always keeps system + current user when budget is exhausted', () => {
@@ -33,15 +64,15 @@ describe('trimConversation', () => {
   it('keeps newest history first within budget', () => {
     const messages = [
       { role: 'system', content: 'S' },
-      { role: 'user', content: 'u1-' + 'x'.repeat(200) },
-      { role: 'assistant', content: 'a1-' + 'y'.repeat(200) },
+      { role: 'user', content: 'u1-' + 'x'.repeat(2000) },
+      { role: 'assistant', content: 'a1-' + 'y'.repeat(2000) },
       { role: 'user', content: 'u2-short' },
       { role: 'assistant', content: 'a2-short' },
       { role: 'user', content: 'latest' },
     ];
 
-    // Fits recent short turns + one padded assistant; drops the oldest padded user.
-    const trimmed = trimConversation(messages, 280, 64);
+    // n_ctx=1024 / n_predict=256 → room for recent short turns, not the padded oldest.
+    const trimmed = trimConversation(messages, 1024, 256);
     expect(trimmed[0].content).toBe('S');
     expect(trimmed[trimmed.length - 1].content).toBe('latest');
     expect(trimmed.some((m) => String(m.content).startsWith('u2'))).toBe(true);
@@ -66,6 +97,19 @@ describe('trimConversation', () => {
     expect(trimmed.some((m) => m.content === topic)).toBe(true);
     expect(trimmed[trimmed.length - 1].role).toBe('assistant');
     expect(trimmed.some((m) => m.content === 'old topic')).toBe(false);
+  });
+});
+
+describe('fitMessagesToCharBudget', () => {
+  it('truncates the last user message when over budget', () => {
+    const messages = [
+      { role: 'system', content: 'SYS' },
+      { role: 'user', content: 'x'.repeat(500) },
+    ];
+    const fitted = fitMessagesToCharBudget(messages, 120);
+    expect(fitted[0].content).toBe('SYS');
+    expect((fitted[1].content as string).length).toBeLessThanOrEqual(120);
+    expect(fitted[1].content as string).toContain('[…truncated for context…]');
   });
 });
 

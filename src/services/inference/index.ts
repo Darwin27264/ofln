@@ -56,6 +56,7 @@ export {
 export {
   trimConversation,
   applyConversationTrim,
+  fitMessagesToCharBudget,
   type TrimableMessage,
   type ConversationTrimResult,
 } from './contextTrim';

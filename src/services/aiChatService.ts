@@ -22,6 +22,7 @@ import {
   approxTokenCountFromText,
 } from './performanceTracking';
 import { logError } from '../utils/errorLogger';
+import { formatLoadError } from './inferencePerfParams';
 import { resolveModelPolicy } from './inference/modelPolicy';
 import {
   buildCompletionParams,
@@ -385,11 +386,25 @@ export async function nativeCompletion(
   let inThinkBlock = false;
   let tokenCount = 0;
 
+  // Prefer the *actually loaded* context (emulator/RAM/bare clamp) over settings.
+  // Reading nativeContext.n_ctx is unreliable across llama.rn builds.
+  const loadedNCtx = llamaProvider.getLoadedNCtx();
+  const nativeNCtx =
+    typeof nativeContext?.n_ctx === 'number' && nativeContext.n_ctx > 0
+      ? nativeContext.n_ctx
+      : null;
+  const effectiveNCtx = Math.min(
+    settings.n_ctx,
+    loadedNCtx ?? Number.POSITIVE_INFINITY,
+    nativeNCtx ?? Number.POSITIVE_INFINITY,
+  );
+
   // Sliding-window trim (same helper as streamChat) — live product path.
+  // Also clamps oversized system+user bodies (Source Monitor is exactly 2 msgs).
   const trimResult = applyConversationTrim(
     messages,
-    settings.n_ctx,
-    settings.n_predict,
+    effectiveNCtx,
+    nPredict,
   );
   const trimmedMessageCount = trimResult.droppedCount;
 
@@ -407,10 +422,19 @@ export async function nativeCompletion(
     reasoning_content?: string;
   }
 
+  const promptChars = llamaMessages.reduce(
+    (sum, m) => sum + (typeof m.content === 'string' ? m.content.length : 0),
+    0,
+  );
+
   if (__DEV__) {
     console.log('[nativeCompletion] start', {
       modelName,
       n_predict: nPredict,
+      effectiveNCtx,
+      loadedNCtx,
+      settingsNCtx: settings.n_ctx,
+      promptChars,
       temperature,
       top_p: topP,
       top_k: topK,
@@ -432,6 +456,10 @@ export async function nativeCompletion(
     {
       modelName,
       n_predict: nPredict,
+      effectiveNCtx,
+      loadedNCtx,
+      settingsNCtx: settings.n_ctx,
+      promptChars,
       temperature,
       top_p: topP,
       top_k: topK,
@@ -452,6 +480,29 @@ export async function nativeCompletion(
     // If native metadata marshalling failed, pass an explicit text Jinja template
     // so getFormattedChat does not depend on model.metadata.
     const needsExplicitTemplate = !nativeContext?.model?.metadata?.['tokenizer.chat_template'];
+    const formatOpts: Record<string, unknown> = {
+      jinja: true,
+      ...(enableThinking !== undefined ? { enable_thinking: !!enableThinking } : {}),
+      ...(needsExplicitTemplate
+        ? { chat_template: resolveModelPolicy(modelName).template.familyStub }
+        : {}),
+    };
+
+    // Dry-run formatting with the real messages so Jinja/template failures
+    // surface before completion wraps them as opaque "Unknown error".
+    if (typeof nativeContext?.getFormattedChat === 'function') {
+      try {
+        await nativeContext.getFormattedChat(
+          llamaMessages,
+          undefined,
+          formatOpts,
+        );
+      } catch (fmtErr) {
+        throw new Error(
+          `Chat formatting failed (n_ctx=${effectiveNCtx}, ~${promptChars} prompt chars): ${formatLoadError(fmtErr)}`,
+        );
+      }
+    }
 
     // Ensure AbortSignal also stops the native session (thinking can ignore JS-only abort).
     const onAbort = () => {
@@ -478,6 +529,7 @@ export async function nativeCompletion(
         penalty_repeat: penaltyRepeat,
         penalty_present: penaltyPresent,
         stop,
+        jinja: true,
         // Always pass an explicit boolean for Qwen so template v4 injects empty
         // <think></think> when false (skips CoT on "another fun fact").
         ...(enableThinking !== undefined ? { enable_thinking: enableThinking } : {}),
@@ -485,7 +537,6 @@ export async function nativeCompletion(
         ...(needsExplicitTemplate
           ? {
               chat_template: resolveModelPolicy(modelName).template.familyStub,
-              jinja: true,
             }
           : {}),
       },
@@ -567,13 +618,33 @@ export async function nativeCompletion(
         trimmedMessageCount,
       };
     }
+    const formatted = formatLoadError(err);
     await logError(
       'Inference',
-      `nativeCompletion threw: ${err instanceof Error ? err.message : String(err)}`,
+      `nativeCompletion threw: ${formatted}`,
       err instanceof Error ? err : undefined,
-      { modelName, tokenCount, fullTextLen: fullText.length },
+      {
+        modelName,
+        tokenCount,
+        fullTextLen: fullText.length,
+        effectiveNCtx,
+        loadedNCtx,
+        promptChars,
+        n_predict: nPredict,
+      },
     );
-    throw err;
+    if (
+      err instanceof Error &&
+      err.message.trim() &&
+      !/^unknown error$/i.test(err.message.trim())
+    ) {
+      throw err;
+    }
+    const hint =
+      effectiveNCtx > 0 && promptChars > effectiveNCtx * 2
+        ? ` Prompt (~${promptChars} chars) likely exceeds loaded n_ctx=${effectiveNCtx}.`
+        : ` Loaded n_ctx=${effectiveNCtx}, promptChars=${promptChars}, n_predict=${nPredict}.`;
+    throw new Error(`${formatted}.${hint}`);
   }
 
   // stopCompletion usually resolves (doesn't throw) — treat abort as partial result.

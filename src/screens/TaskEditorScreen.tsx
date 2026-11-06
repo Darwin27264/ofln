@@ -18,6 +18,7 @@ import {
   Switch,
   StyleSheet,
   Animated,
+  ActivityIndicator,
   NativeSyntheticEvent,
   NativeScrollEvent,
 } from "react-native";
@@ -51,6 +52,10 @@ import {
 } from "../services/taskService";
 import { ensureEnabledTaskPermissions } from "../services/nativeTaskScheduler";
 import { getPersonasEnsured, type Persona } from "../services/personaService";
+import {
+  fetchSourceText,
+  type SourceFetchResult,
+} from "../services/sourceFetchService";
 import { prettifyModelName } from "../utils/modelUtils";
 import {
   clampHour,
@@ -63,6 +68,15 @@ import {
   normalizeWeekdays,
   type TaskCadence,
 } from "../utils/taskScheduleHelpers";
+
+type SourceFetchPreviewState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | {
+      status: "success";
+      result: SourceFetchResult;
+    }
+  | { status: "error"; message: string };
 
 interface Props {
   task?: ScheduledTask | null;
@@ -487,11 +501,23 @@ export default function TaskEditorScreen({
   );
   const [picker, setPicker] = useState<PickerTarget>(null);
   const [dirty, setDirty] = useState(false);
+  const [discoveredFeeds, setDiscoveredFeeds] = useState<string[]>([]);
+  const [fetchPreviewOpen, setFetchPreviewOpen] = useState(false);
+  const [fetchPreview, setFetchPreview] = useState<SourceFetchPreviewState>({
+    status: "idle",
+  });
+  const fetchAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     void getPersonasEnsured()
       .then(setPersonas)
       .catch(() => setPersonas([]));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      fetchAbortRef.current?.abort();
+    };
   }, []);
 
   // Prefer an explicit downloaded model — never a vague "default".
@@ -515,8 +541,58 @@ export default function TaskEditorScreen({
     setCadence("daily");
     setHour(7);
     setMinute(30);
+    setDiscoveredFeeds([]);
+    setFetchPreview({ status: "idle" });
     markDirty();
   }, [markDirty]);
+
+  const handleTestSourceFetch = useCallback(() => {
+    if (!isValidHttpUrl(sourceUrl)) {
+      showAlert("URL required", "Enter a valid http(s) feed or page URL first.", [
+        { text: "OK" },
+      ]);
+      return;
+    }
+    fetchAbortRef.current?.abort();
+    const ac = new AbortController();
+    fetchAbortRef.current = ac;
+    setFetchPreview({ status: "loading" });
+    setFetchPreviewOpen(true);
+    void fetchSourceText(sourceUrl.trim(), ac.signal)
+      .then((result) => {
+        if (ac.signal.aborted) return;
+        setFetchPreview({ status: "success", result });
+        if (result.alternateFeedUrls?.length) {
+          setDiscoveredFeeds(result.alternateFeedUrls);
+        } else if (result.isFeed) {
+          setDiscoveredFeeds([]);
+        }
+      })
+      .catch((err: unknown) => {
+        if (ac.signal.aborted) return;
+        if (
+          err &&
+          typeof err === "object" &&
+          "name" in err &&
+          (err as { name?: string }).name === "TaskCancelledError"
+        ) {
+          return;
+        }
+        const message =
+          err instanceof Error ? err.message : "Could not fetch this source.";
+        setFetchPreview({ status: "error", message });
+      });
+  }, [sourceUrl]);
+
+  const handleUseDiscoveredFeed = useCallback(
+    (feedUrl: string) => {
+      setSourceUrl(feedUrl);
+      setDiscoveredFeeds((prev) => prev.filter((u) => u !== feedUrl));
+      setFetchPreview({ status: "idle" });
+      markDirty();
+    },
+    [markDirty],
+  );
 
   const schedulePreview = useMemo(() => {
     const schedule = normalizeSchedule({
@@ -622,9 +698,11 @@ export default function TaskEditorScreen({
       return;
     }
     if (kind === "source_monitor" && !isValidHttpUrl(sourceUrl)) {
-      showAlert("URL required", "Enter a valid http(s) link to watch.", [
-        { text: "OK" },
-      ]);
+      showAlert(
+        "URL required",
+        "Enter a valid http(s) feed or page URL to watch.",
+        [{ text: "OK" }],
+      );
       return;
     }
 
@@ -797,7 +875,7 @@ export default function TaskEditorScreen({
                   fontWeight: "600",
                 }}
               >
-                Use template: Morning Brief (7:30 AM News)
+                Use template: Morning Brief (7:30 AM feed)
               </Text>
             </TouchableOpacity>
           )}
@@ -812,7 +890,7 @@ export default function TaskEditorScreen({
               markDirty();
             }}
             placeholder={
-              kind === "llm_prompt" ? "Morning poem" : "Blog watch"
+              kind === "llm_prompt" ? "Morning poem" : "Blog feed watch"
             }
             placeholderTextColor={theme.colors.textTertiary}
           />
@@ -860,7 +938,7 @@ export default function TaskEditorScreen({
             onPress={() => setKindAndPrompt("source_monitor")}
             activeOpacity={0.85}
           >
-            <Ionicons name="link-outline" size={22} color={theme.colors.text} />
+            <Ionicons name="rss-outline" size={22} color={theme.colors.text} />
             <View style={{ flex: 1 }}>
               <Text
                 style={{
@@ -870,7 +948,7 @@ export default function TaskEditorScreen({
                   color: theme.colors.text,
                 }}
               >
-                Watch a webpage
+                Watch a feed or page
               </Text>
               <Text
                 style={{
@@ -879,7 +957,7 @@ export default function TaskEditorScreen({
                   color: theme.colors.textSecondary,
                 }}
               >
-                Fetch a link, then analyze it
+                Prefer RSS/Atom when available — more reliable than HTML
               </Text>
             </View>
             {kind === "source_monitor" ? (
@@ -895,21 +973,119 @@ export default function TaskEditorScreen({
         {kind === "source_monitor" ? (
           <View style={{ marginBottom: 24 }}>
             <Text style={fieldLabel}>
-              Page URL <Text style={{ color: theme.colors.error }}>*</Text>
+              Feed or page URL{" "}
+              <Text style={{ color: theme.colors.error }}>*</Text>
             </Text>
             <TextInput
               style={inputBase}
               value={sourceUrl}
               onChangeText={(t) => {
                 setSourceUrl(t);
+                setDiscoveredFeeds([]);
+                setFetchPreview({ status: "idle" });
                 markDirty();
               }}
-              placeholder="https://…"
+              placeholder="https://…/rss or https://…"
               placeholderTextColor={theme.colors.textTertiary}
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="url"
             />
+            <Text style={helper}>
+              RSS/Atom feeds extract cleanly on-device. If you paste a webpage,
+              Test fetch can discover an alternate feed link when the site
+              advertises one.
+            </Text>
+            <TouchableOpacity
+              onPress={handleTestSourceFetch}
+              disabled={fetchPreview.status === "loading"}
+              activeOpacity={0.85}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                marginTop: 12,
+                paddingVertical: 12,
+                paddingHorizontal: 14,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+                backgroundColor: theme.colors.surface,
+                opacity: fetchPreview.status === "loading" ? 0.7 : 1,
+              }}
+            >
+              {fetchPreview.status === "loading" ? (
+                <ActivityIndicator size="small" color={theme.colors.text} />
+              ) : (
+                <Ionicons
+                  name="flash-outline"
+                  size={18}
+                  color={theme.colors.text}
+                />
+              )}
+              <Text
+                style={{
+                  fontFamily: "Poppins",
+                  fontWeight: "600",
+                  fontSize: 14,
+                  color: theme.colors.text,
+                }}
+              >
+                {fetchPreview.status === "loading"
+                  ? "Fetching…"
+                  : "Test fetch"}
+              </Text>
+            </TouchableOpacity>
+            {discoveredFeeds.length > 0 ? (
+              <View style={{ marginTop: 12, gap: 8 }}>
+                <Text
+                  style={{
+                    fontFamily: "Poppins",
+                    fontSize: 13,
+                    fontWeight: "600",
+                    color: theme.colors.text,
+                  }}
+                >
+                  Feeds found on this page
+                </Text>
+                {discoveredFeeds.map((feedUrl) => (
+                  <TouchableOpacity
+                    key={feedUrl}
+                    onPress={() => handleUseDiscoveredFeed(feedUrl)}
+                    activeOpacity={0.85}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: theme.colors.primary,
+                      backgroundColor: theme.colors.secondary,
+                    }}
+                  >
+                    <Ionicons
+                      name="rss"
+                      size={16}
+                      color={theme.colors.primary}
+                    />
+                    <Text
+                      style={{
+                        flex: 1,
+                        fontFamily: "Poppins",
+                        fontSize: 13,
+                        color: theme.colors.text,
+                      }}
+                      numberOfLines={2}
+                    >
+                      Use {feedUrl}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -939,7 +1115,7 @@ export default function TaskEditorScreen({
           <Text style={helper}>
             {kind === "llm_prompt"
               ? "This runs on-device with your downloaded model."
-              : "The page text is attached to this prompt each run."}
+              : "Extracted feed or page text is attached to this prompt each run."}
           </Text>
         </View>
 
@@ -1280,6 +1456,203 @@ export default function TaskEditorScreen({
           Save
         </Text>
       </TouchableOpacity>
+
+      <BottomSheet
+        visible={fetchPreviewOpen}
+        onClose={() => {
+          if (fetchPreview.status === "loading") {
+            fetchAbortRef.current?.abort();
+            setFetchPreview({ status: "idle" });
+          }
+          setFetchPreviewOpen(false);
+        }}
+        title="Fetch preview"
+        subtitle={
+          fetchPreview.status === "success" && fetchPreview.result.isFeed
+            ? "RSS/Atom feed detected"
+            : fetchPreview.status === "success"
+              ? "Page text extracted"
+              : undefined
+        }
+        height={0.65}
+      >
+        {fetchPreview.status === "loading" ? (
+          <View
+            style={{
+              paddingVertical: 32,
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <ActivityIndicator color={theme.colors.text} />
+            <Text
+              style={{
+                fontFamily: "Poppins",
+                fontSize: 14,
+                color: theme.colors.textSecondary,
+              }}
+            >
+              Fetching on-device…
+            </Text>
+          </View>
+        ) : null}
+        {fetchPreview.status === "error" ? (
+          <View style={{ gap: 10, paddingBottom: 8 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "flex-start",
+                gap: 10,
+                padding: 12,
+                borderRadius: 12,
+                backgroundColor: theme.colors.surface,
+                borderWidth: 1,
+                borderColor: theme.colors.error,
+              }}
+            >
+              <Ionicons
+                name="alert-circle-outline"
+                size={22}
+                color={theme.colors.error}
+              />
+              <Text
+                style={{
+                  flex: 1,
+                  fontFamily: "Poppins",
+                  fontSize: 14,
+                  lineHeight: 21,
+                  color: theme.colors.text,
+                }}
+              >
+                {fetchPreview.message}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={handleTestSourceFetch}
+              activeOpacity={0.85}
+              style={{
+                alignSelf: "flex-start",
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                borderRadius: 12,
+                backgroundColor: theme.colors.primary,
+              }}
+            >
+              <Text
+                style={{
+                  fontFamily: "Poppins",
+                  fontWeight: "600",
+                  fontSize: 14,
+                  color: theme.colors.primaryText,
+                }}
+              >
+                Try again
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+        {fetchPreview.status === "success" ? (
+          <ScrollView
+            nestedScrollEnabled
+            showsVerticalScrollIndicator
+            style={{ maxHeight: 360 }}
+          >
+            <View style={{ gap: 10, paddingBottom: 12 }}>
+              {fetchPreview.result.title ? (
+                <Text
+                  style={{
+                    fontFamily: "Poppins",
+                    fontWeight: "600",
+                    fontSize: 16,
+                    color: theme.colors.text,
+                  }}
+                >
+                  {fetchPreview.result.title}
+                </Text>
+              ) : null}
+              <Text
+                style={{
+                  fontFamily: "Poppins",
+                  fontSize: 13,
+                  color: theme.colors.textSecondary,
+                }}
+              >
+                {Math.round(fetchPreview.result.byteLength / 1024)} KB fetched
+                {fetchPreview.result.isFeed ? " · feed" : " · page"}
+                {fetchPreview.result.truncated ? " · truncated for analysis" : ""}
+              </Text>
+              {fetchPreview.result.alternateFeedUrls?.length ? (
+                <View style={{ gap: 8 }}>
+                  <Text
+                    style={{
+                      fontFamily: "Poppins",
+                      fontSize: 13,
+                      fontWeight: "600",
+                      color: theme.colors.text,
+                    }}
+                  >
+                    Prefer a feed for monitoring
+                  </Text>
+                  {fetchPreview.result.alternateFeedUrls.map((feedUrl) => (
+                    <TouchableOpacity
+                      key={feedUrl}
+                      onPress={() => {
+                        handleUseDiscoveredFeed(feedUrl);
+                        setFetchPreviewOpen(false);
+                      }}
+                      activeOpacity={0.85}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 8,
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: theme.colors.primary,
+                        backgroundColor: theme.colors.secondary,
+                      }}
+                    >
+                      <Ionicons
+                        name="rss"
+                        size={16}
+                        color={theme.colors.primary}
+                      />
+                      <Text
+                        style={{
+                          flex: 1,
+                          fontFamily: "Poppins",
+                          fontSize: 13,
+                          color: theme.colors.text,
+                        }}
+                        numberOfLines={2}
+                      >
+                        Switch to {feedUrl}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
+              <Text
+                style={{
+                  fontFamily: "Poppins",
+                  fontSize: 13,
+                  lineHeight: 20,
+                  color: theme.colors.text,
+                  backgroundColor: theme.colors.surface,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                  padding: 12,
+                }}
+                selectable
+              >
+                {fetchPreview.result.previewText || fetchPreview.result.text}
+              </Text>
+            </View>
+          </ScrollView>
+        ) : null}
+      </BottomSheet>
 
       <BottomSheet
         visible={picker != null}

@@ -436,9 +436,10 @@ export function buildNewSourceMonitorTask(
   });
 }
 
-export const MORNING_BRIEF_DEFAULT_URL = 'https://news.ycombinator.com';
+/** Prefer the HN RSS feed — more reliable for Source Monitor than scraping HTML. */
+export const MORNING_BRIEF_DEFAULT_URL = 'https://news.ycombinator.com/rss';
 export const MORNING_BRIEF_DEFAULT_PROMPT =
-  'Extract the top 5 most important and interesting stories from this morning source. Format each with a bold headline, a 2-sentence key takeaway, and why it matters. Keep it crisp and easy to scan or read aloud.';
+  'Extract the top 5 most important and interesting stories from this morning feed. Format each with a bold headline, a 2-sentence key takeaway, and why it matters. Keep it crisp and easy to scan or read aloud.';
 
 export function createMorningBriefTask(customUrl?: string): ScheduledTask {
   return buildNewScheduledTask({

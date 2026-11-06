@@ -33,6 +33,12 @@ import {
 } from './taskService';
 import { createTaskLogger, type TaskLogger } from './taskLogger';
 import { notifyTaskFinished } from './taskNotificationService';
+import { formatLoadError } from './inferencePerfParams';
+import {
+  documentInjectCharBudget,
+  truncateDocumentForInject,
+} from '../utils/documentHelpers';
+import { preferSourceFeedUrl } from '../utils/taskScheduleHelpers';
 import type { ChatMessage, StreamCallbacks } from '../types/ai';
 
 let runnerBusy = false;
@@ -268,7 +274,11 @@ async function ensureModelLoaded(
     const err = llamaProvider.getStatus().error || 'Model failed to load';
     throw new Error(err);
   }
-  logger?.success(`Model loaded successfully: ${preferred}`);
+  const loadedCtx = llamaProvider.getLoadedNCtx();
+  logger?.success(
+    `Model loaded successfully: ${preferred}` +
+      (loadedCtx ? ` (n_ctx=${loadedCtx})` : ''),
+  );
   return { fileName: preferred, loadedByRunner: true };
 }
 
@@ -278,6 +288,7 @@ async function runAnalysisCompletion(opts: {
   userContent: string;
   heuristicUserText?: string;
   signal?: AbortSignal;
+  logger?: TaskLogger;
 }): Promise<string> {
   const settings = await getModelSettings(opts.modelFileName);
   const systemPrompt = buildPersonaSystemPrompt(
@@ -285,9 +296,26 @@ async function runAnalysisCompletion(opts: {
     settings.systemPrompt,
   );
 
+  const loadedNCtx =
+    llamaProvider.getLoadedNCtx() ?? settings.n_ctx ?? 2048;
+  // Leave headroom for system prompt + wrapFetchedForPrompt framing.
+  const injectBudget = Math.max(
+    256,
+    documentInjectCharBudget(loadedNCtx, settings.n_predict) - 400,
+  );
+  const fittedUser =
+    opts.userContent.length > injectBudget
+      ? truncateDocumentForInject(opts.userContent, injectBudget)
+      : opts.userContent;
+  if (fittedUser.length < opts.userContent.length) {
+    opts.logger?.info(
+      `Trimmed task prompt ${opts.userContent.length} → ${fittedUser.length} chars for loaded n_ctx=${loadedNCtx}`,
+    );
+  }
+
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: opts.userContent },
+    { role: 'user', content: fittedUser },
   ];
 
   const ctx = llamaProvider.getNativeContext();
@@ -296,18 +324,31 @@ async function runAnalysisCompletion(opts: {
   }
 
   const noop: StreamCallbacks = {};
-  const result = await nativeCompletion(
-    ctx,
-    messages,
-    opts.modelFileName,
-    settings,
-    noop,
-    opts.signal,
-    {
-      heuristicMode: 'default',
-      heuristicUserText: opts.heuristicUserText || opts.userContent,
-    },
-  );
+  let result;
+  try {
+    result = await nativeCompletion(
+      ctx,
+      messages,
+      opts.modelFileName,
+      settings,
+      noop,
+      opts.signal,
+      {
+        heuristicMode: 'default',
+        // Heuristics should key off the analysis instruction, not the whole dump.
+        heuristicUserText: opts.heuristicUserText || fittedUser,
+      },
+    );
+  } catch (err) {
+    if (opts.signal?.aborted || isTaskCancelledError(err)) {
+      throw isTaskCancelledError(err) ? err : new TaskCancelledError();
+    }
+    const formatted = formatLoadError(err);
+    const nCtx = llamaProvider.getLoadedNCtx() ?? settings.n_ctx;
+    throw new Error(
+      `Inference failed: ${formatted} (loaded n_ctx=${nCtx}, promptChars=${fittedUser.length}, model=${opts.modelFileName})`,
+    );
+  }
 
   if (opts.signal?.aborted) {
     throw new TaskCancelledError(result?.text);
@@ -384,14 +425,34 @@ async function runOneTaskInternal(
     let fetchedText: string | null = null;
 
     if (!isLlmOnly) {
-      logger.info(`Fetching source text from ${task.sourceUrl}...`);
+      const fetchUrl = preferSourceFeedUrl(task.sourceUrl);
+      if (fetchUrl !== task.sourceUrl) {
+        logger.info(
+          `Rewriting source to feed URL for cleaner extraction: ${fetchUrl}`,
+        );
+      }
+      logger.info(`Fetching source text from ${fetchUrl}...`);
       const fetchStart = Date.now();
       throwIfCancelled(signal);
-      const fetched = await fetchSourceText(task.sourceUrl, signal);
+      let fetched = await fetchSourceText(fetchUrl, signal);
+      // If we still landed on HTML with discovered alternates, prefer the first feed.
+      if (
+        !fetched.isFeed &&
+        fetched.alternateFeedUrls &&
+        fetched.alternateFeedUrls.length > 0
+      ) {
+        const alt = fetched.alternateFeedUrls[0];
+        logger.info(`Following discovered feed link: ${alt}`);
+        fetched = await fetchSourceText(alt, signal);
+        run = { ...run, sourceUrl: alt };
+      } else if (fetchUrl !== task.sourceUrl) {
+        run = { ...run, sourceUrl: fetchUrl };
+      }
       fetchedText = fetched.text;
       const fetchDuration = Date.now() - fetchStart;
       logger.success(
-        `Fetched ${(fetchedText || '').length} characters in ${fetchDuration}ms`,
+        `Fetched ${(fetchedText || '').length} characters in ${fetchDuration}ms` +
+          (fetched.isFeed ? ' (feed)' : ''),
       );
       run = {
         ...run,
@@ -459,6 +520,7 @@ async function runOneTaskInternal(
       userContent,
       heuristicUserText: task.analysisPrompt,
       signal,
+      logger,
     });
     const inferDuration = Date.now() - inferStart;
     logger.success(
@@ -516,7 +578,7 @@ async function runOneTaskInternal(
       return run;
     }
 
-    const message = e instanceof Error ? e.message : String(e);
+    const message = formatLoadError(e);
     logger.error(`Task execution failed: ${message}`, e);
     recentRunTimestamps.set(task.id, Date.now());
 
@@ -713,6 +775,7 @@ export async function finishPendingAnalysisRuns(
         userContent,
         heuristicUserText: task.analysisPrompt,
         signal,
+        logger,
       });
 
       logger.success('Deferred analysis completed successfully.');
@@ -755,7 +818,7 @@ export async function finishPendingAnalysisRuns(
         });
         continue;
       }
-      const message = e instanceof Error ? e.message : String(e);
+      const message = formatLoadError(e);
       logger.error(`Deferred analysis failed: ${message}`, e);
       const updatedRun: TaskRun = {
         ...run,

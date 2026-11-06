@@ -18,16 +18,31 @@ describe('sourceFetchService', () => {
   });
 
   describe('assertSafeSourceUrl', () => {
-    it('accepts valid http and https URLs', () => {
-      expect(assertSafeSourceUrl('https://example.com').protocol).toBe('https:');
-      expect(assertSafeSourceUrl('http://example.com/test?q=1').protocol).toBe('http:');
+    it('accepts valid http and https URLs without using URL.protocol', () => {
+      const https = assertSafeSourceUrl('https://example.com');
+      expect(https.protocol).toBe('https:');
+      expect(https.hostname).toBe('example.com');
+      expect(https.toString()).toBe('https://example.com');
+
+      const http = assertSafeSourceUrl('http://example.com/test?q=1');
+      expect(http.protocol).toBe('http:');
+      expect(http.hostname).toBe('example.com');
     });
 
     it('rejects non-http protocols and credentials', () => {
-      expect(() => assertSafeSourceUrl('ftp://example.com')).toThrow();
-      expect(() => assertSafeSourceUrl('file:///etc/passwd')).toThrow();
+      expect(() => assertSafeSourceUrl('ftp://example.com')).toThrow(
+        /Only http\(s\)/,
+      );
+      expect(() => assertSafeSourceUrl('file:///etc/passwd')).toThrow(
+        /Only http\(s\)/,
+      );
       expect(() => assertSafeSourceUrl('javascript:alert(1)')).toThrow();
-      expect(() => assertSafeSourceUrl('https://user:pass@example.com')).toThrow();
+      expect(() =>
+        assertSafeSourceUrl('https://user:pass@example.com'),
+      ).toThrow(/credentials/);
+      expect(() => assertSafeSourceUrl('https://user@example.com/x')).toThrow(
+        /credentials/,
+      );
     });
   });
 
@@ -107,6 +122,8 @@ describe('sourceFetchService', () => {
       const result = await fetchSourceText('https://example.com/article');
       expect(result.title).toBe('Test Page');
       expect(result.text).toContain('Hello from test article');
+      expect(result.previewText).toContain('Hello from test article');
+      expect(result.isFeed).toBe(false);
 
       expect(mockedAxios.get).toHaveBeenCalledTimes(1);
       const callArgs = mockedAxios.get.mock.calls[0];
@@ -115,6 +132,33 @@ describe('sourceFetchService', () => {
       expect(headers['User-Agent']).toBe(DEFAULT_BROWSER_USER_AGENT);
       expect(headers['Accept']).toContain('text/html');
       expect(headers['Sec-Ch-Ua-Platform']).toBe('"Android"');
+    });
+
+    it('discovers alternate RSS/Atom feed links from HTML pages', async () => {
+      const rawHtml = `
+        <html>
+          <head>
+            <title>News Site</title>
+            <link rel="alternate" type="application/rss+xml" title="RSS"
+              href="/feed.xml" />
+            <link rel="alternate" type="application/atom+xml"
+              href="https://example.com/atom.xml" />
+          </head>
+          <body><article><p>Homepage blurb with enough characters for extraction quality checks to pass cleanly.</p></article></body>
+        </html>
+      `;
+      const buf = Buffer.from(rawHtml, 'utf-8');
+      mockedAxios.get.mockResolvedValueOnce({
+        data: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+        status: 200,
+      });
+
+      const result = await fetchSourceText('https://example.com/');
+      expect(result.alternateFeedUrls).toEqual([
+        'https://example.com/feed.xml',
+        'https://example.com/atom.xml',
+      ]);
     });
 
     it('handles 403 Forbidden with user-friendly error explanation', async () => {

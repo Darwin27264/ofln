@@ -47,6 +47,7 @@ export const SETTINGS_BLOCK = {
   blurAmount: 16,
   tintDark: 0.62,
   tintLight: 0.52,
+  /** Soft underlay — blur + tint create the frosted look over the canvas. */
   glassBgDark: "rgba(255, 255, 255, 0.05)",
   glassBgLight: "rgba(234, 236, 240, 0.92)",
   borderDark: "rgba(255, 255, 255, 0.12)",
@@ -171,6 +172,9 @@ type FrostedPanelProps = ViewProps & {
 /**
  * Settings-matching frosted shell — radius 30, border, Settings tile frost.
  * Use for Performance / Diagnostics / Storage / Info content blocks.
+ *
+ * Blur mounts with the panel (no deferred mount) so first paint already reads
+ * as frost over the translucent glassBg underlay.
  */
 export function FrostedPanel({
   style,
@@ -179,7 +183,8 @@ export function FrostedPanel({
   borderRadius = SETTINGS_BLOCK.radius,
   ...rest
 }: FrostedPanelProps & { borderRadius?: number }) {
-  const { theme, isDark } = useTheme();
+  const { isDark } = useTheme();
+
   return (
     <View
       {...rest}

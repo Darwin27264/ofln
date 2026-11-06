@@ -28,6 +28,128 @@ export type WebExtractionResult = {
   isFeed: boolean;
 };
 
+export type DiscoveredFeedLink = {
+  url: string;
+  type: 'rss' | 'atom' | 'xml' | 'unknown';
+  title?: string;
+};
+
+const FEED_LINK_TYPE_RE =
+  /(?:application\/(?:rss|atom)\+xml|application\/rdf\+xml|text\/xml|application\/xml)/i;
+
+/**
+ * Resolve a possibly-relative href against a page URL without using URL.protocol (Hermes-safe).
+ */
+export function resolveUrlAgainstBase(href: string, baseUrl: string): string | null {
+  const rawHref = decodeHtmlEntities((href || '').trim());
+  if (!rawHref || rawHref.startsWith('javascript:') || rawHref.startsWith('data:')) {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(rawHref)) {
+    return rawHref;
+  }
+
+  const baseMatch = (baseUrl || '').trim().match(/^(https?):\/\/([^\/?#]+)([\/?#][\s\S]*)?$/i);
+  if (!baseMatch) return null;
+  const scheme = baseMatch[1].toLowerCase();
+  const host = baseMatch[2];
+  const basePathAndQuery = baseMatch[3] || '/';
+  const pathOnly = basePathAndQuery.split(/[?#]/)[0] || '/';
+
+  if (rawHref.startsWith('//')) {
+    return `${scheme}:${rawHref}`;
+  }
+
+  if (rawHref.startsWith('/')) {
+    return `${scheme}://${host}${rawHref}`;
+  }
+
+  // Relative to current directory
+  const dir = pathOnly.endsWith('/')
+    ? pathOnly
+    : pathOnly.replace(/\/[^\/]*$/, '/');
+  const joined = `${scheme}://${host}${dir}${rawHref}`;
+  // Collapse /./ and simple /../
+  try {
+    const withoutDots = joined.replace(/\/\.\//g, '/');
+    const parts = withoutDots.split('://');
+    if (parts.length < 2) return joined;
+    const rest = parts.slice(1).join('://');
+    const slash = rest.indexOf('/');
+    if (slash === -1) return withoutDots;
+    const auth = rest.slice(0, slash);
+    let path = rest.slice(slash);
+    const stack: string[] = [];
+    for (const seg of path.split('/')) {
+      if (!seg || seg === '.') continue;
+      if (seg === '..') {
+        if (stack.length) stack.pop();
+        continue;
+      }
+      stack.push(seg);
+    }
+    return `${parts[0]}://${auth}/${stack.join('/')}`;
+  } catch {
+    return joined;
+  }
+}
+
+function readHtmlAttr(tag: string, name: string): string | undefined {
+  const re1 = new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, 'i');
+  const m1 = tag.match(re1);
+  if (m1?.[1] != null) return decodeHtmlEntities(m1[1].trim());
+  const re2 = new RegExp(`\\b${name}\\s*=\\s*([^\\s>]+)`, 'i');
+  const m2 = tag.match(re2);
+  if (m2?.[1] != null) return decodeHtmlEntities(m2[1].trim());
+  return undefined;
+}
+
+function classifyFeedType(typeAttr: string | undefined): DiscoveredFeedLink['type'] {
+  const t = (typeAttr || '').toLowerCase();
+  if (t.includes('atom')) return 'atom';
+  if (t.includes('rss') || t.includes('rdf')) return 'rss';
+  if (t.includes('xml')) return 'xml';
+  return 'unknown';
+}
+
+/**
+ * Discover RSS/Atom alternate feed links from HTML (`rel="alternate"` + feed MIME type).
+ */
+export function discoverAlternateFeedLinks(
+  html: string,
+  pageUrl: string,
+): DiscoveredFeedLink[] {
+  const s = String(html || '');
+  const found: DiscoveredFeedLink[] = [];
+  const seen = new Set<string>();
+  const linkRe = /<link\b[^>]*>/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = linkRe.exec(s)) !== null) {
+    const tag = match[0];
+    const rel = (readHtmlAttr(tag, 'rel') || '').toLowerCase();
+    if (!/\balternate\b/.test(rel)) continue;
+    const typeAttr = readHtmlAttr(tag, 'type');
+    if (!typeAttr || !FEED_LINK_TYPE_RE.test(typeAttr)) continue;
+    const href = readHtmlAttr(tag, 'href');
+    if (!href) continue;
+    const absolute = resolveUrlAgainstBase(href, pageUrl);
+    if (!absolute || !/^https?:\/\//i.test(absolute)) continue;
+    const key = absolute.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const title = readHtmlAttr(tag, 'title');
+    found.push({
+      url: absolute,
+      type: classifyFeedType(typeAttr),
+      title: title || undefined,
+    });
+  }
+
+  return found;
+}
+
 // Common HTML named entities lookup table
 const NAMED_ENTITIES: Record<string, string> = {
   amp: '&',

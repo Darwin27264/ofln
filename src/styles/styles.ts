@@ -8,6 +8,8 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 export const INPUT_FADE_HEIGHT = 72;
 /** Height of the soft fade under the top action pills */
 export const TOP_FADE_HEIGHT = 72;
+/** Multiline composer TextInput cap — clear-all appears once content hits this. */
+export const COMPOSER_INPUT_MAX_HEIGHT = 140;
 
 export const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
@@ -207,7 +209,7 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   inputRowWrapper: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     marginHorizontal: 16,
     marginBottom: 8,
   },
@@ -249,8 +251,42 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.text,
     paddingTop: 13,
     paddingBottom: 13,
-    maxHeight: 140,
+    maxHeight: COMPOSER_INPUT_MAX_HEIGHT,
     fontFamily: "Poppins",
+  },
+  /**
+   * Trailing column. In-flow height is only the send/stop control, so an
+   * empty field stays one line tall. alignSelf stretch matches the row once
+   * the text grows (for the clear control's hit target) without adding height
+   * of its own — absolute children are not part of that measurement.
+   */
+  composerActionColumn: {
+    width: 50,
+    alignSelf: "stretch",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    marginLeft: 2,
+  },
+  /**
+   * Clear-all, out of flow, just above the send button (bottom of this
+   * column — not the top of the field). Always mounted; opacity shows it.
+   * An in-flow slot added ~30px and kept the empty composer tall. Absolute
+   * layout is identical whether the icon is visible or not, so showing it
+   * cannot retrigger the TextInput contentSize loop.
+   */
+  composerClearSlot: {
+    position: "absolute",
+    bottom: 52,
+    width: 36,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  composerClearButton: {
+    width: 36,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
   },
   sendIconButton: {
     width: 50,
@@ -258,7 +294,6 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderRadius: 30,
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: 2,
   },
   composerActionIconSlot: {
     width: 46,
@@ -282,7 +317,27 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderRadius: 30,
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: 2,
+  },
+  /** Frosted “New ↓” control when scrolled away from latest messages. */
+  jumpToLatestPill: {
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.transparent,
+    overflow: "hidden",
+    marginBottom: 8,
+  },
+  jumpToLatestLabel: {
+    marginLeft: 4,
+    fontSize: 13,
+    fontWeight: "600",
+    fontFamily: "Poppins",
+    color: colors.text,
   },
   attachmentPreviewRow: {
     flexDirection: "row",

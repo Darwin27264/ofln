@@ -15,11 +15,16 @@
  * a single GlowLayer for a pair (and back) via `crossfading` state — that
  * remounted eight masked SVGs and restarted every drift loop, which is the
  * hitch you feel between Normal / Temporary / Perspective.
+ *
+ * Slot B still mounts lazily, but we prewarm it after the empty-chat settle so
+ * the first Temporary toggle is a palette paint + opacity crossfade — not a
+ * four-blob SVG mount on the same frame as the press.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
+  InteractionManager,
   StyleSheet,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
@@ -231,6 +236,16 @@ export function AmbientHue({
   const [crossGen, setCrossGen] = useState(0);
   /** Second slot mounts on the first mode change — idle empty chat stays at 4 blobs. */
   const [slotBMounted, setSlotBMounted] = useState(false);
+
+  // Prewarm the hidden slot once the empty canvas is idle so the first mode
+  // change does not mount four masked SVGs mid-press.
+  useEffect(() => {
+    if (!active || !visible || slotBMounted) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      setSlotBMounted(true);
+    });
+    return () => task.cancel();
+  }, [active, visible, slotBMounted]);
 
   // Queue: paint the new palette onto the hidden slot.
   useEffect(() => {

@@ -9,6 +9,11 @@
 import axios, { AxiosError } from 'axios';
 import { DOCUMENT_MAX_INJECT_CHARS } from '../utils/documentHelpers';
 import {
+  assertSafeHttpUrl,
+  type SafeHttpUrl,
+} from '../utils/taskScheduleHelpers';
+import {
+  discoverAlternateFeedLinks,
   extractWebContent,
   htmlToStructuredText,
   smartTruncateText,
@@ -18,6 +23,8 @@ import {
 export const SOURCE_FETCH_TIMEOUT_MS = 25_000;
 export const SOURCE_FETCH_MAX_BYTES = 200 * 1024;
 export const SOURCE_TEXT_MAX_CHARS = DOCUMENT_MAX_INJECT_CHARS;
+/** Max characters shown in Task Editor test-fetch preview. */
+export const SOURCE_PREVIEW_MAX_CHARS = 2_500;
 
 export const DEFAULT_BROWSER_USER_AGENT =
   'Mozilla/5.0 (Linux; Android 14; Mobile; rv:128.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36';
@@ -33,6 +40,10 @@ export type SourceFetchResult = {
   publishedTime?: string;
   siteName?: string;
   isFeed?: boolean;
+  /** RSS/Atom alternate links discovered on HTML pages (absolute http(s) URLs). */
+  alternateFeedUrls?: string[];
+  /** Short preview for UI test-fetch (may be further truncated). */
+  previewText?: string;
 };
 
 /**
@@ -52,21 +63,11 @@ export function truncateSourceText(
   return smartTruncateText(text, maxChars);
 }
 
-export function assertSafeSourceUrl(url: string): URL {
-  const trimmed = (url || '').trim();
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    throw new Error('Invalid URL');
-  }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    throw new Error('Only http(s) URLs are supported');
-  }
-  if (parsed.username || parsed.password) {
-    throw new Error('URLs with credentials are not allowed');
-  }
-  return parsed;
+/**
+ * Hermes-safe source URL check — does not read `URL.protocol` (unimplemented on Hermes).
+ */
+export function assertSafeSourceUrl(url: string): SafeHttpUrl {
+  return assertSafeHttpUrl(url);
 }
 
 /**
@@ -230,13 +231,23 @@ export async function fetchSourceText(
   const raw = decodeBuffer(buf, charset);
 
   const extracted = extractWebContent(raw, contentType);
-  const formattedText = buildFormattedSourceDocument(parsed.toString(), extracted);
+  const pageHref = parsed.toString();
+  const formattedText = buildFormattedSourceDocument(pageHref, extracted);
 
   if (!formattedText.trim()) {
     throw new Error('No readable text extracted from source');
   }
 
   const { text, truncated } = truncateSourceText(formattedText);
+  const preview = truncateSourceText(formattedText, SOURCE_PREVIEW_MAX_CHARS);
+
+  let alternateFeedUrls: string[] | undefined;
+  if (!extracted.isFeed) {
+    const feeds = discoverAlternateFeedLinks(raw, pageHref);
+    if (feeds.length > 0) {
+      alternateFeedUrls = feeds.map((f) => f.url);
+    }
+  }
 
   return {
     text,
@@ -249,5 +260,7 @@ export async function fetchSourceText(
     publishedTime: extracted.metadata.publishedTime,
     siteName: extracted.metadata.siteName,
     isFeed: extracted.isFeed,
+    alternateFeedUrls,
+    previewText: preview.text,
   };
 }

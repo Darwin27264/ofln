@@ -828,6 +828,7 @@ const ConversationScreen = React.memo(function ConversationScreen({
   const presetMessagesAnim = useRef(new Animated.Value(1)).current;
   const tempModeExplanationAnim = useRef(new Animated.Value(0)).current;
   const tempModeAnimReadyRef = useRef(false);
+  const tempModeAnimRef = useRef<Animated.CompositeAnimation | null>(null);
 
   // Persona indicator animation
   const personaIndicatorOpacity = useRef(new Animated.Value(selectedPersona ? 1 : 0)).current;
@@ -1664,7 +1665,8 @@ const ConversationScreen = React.memo(function ConversationScreen({
       tempModeExplanationAnim.setValue(explanationTarget);
       return;
     }
-    Animated.parallel([
+    tempModeAnimRef.current?.stop();
+    const anim = Animated.parallel([
       Animated.timing(presetMessagesAnim, {
         toValue: presetTarget,
         duration: ANIMATION_DURATIONS.PAGE,
@@ -1677,7 +1679,14 @@ const ConversationScreen = React.memo(function ConversationScreen({
         easing: EASING.EASE_OUT,
         useNativeDriver: true,
       }),
-    ]).start();
+    ]);
+    tempModeAnimRef.current = anim;
+    anim.start(({ finished }) => {
+      if (finished) tempModeAnimRef.current = null;
+    });
+    return () => {
+      anim.stop();
+    };
   }, [isTemporaryMode, presetMessagesAnim, tempModeExplanationAnim]);
 
   // Toggle temporary mode (only available before chat starts)
@@ -1999,6 +2008,12 @@ const ConversationScreen = React.memo(function ConversationScreen({
     // Enable auto-scroll if within 100px of bottom
     setAutoScrollEnabled(distanceFromBottom < 100);
   }, []);
+
+  /** Frosted “New” pill — animated scroll to latest; re-enables streaming stick. */
+  const handleJumpToLatest = useCallback(() => {
+    setAutoScrollEnabled(true);
+    scrollChatToEnd(true);
+  }, [setAutoScrollEnabled, scrollChatToEnd]);
 
   /**
    * Toggle visibility of thought/reasoning block
@@ -2878,6 +2893,26 @@ const ConversationScreen = React.memo(function ConversationScreen({
     return solidClearance + keyboardLift;
   }, [inputOverlayHeight, composerBottomPadding]);
 
+  // Quantized so sub-pixel / 1px composer measure noise cannot setState.
+  // Functional update bails out when the bucket is unchanged.
+  const onComposerOverlayLayout = useCallback((h: number) => {
+    if (suppressComposerMeasureRef.current || keyboardPadding > 0) return;
+    const quantized = Math.round(h / 8) * 8;
+    setInputOverlayHeight((prev) =>
+      quantized > 0 && Math.abs(quantized - prev) >= 8 ? quantized : prev
+    );
+  }, [keyboardPadding]);
+
+  const handleComposerFocus = useCallback(() => {
+    syncKeyboardState();
+    setTimeout(syncKeyboardState, 100);
+    setTimeout(syncKeyboardState, 300);
+  }, [syncKeyboardState]);
+
+  const clearPendingAttachment = useCallback(() => {
+    setPendingAttachment(null);
+  }, []);
+
   // Composer lift: native translateY. useLayoutEffect so motion starts before
   // paint; Android did* uses a short catch-up so we don't chase the IME.
   useLayoutEffect(() => {
@@ -3155,6 +3190,8 @@ const ConversationScreen = React.memo(function ConversationScreen({
                 onPress={toggleTemporaryMode}
                 activeOpacity={0.85}
               >
+                {/* Keep FrostedGlass mounted — swapping it for a solid fill remounts BlurView. */}
+                <FrostedGlass style={StyleSheet.absoluteFillObject} />
                 {isTemporaryMode ? (
                   <View
                     pointerEvents="none"
@@ -3163,9 +3200,7 @@ const ConversationScreen = React.memo(function ConversationScreen({
                       { backgroundColor: theme.colors.primary, borderRadius: 999 },
                     ]}
                   />
-                ) : (
-                  <FrostedGlass style={StyleSheet.absoluteFillObject} />
-                )}
+                ) : null}
                 <Ionicons
                   name={isTemporaryMode ? "flash" : "flash-outline"}
                   size={23}
@@ -3311,22 +3346,15 @@ const ConversationScreen = React.memo(function ConversationScreen({
           enterOpacity={handoffChrome ? chromeEnter : undefined}
           restingBottomPadding={restingComposerPadding}
           scaleAnim={scaleAnim}
-          onOverlayLayout={(h) => {
-            if (suppressComposerMeasureRef.current || keyboardPadding > 0) return;
-            if (h > 0 && Math.abs(h - inputOverlayHeight) > 1) {
-              setInputOverlayHeight(h);
-            }
-          }}
+          onOverlayLayout={onComposerOverlayLayout}
           userInput={userInput}
           onChangeText={setUserInput}
-          onInputFocus={() => {
-            syncKeyboardState();
-            setTimeout(syncKeyboardState, 100);
-            setTimeout(syncKeyboardState, 300);
-          }}
+          onInputFocus={handleComposerFocus}
+          showJumpToLatest={!autoScrollEnabled && !noMessages}
+          onJumpToLatest={handleJumpToLatest}
           pendingAttachment={pendingAttachment}
           isOcrRunning={isOcrRunning}
-          onClearAttachment={() => setPendingAttachment(null)}
+          onClearAttachment={clearPendingAttachment}
           isGenerating={isGenerating}
           isLoading={isLoading}
           sendDisabled={sendButtonDisabled}

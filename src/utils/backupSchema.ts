@@ -17,6 +17,7 @@ import {
   type SourceMonitorTask,
   type TaskRun,
 } from '../services/taskService';
+import { assertSafeHttpUrl } from './taskScheduleHelpers';
 
 /** Magic — distinguish OFLN backups from arbitrary JSON/ZIP. */
 export const BACKUP_FORMAT = 'ofln-backup' as const;
@@ -159,8 +160,8 @@ function isBlockedRestoreHost(host: string): boolean {
 export function isHttpDownloadUrl(url: string | null | undefined): boolean {
   if (!url || typeof url !== 'string') return false;
   try {
-    const u = new URL(url.trim());
-    return u.protocol === 'https:' || u.protocol === 'http:';
+    assertSafeHttpUrl(url);
+    return true;
   } catch {
     return false;
   }
@@ -169,19 +170,20 @@ export function isHttpDownloadUrl(url: string | null | undefined): boolean {
 /**
  * URLs allowed for auto-download during restore.
  * HTTPS only; no credentials; blocks common local/metadata hosts.
+ * Uses Hermes-safe URL parsing (no `URL.protocol`).
  */
 export function isSafeRestoreDownloadUrl(
   url: string | null | undefined,
 ): boolean {
   if (!url || typeof url !== 'string') return false;
   try {
-    const u = new URL(url.trim());
+    const u = assertSafeHttpUrl(url);
     if (u.protocol !== 'https:') return false;
-    if (u.username || u.password) return false;
     const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
     if (isBlockedRestoreHost(host)) return false;
     // Path must look like a GGUF fetch (HF resolve or direct .gguf); not open-ended.
-    const path = u.pathname.toLowerCase();
+    const pathMatch = u.href.match(/^https:\/\/[^\/?#]+(\/[^?#]*)/i);
+    const path = (pathMatch?.[1] || '/').toLowerCase();
     if (!path.endsWith('.gguf') && !/\/resolve\//.test(path)) {
       return false;
     }

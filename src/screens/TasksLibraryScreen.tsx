@@ -764,7 +764,7 @@ export default function TasksLibraryScreen({
               <View
                 style={{
                   flexDirection: "row",
-                  alignItems: "flex-start",
+                  alignItems: "center",
                   gap: 12,
                 }}
               >
@@ -835,51 +835,13 @@ export default function TasksLibraryScreen({
                         : " · Paused"}
                       {` · ${taskKindLabel(task.kind)}`}
                     </Text>
-                    {isThisTaskRunning && (
-                      <TouchableOpacity
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          void handleCancelTask(task);
-                        }}
-                        disabled={isCancelling}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 4,
-                          paddingHorizontal: 8,
-                          paddingVertical: 3,
-                          borderRadius: 6,
-                          backgroundColor: `${theme.colors.error}20`,
-                          borderWidth: 1,
-                          borderColor: `${theme.colors.error}50`,
-                        }}
-                        accessibilityLabel="Cancel task in progress"
-                      >
-                        {isCancelling ? (
-                          <ActivityIndicator size={11} color={theme.colors.error} />
-                        ) : (
-                          <Icon name="close" size={13} color={theme.colors.error} />
-                        )}
-                        <Text
-                          style={{
-                            fontSize: 11,
-                            fontWeight: "600",
-                            color: theme.colors.error,
-                            fontFamily: "Poppins",
-                          }}
-                        >
-                          Cancel
-                        </Text>
-                      </TouchableOpacity>
-                    )}
                   </View>
                 </TouchableOpacity>
                 <View
                   style={{
-                    alignItems: "flex-end",
-                    justifyContent: "space-between",
-                    minHeight: 52,
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 12,
                   }}
                 >
                   <Switch
@@ -897,8 +859,13 @@ export default function TasksLibraryScreen({
                       animateLayout();
                       setExpandedId((id) => (id === task.id ? null : task.id));
                     }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    style={{ marginTop: 8 }}
+                    hitSlop={{ top: 0, bottom: 8, left: 12, right: 12 }}
+                    style={{
+                      alignItems: "center",
+                      justifyContent: "center",
+                      minWidth: 36,
+                      minHeight: 28,
+                    }}
                     accessibilityLabel={expanded ? "Collapse task details" : "Expand task details"}
                   >
                     <Icon

@@ -25,7 +25,27 @@ import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect, Path } from
 import { FrostedGlass } from './FrostedGlass';
 import { InputListeningGlow } from './InputListeningGlow';
 import { useTheme } from '../context/ThemeContext';
-import { createStyles, INPUT_FADE_HEIGHT } from '../styles/styles';
+import {
+  createStyles,
+  COMPOSER_INPUT_MAX_HEIGHT,
+} from '../styles/styles';
+import { ANIMATION_DURATIONS, EASING } from '../utils/animationConfig';
+
+/**
+ * Show clear, and lock the field height, from the draft alone.
+ * Once the text can fill the cap, Android's multiline measure alternates
+ * between the real content height and maxHeight. Any onLayout setState
+ * (fade or overlay) lays the field out again and the two heights chase
+ * each other — Maximum update depth. Locking `height` stops the chase.
+ */
+const CLEAR_SHOW_MIN_CHARS = 80;
+const CLEAR_SHOW_MIN_LINES = 5;
+
+function draftShowsClear(text: string): boolean {
+  if (text.length === 0) return false;
+  if (text.split('\n').length >= CLEAR_SHOW_MIN_LINES) return true;
+  return text.length >= CLEAR_SHOW_MIN_CHARS;
+}
 
 /** Minimal rightward sound-wave mark (voice dictation) — three arcs, no mic silhouette. */
 function VoiceWaveIcon({
@@ -84,20 +104,16 @@ export type ComposerPendingAttachment = {
  */
 const ComposerFade = React.memo(function ComposerFade({
   shellBackground,
-  width,
-  height,
   style,
 }: {
   shellBackground: string;
-  width: number;
-  height: number;
   style?: StyleProp<ViewStyle>;
 }) {
-  // Overdraw a couple px so gradient anti-aliasing can't leave a seam.
-  const h = height + 2;
+  // Fill the dock. A pixel height taken from onLayout setState remeasured
+  // the capped TextInput and looped.
   return (
     <View style={style} pointerEvents="none">
-      <Svg width={width} height={h} preserveAspectRatio="none">
+      <Svg width="100%" height="100%" preserveAspectRatio="none">
         <Defs>
           <SvgLinearGradient id="chatInputFade" x1="0" y1="0" x2="0" y2="1">
             <Stop offset="0" stopColor={shellBackground} stopOpacity="0" />
@@ -109,7 +125,7 @@ const ComposerFade = React.memo(function ComposerFade({
             <Stop offset="1" stopColor={shellBackground} stopOpacity="1" />
           </SvgLinearGradient>
         </Defs>
-        <Rect x="0" y="0" width={width} height={h} fill="url(#chatInputFade)" />
+        <Rect x="0" y="0" width="100%" height="100%" fill="url(#chatInputFade)" />
       </Svg>
     </View>
   );
@@ -133,6 +149,10 @@ export type ChatComposerProps = {
   userInput: string;
   onChangeText: (text: string) => void;
   onInputFocus: () => void;
+
+  /** Scrolled away from newest messages — frosted “New” pill above the bar. */
+  showJumpToLatest?: boolean;
+  onJumpToLatest?: () => void;
 
   pendingAttachment: ComposerPendingAttachment | null;
   isOcrRunning: boolean;
@@ -167,7 +187,7 @@ export type ChatComposerProps = {
   onChooseDocument: () => void;
 };
 
-export function ChatComposer({
+function ChatComposerView({
   shellBackground,
   composerLift,
   enterOpacity,
@@ -177,6 +197,8 @@ export function ChatComposer({
   userInput,
   onChangeText,
   onInputFocus,
+  showJumpToLatest = false,
+  onJumpToLatest,
   pendingAttachment,
   isOcrRunning,
   onClearAttachment,
@@ -207,8 +229,9 @@ export function ChatComposer({
   const { theme } = useTheme();
   const styles = React.useMemo(() => createStyles(theme.colors), [theme.colors]);
   const screenWidth = Dimensions.get('window').width;
-  // Local measure so the full-height fade SVG matches the docked composer.
-  const [fadeHeight, setFadeHeight] = React.useState(INPUT_FADE_HEIGHT + 72);
+  const reportedOverlayRef = React.useRef(0);
+  /** After the field is height-locked, ignore further measure events. */
+  const cappedReportedRef = React.useRef(false);
 
   // Lift is a transform, so the dock keeps its resting height and the gradient
   // below it would expose the canvas — the skirt covers that travel.
@@ -222,6 +245,63 @@ export function ChatComposer({
     pendingAttachment?.type === 'application/pdf' ||
     !!pendingAttachment?.fileName?.toLowerCase().endsWith('.pdf');
 
+  // Derived from text only — no contentSize state, so visibility cannot loop.
+  const showClearAll = draftShowsClear(userInput);
+  const inputCappedRef = React.useRef(showClearAll);
+  inputCappedRef.current = showClearAll;
+
+  const clearAllOpacity = React.useRef(new Animated.Value(0)).current;
+  React.useEffect(() => {
+    // Opacity only. Do not setState here — mounting/unmounting from this
+    // effect was the layout feedback that retriggered contentSizeChange.
+    Animated.timing(clearAllOpacity, {
+      toValue: showClearAll ? 1 : 0,
+      duration: ANIMATION_DURATIONS.FAST,
+      easing: EASING.STANDARD,
+      useNativeDriver: true,
+    }).start();
+  }, [showClearAll, clearAllOpacity]);
+
+  const jumpPillOpacity = React.useRef(new Animated.Value(0)).current;
+  const jumpPillScale = React.useRef(new Animated.Value(0.92)).current;
+  const [jumpPillMounted, setJumpPillMounted] = React.useState(false);
+  React.useEffect(() => {
+    if (showJumpToLatest) {
+      setJumpPillMounted(true);
+      Animated.parallel([
+        Animated.timing(jumpPillOpacity, {
+          toValue: 1,
+          duration: ANIMATION_DURATIONS.STANDARD,
+          easing: EASING.DECELERATE,
+          useNativeDriver: true,
+        }),
+        Animated.timing(jumpPillScale, {
+          toValue: 1,
+          duration: ANIMATION_DURATIONS.STANDARD,
+          easing: EASING.DECELERATE,
+          useNativeDriver: true,
+        }),
+      ]).start();
+      return;
+    }
+    Animated.parallel([
+      Animated.timing(jumpPillOpacity, {
+        toValue: 0,
+        duration: ANIMATION_DURATIONS.FAST,
+        easing: EASING.STANDARD,
+        useNativeDriver: true,
+      }),
+      Animated.timing(jumpPillScale, {
+        toValue: 0.92,
+        duration: ANIMATION_DURATIONS.FAST,
+        easing: EASING.STANDARD,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) setJumpPillMounted(false);
+    });
+  }, [showJumpToLatest, jumpPillOpacity, jumpPillScale]);
+
   // One trailing slot: voice while empty (or still listening); send once there is content.
   const showSend = !sendDisabled && !isListening;
   const actionMode = React.useRef(new Animated.Value(showSend ? 1 : 0)).current;
@@ -232,6 +312,29 @@ export function ChatComposer({
       useNativeDriver: true,
     }).start();
   }, [showSend, actionMode]);
+
+  const handleClearAll = React.useCallback(() => {
+    onChangeText('');
+  }, [onChangeText]);
+
+  const handleComposerLayout = React.useCallback(
+    (e: { nativeEvent: { layout: { height: number } } }) => {
+      const h = e.nativeEvent.layout.height;
+      if (h <= 0) return;
+      // Capped TextInput: Android alternates content height vs maxHeight.
+      // Reporting that to setState lays it out again. One report, then stop.
+      if (inputCappedRef.current) {
+        if (cappedReportedRef.current) return;
+        cappedReportedRef.current = true;
+      } else {
+        cappedReportedRef.current = false;
+      }
+      if (Math.abs(h - reportedOverlayRef.current) < 8) return;
+      reportedOverlayRef.current = h;
+      onOverlayLayout(h);
+    },
+    [onOverlayLayout],
+  );
 
   const attachItemStyle = {
     backgroundColor: 'transparent' as const,
@@ -375,19 +478,11 @@ export function ChatComposer({
           { transform: liftTransform },
           enterOpacity != null ? { opacity: enterOpacity } : null,
         ]}
-        onLayout={(e) => {
-          const h = e.nativeEvent.layout.height;
-          if (h > 0 && Math.abs(h - fadeHeight) > 1) {
-            setFadeHeight(h);
-          }
-          onOverlayLayout(h);
-        }}
+        onLayout={handleComposerLayout}
         pointerEvents="box-none"
       >
         <ComposerFade
           shellBackground={shellBackground}
-          width={screenWidth}
-          height={fadeHeight}
           style={styles.inputFade}
         />
         {/* Travels with the dock, covering the canvas exposed by the lift. */}
@@ -399,6 +494,31 @@ export function ChatComposer({
           style={[styles.inputBarArea, { paddingBottom: restingBottomPadding }]}
           pointerEvents="box-none"
         >
+          {jumpPillMounted && (
+            <Animated.View
+              pointerEvents={showJumpToLatest ? 'box-none' : 'none'}
+              style={{
+                opacity: jumpPillOpacity,
+                transform: [{ scale: jumpPillScale }],
+              }}
+            >
+              <TouchableOpacity
+                style={styles.jumpToLatestPill}
+                onPress={onJumpToLatest}
+                activeOpacity={0.85}
+                accessibilityLabel="Jump to new messages"
+                accessibilityRole="button"
+              >
+                <FrostedGlass style={StyleSheet.absoluteFillObject} />
+                <Ionicons
+                  name="chevron-down"
+                  size={16}
+                  color={theme.colors.text}
+                />
+                <Text style={styles.jumpToLatestLabel}>New</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          )}
           {pendingAttachment && (
             <View style={styles.attachmentPreviewRow}>
               <FrostedGlass style={StyleSheet.absoluteFillObject} />
@@ -482,6 +602,7 @@ export function ChatComposer({
               <TextInput
                 style={[
                   styles.input,
+                  showClearAll && { height: COMPOSER_INPUT_MAX_HEIGHT },
                   isListening && localStyles.inputListening,
                   isListening && { color: theme.colors.text },
                 ]}
@@ -503,102 +624,126 @@ export function ChatComposer({
                 editable={!isGenerating}
                 onFocus={onInputFocus}
               />
-              {isGenerating ? (
-                <TouchableOpacity
-                  style={styles.stopButton}
-                  onPress={onStop}
-                  accessibilityLabel="Stop generation"
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              <View style={styles.composerActionColumn}>
+                {/* Out of flow, just above send — see composerClearSlot. */}
+                <View
+                  style={styles.composerClearSlot}
+                  pointerEvents={showClearAll ? 'box-none' : 'none'}
                 >
-                  <Ionicons name="stop-circle" size={44} color={theme.colors.error} />
-                </TouchableOpacity>
-              ) : (
-                <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+                  <Animated.View style={{ opacity: clearAllOpacity }}>
+                    <TouchableOpacity
+                      style={styles.composerClearButton}
+                      onPress={handleClearAll}
+                      accessibilityLabel="Clear message"
+                      accessibilityRole="button"
+                      hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name="close-circle"
+                        size={22}
+                        color={theme.colors.textSecondary}
+                      />
+                    </TouchableOpacity>
+                  </Animated.View>
+                </View>
+                {isGenerating ? (
                   <TouchableOpacity
-                    style={styles.sendIconButton}
-                    onPress={showSend ? onSend : onMicPress}
-                    disabled={
-                      showSend
-                        ? sendDisabled || isLoading
-                        : isLoading || isOcrRunning
-                    }
-                    accessibilityLabel={
-                      showSend
-                        ? 'Send message'
-                        : isListening
-                          ? 'Stop listening'
-                          : 'Dictate with voice'
-                    }
-                    accessibilityState={{ selected: isListening && !showSend }}
+                    style={styles.stopButton}
+                    onPress={onStop}
+                    accessibilityLabel="Stop generation"
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    activeOpacity={0.85}
                   >
-                    <View style={styles.composerActionIconSlot}>
-                      <Animated.View
-                        pointerEvents="none"
-                        style={[
-                          StyleSheet.absoluteFillObject,
-                          styles.composerActionIconCentered,
-                          {
-                            opacity: actionMode.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [1, 0],
-                            }),
-                            transform: [
-                              {
-                                scale: actionMode.interpolate({
-                                  inputRange: [0, 1],
-                                  outputRange: [1, 0.72],
-                                }),
-                              },
-                            ],
-                          },
-                        ]}
-                      >
-                        <VoiceWaveIcon
-                          size={28}
-                          active={isListening}
-                          color={
-                            isLoading || isOcrRunning
-                              ? theme.colors.textTertiary
-                              : isListening
-                                ? theme.colors.text
-                                : theme.colors.textSecondary
-                          }
-                        />
-                      </Animated.View>
-                      <Animated.View
-                        pointerEvents="none"
-                        style={[
-                          StyleSheet.absoluteFillObject,
-                          styles.composerActionIconCentered,
-                          {
-                            opacity: actionMode,
-                            transform: [
-                              {
-                                scale: actionMode.interpolate({
-                                  inputRange: [0, 1],
-                                  outputRange: [0.72, 1],
-                                }),
-                              },
-                            ],
-                          },
-                        ]}
-                      >
-                        <Ionicons
-                          name="arrow-up-circle"
-                          size={44}
-                          color={
-                            sendDisabled || isLoading
-                              ? theme.colors.textTertiary
-                              : theme.colors.text
-                          }
-                        />
-                      </Animated.View>
-                    </View>
+                    <Ionicons name="stop-circle" size={44} color={theme.colors.error} />
                   </TouchableOpacity>
-                </Animated.View>
-              )}
+                ) : (
+                  <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+                    <TouchableOpacity
+                      style={styles.sendIconButton}
+                      onPress={showSend ? onSend : onMicPress}
+                      disabled={
+                        showSend
+                          ? sendDisabled || isLoading
+                          : isLoading || isOcrRunning
+                      }
+                      accessibilityLabel={
+                        showSend
+                          ? 'Send message'
+                          : isListening
+                            ? 'Stop listening'
+                            : 'Dictate with voice'
+                      }
+                      accessibilityState={{ selected: isListening && !showSend }}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      activeOpacity={0.85}
+                    >
+                      <View style={styles.composerActionIconSlot}>
+                        <Animated.View
+                          pointerEvents="none"
+                          style={[
+                            StyleSheet.absoluteFillObject,
+                            styles.composerActionIconCentered,
+                            {
+                              opacity: actionMode.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [1, 0],
+                              }),
+                              transform: [
+                                {
+                                  scale: actionMode.interpolate({
+                                    inputRange: [0, 1],
+                                    outputRange: [1, 0.72],
+                                  }),
+                                },
+                              ],
+                            },
+                          ]}
+                        >
+                          <VoiceWaveIcon
+                            size={28}
+                            active={isListening}
+                            color={
+                              isLoading || isOcrRunning
+                                ? theme.colors.textTertiary
+                                : isListening
+                                  ? theme.colors.text
+                                  : theme.colors.textSecondary
+                            }
+                          />
+                        </Animated.View>
+                        <Animated.View
+                          pointerEvents="none"
+                          style={[
+                            StyleSheet.absoluteFillObject,
+                            styles.composerActionIconCentered,
+                            {
+                              opacity: actionMode,
+                              transform: [
+                                {
+                                  scale: actionMode.interpolate({
+                                    inputRange: [0, 1],
+                                    outputRange: [0.72, 1],
+                                  }),
+                                },
+                              ],
+                            },
+                          ]}
+                        >
+                          <Ionicons
+                            name="arrow-up-circle"
+                            size={44}
+                            color={
+                              sendDisabled || isLoading
+                                ? theme.colors.textTertiary
+                                : theme.colors.text
+                            }
+                          />
+                        </Animated.View>
+                      </View>
+                    </TouchableOpacity>
+                  </Animated.View>
+                )}
+              </View>
             </View>
           </View>
         </View>
@@ -612,3 +757,10 @@ const localStyles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+/**
+ * Parent overlay-height updates must not re-render this tree. A re-render of
+ * the multiline TextInput at max height changes its measured height, which
+ * fires onLayout, which setState'd the parent again.
+ */
+export const ChatComposer = React.memo(ChatComposerView);

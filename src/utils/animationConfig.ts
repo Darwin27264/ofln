@@ -69,6 +69,28 @@ export const OVERLAY_MOTION = {
 } as const;
 
 /**
+ * Light ↔ dark theme crossfade. Soft black dims to opaque, tokens swap only
+ * under full cover, then the cover dissolves. Semi-opaque covers let the new
+ * theme peek through — keep COVER_OPACITY at 1. Settings dark-mode chip
+ * duration should use TOTAL_MS.
+ */
+export const THEME_TRANSITION = {
+  /** Fully opaque black — anything < 1 lets new theme luminance flash through. */
+  COVER_OPACITY: 1,
+  /** Dim current theme down to the opaque cover. */
+  COVER_IN_MS: 160,
+  /** Animation frames to wait after cover / after theme commit before next step. */
+  SETTLE_FRAMES: 2,
+  /** Dissolve of the cover overlay after the theme swap (ms). */
+  DISSOLVE_MS: 600,
+  /**
+   * Cover-in + two settle phases (~16.7ms/frame) + dissolve.
+   * Sync chip / button fills to this so they finish with the overlay.
+   */
+  TOTAL_MS: 160 + 2 * 2 * 17 + 600,
+} as const;
+
+/**
  * Full-width history drawer spring — snappy, critically damped, no bounce.
  * Higher rest thresholds end the spring once the slide is visually done.
  */

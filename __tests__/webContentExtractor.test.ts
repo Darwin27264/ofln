@@ -1,10 +1,12 @@
 import {
   decodeHtmlEntities,
+  discoverAlternateFeedLinks,
   extractHtmlMetadata,
   extractMainContentContainer,
   extractWebContent,
   htmlToStructuredText,
   parseRssOrAtomFeed,
+  resolveUrlAgainstBase,
   smartTruncateText,
   stripHtmlBoilerplate,
 } from '../src/services/webContentExtractor';
@@ -267,6 +269,37 @@ describe('webContentExtractor', () => {
       expect(res.metadata.title).toBe('Interactive SPA Web App');
       expect(res.text).toContain('# Interactive SPA Web App');
       expect(res.text).toContain('This is an SPA dashboard rendered on client side.');
+    });
+  });
+
+  describe('discoverAlternateFeedLinks', () => {
+    it('resolves relative and absolute feed alternates', () => {
+      expect(resolveUrlAgainstBase('/rss.xml', 'https://news.example.com/page')).toBe(
+        'https://news.example.com/rss.xml',
+      );
+      expect(
+        resolveUrlAgainstBase('//cdn.example.com/atom.xml', 'https://news.example.com/'),
+      ).toBe('https://cdn.example.com/atom.xml');
+
+      const html = `
+        <head>
+          <link rel="stylesheet" href="/app.css" />
+          <link rel="alternate" type="application/rss+xml" title="Site RSS" href="/rss.xml" />
+          <link rel="alternate" type="application/atom+xml" href="https://news.example.com/atom.xml" />
+          <link rel="alternate" type="text/html" href="/amp" />
+        </head>
+      `;
+      const feeds = discoverAlternateFeedLinks(html, 'https://news.example.com/today');
+      expect(feeds).toHaveLength(2);
+      expect(feeds[0]).toMatchObject({
+        url: 'https://news.example.com/rss.xml',
+        type: 'rss',
+        title: 'Site RSS',
+      });
+      expect(feeds[1]).toMatchObject({
+        url: 'https://news.example.com/atom.xml',
+        type: 'atom',
+      });
     });
   });
 });

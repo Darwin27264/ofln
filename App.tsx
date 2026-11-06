@@ -119,7 +119,7 @@ type Message = {
 };
 
 function AppContent(): React.JSX.Element {
-  const { theme } = useTheme();
+  const { theme, isTransitioning } = useTheme();
   const styles = createStyles(theme.colors);
   const insets = useSafeAreaInsets();
 
@@ -178,17 +178,35 @@ function AppContent(): React.JSX.Element {
     });
   }, [theme.mode]);
 
+  // Rising edge of theme cover: seal native bars to black (they sit outside the RN overlay).
+  // After tokens swap, paint the *new* theme bars under the still-opaque cover so dissolve
+  // doesn't end with a late status/nav luminance pop.
+  const wasThemeTransitioning = useRef(false);
   useEffect(() => {
     setShellBackground(theme.colors.background);
-    // In chat or when quick panel / history drawer is open, status bar is transparent (R2)
-    const isChatOrFrosted = currentPage === "conversation" || frostedChromeOpen;
-    const statusBarColor = isChatOrFrosted ? "transparent" : theme.colors.background;
-    const navBarColor = frostedChromeOpen
-      ? frostedPanelSystemBarColor(theme.mode)
-      : theme.colors.background;
 
-    applyShellColor(statusBarColor, navBarColor);
-  }, [frostedChromeOpen, currentPage, theme.mode, theme.colors.background, applyShellColor]);
+    const applyThemeBars = () => {
+      const isChatOrFrosted = currentPage === "conversation" || frostedChromeOpen;
+      const statusBarColor = isChatOrFrosted ? "transparent" : theme.colors.background;
+      const navBarColor = frostedChromeOpen
+        ? frostedPanelSystemBarColor(theme.mode)
+        : theme.colors.background;
+      applyShellColor(statusBarColor, navBarColor);
+    };
+
+    if (isTransitioning) {
+      if (!wasThemeTransitioning.current) {
+        wasThemeTransitioning.current = true;
+        applyShellColor("#000000", "#000000");
+        return;
+      }
+      applyThemeBars();
+      return;
+    }
+
+    wasThemeTransitioning.current = false;
+    applyThemeBars();
+  }, [isTransitioning, frostedChromeOpen, currentPage, theme.mode, theme.colors.background, applyShellColor]);
 
   // The status band above the screens is ours to paint, so it frosts as an
   // opacity in step with the screen's own canvas — same duration, same easing.
@@ -266,6 +284,25 @@ function AppContent(): React.JSX.Element {
    */
   const keepConversation = bootstrapped;
   const conversationVisible = currentPage === "conversation";
+
+  // Start EdgeGlow shortly after PageFadeIn begins so bloom rises with the
+  // enter fade (full FADE_IN_MS delay made glow pop in after tiles were already up).
+  const edgeGlowWanted =
+    bootstrapped &&
+    currentPage !== "conversation" &&
+    currentPage !== "onboarding";
+  const [edgeGlowActive, setEdgeGlowActive] = useState(false);
+  useEffect(() => {
+    if (!edgeGlowWanted) {
+      setEdgeGlowActive(false);
+      return;
+    }
+    const t = setTimeout(
+      () => setEdgeGlowActive(true),
+      Math.round(OVERLAY_MOTION.FADE_IN_MS * 0.35),
+    );
+    return () => clearTimeout(t);
+  }, [edgeGlowWanted]);
 
   // First-run gate (mount once). About “Review” never clears the flag.
   useEffect(() => {
@@ -1033,6 +1070,7 @@ function AppContent(): React.JSX.Element {
           <PageFadeIn
             key="conversation"
             active={conversationVisible}
+            // Warm resident tree: skip double-rAF except onboarding → chat handoff.
             deferEnter={ambientHueHandoff}
           >
             <ConversationScreen
@@ -1313,13 +1351,10 @@ function AppContent(): React.JSX.Element {
       )}
       </View>
       {/* Persistent top-left edge glow — above pages so opaque screens don't cover it;
-          stays mounted across page changes; off on chat / onboarding. */}
+          stays mounted across page changes; off on chat / onboarding.
+          Delayed until after PageFadeIn so bloom GPU work doesn't hitch enter. */}
       {bootstrapped ? (
-        <EdgeGlow
-          active={
-            currentPage !== "conversation" && currentPage !== "onboarding"
-          }
-        />
+        <EdgeGlow active={edgeGlowActive} />
       ) : null}
       {/* Covers subpixel / SVG AA at the physical bottom inside the RN window. */}
       <View

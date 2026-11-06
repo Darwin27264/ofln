@@ -175,17 +175,101 @@ export function formatNextRun(nextRunAt: number, nowMs: number = Date.now()): st
   }
 }
 
-export function isValidHttpUrl(url: string): boolean {
-  const t = (url || '').trim();
-  if (!t) return false;
-  // Fast regex check for Hermes where new URL() constructor can fail or behave differently
-  if (/^https?:\/\/[a-zA-Z0-9\-._~%]+(:[0-9]+)?([/?#][^\s]*)?$/i.test(t)) {
-    return true;
+/**
+ * Hermes-safe parsed http(s) URL.
+ * Avoids reading `URL.protocol` / credential fields — unimplemented or unreliable on Hermes.
+ */
+export type SafeHttpUrl = {
+  href: string;
+  protocol: 'http:' | 'https:';
+  hostname: string;
+  toString(): string;
+};
+
+/**
+ * Parse and validate an http(s) URL without relying on Hermes `URL.protocol`.
+ * Rejects non-http schemes and URLs with embedded credentials.
+ */
+export function assertSafeHttpUrl(url: string): SafeHttpUrl {
+  const trimmed = (url || '').trim();
+  if (!trimmed || /\s/.test(trimmed)) {
+    throw new Error('Invalid URL');
   }
+
+  const schemeMatch = trimmed.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):(?:\/\/)?/);
+  if (!schemeMatch) {
+    throw new Error('Invalid URL');
+  }
+  const scheme = schemeMatch[1].toLowerCase();
+  if (scheme !== 'http' && scheme !== 'https') {
+    throw new Error('Only http(s) URLs are supported');
+  }
+  if (!trimmed.toLowerCase().startsWith(`${scheme}://`)) {
+    throw new Error('Invalid URL');
+  }
+
+  // userinfo@host — reject credentials (Hermes URL.username/password may be unavailable)
+  const afterScheme = trimmed.slice(scheme.length + 3); // after "http://" or "https://"
+  const authorityEnd = afterScheme.search(/[/?#]/);
+  const authority = authorityEnd === -1 ? afterScheme : afterScheme.slice(0, authorityEnd);
+  if (!authority) {
+    throw new Error('Invalid URL');
+  }
+  if (authority.includes('@')) {
+    throw new Error('URLs with credentials are not allowed');
+  }
+
+  // Host: IPv6 in brackets, or hostname / IPv4; optional :port
+  const hostPortMatch = authority.match(
+    /^(?:\[([0-9a-fA-F:.]+)\]|([a-zA-Z0-9](?:[a-zA-Z0-9\-._~%]*[a-zA-Z0-9])?))(?::(\d{1,5}))?$/,
+  );
+  if (!hostPortMatch) {
+    throw new Error('Invalid URL');
+  }
+  const hostname = (hostPortMatch[1] || hostPortMatch[2] || '').trim();
+  if (!hostname) {
+    throw new Error('Invalid URL');
+  }
+  if (hostPortMatch[3]) {
+    const port = Number(hostPortMatch[3]);
+    if (!Number.isFinite(port) || port < 1 || port > 65535) {
+      throw new Error('Invalid URL');
+    }
+  }
+
+  const protocol: 'http:' | 'https:' = scheme === 'https' ? 'https:' : 'http:';
+  return {
+    href: trimmed,
+    protocol,
+    hostname,
+    toString() {
+      return trimmed;
+    },
+  };
+}
+
+export function isValidHttpUrl(url: string): boolean {
   try {
-    const u = new URL(t);
-    return u.protocol === 'https:' || u.protocol === 'http:';
+    assertSafeHttpUrl(url);
+    return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * Rewrite known homepage URLs to their canonical RSS/Atom feeds.
+ * HN homepage HTML is noisy and burns context; /rss is what Morning Brief wants.
+ */
+export function preferSourceFeedUrl(url: string): string {
+  const trimmed = (url || '').trim();
+  if (!trimmed) return trimmed;
+  const m = trimmed.match(/^(https?):\/\/([^\/?#]+)(\/[^?#]*)?/i);
+  if (!m) return trimmed;
+  const host = m[2].toLowerCase().replace(/^www\./, '');
+  const pathNorm = (m[3] || '/').replace(/\/+$/, '') || '/';
+  if (host === 'news.ycombinator.com' && pathNorm === '/') {
+    return 'https://news.ycombinator.com/rss';
+  }
+  return trimmed;
 }
