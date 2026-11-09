@@ -35,10 +35,15 @@ import {
 
 export type { HueMode };
 
+/** Default unified capsule width (dp) sized to fit thinking label comfortably. */
+export const DEFAULT_HUE_LOADER_WIDTH = 100;
+/** Default unified capsule height (dp). */
+export const DEFAULT_HUE_LOADER_HEIGHT = 28;
+
 export type HueLoadingIndicatorProps = {
-  /** Capsule width in dp (default 56). */
+  /** Capsule width in dp (default 100). */
   width?: number;
-  /** Capsule height in dp (default 26). */
+  /** Capsule height in dp (default 28). */
   height?: number;
   /** Palette mode matching chat mode. Defaults to 'default' (ambient gold). */
   mode?: HueMode;
@@ -46,15 +51,18 @@ export type HueLoadingIndicatorProps = {
   color?: string;
   style?: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
+  /** Optional content centered over the frosted glass (e.g. "Thinking" label). */
+  children?: React.ReactNode;
 };
 
 export const HueLoadingIndicator: React.FC<HueLoadingIndicatorProps> = React.memo(({
-  width = 56,
-  height = 26,
+  width = DEFAULT_HUE_LOADER_WIDTH,
+  height = DEFAULT_HUE_LOADER_HEIGHT,
   mode = 'default',
   color,
   style,
   accessibilityLabel = 'Generating response',
+  children,
 }) => {
   const { isDark } = useTheme();
   const reactId = useId().replace(/:/g, '');
@@ -233,6 +241,13 @@ export const HueLoadingIndicator: React.FC<HueLoadingIndicatorProps> = React.mem
         blurAmount={FROSTED_GLASS.chromeBlurAmount}
         tintOpacity={isDark ? 0.32 : 0.22}
       />
+
+      {/* Layer 3: Centered foreground content (e.g. "Thinking" label) */}
+      {children != null ? (
+        <View style={styles.contentContainer} pointerEvents="none">
+          {children}
+        </View>
+      ) : null}
     </View>
   );
 });
@@ -249,5 +264,12 @@ const styles = StyleSheet.create({
   },
   bleedContainer: {
     position: 'absolute',
+  },
+  contentContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    zIndex: 1,
   },
 });

@@ -65,6 +65,8 @@ export function TextBlink({
           fontFamily: 'Poppins',
           fontWeight: '500',
           opacity,
+          includeFontPadding: false,
+          textAlign: 'center',
         },
         style,
       ]}

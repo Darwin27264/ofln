@@ -24,6 +24,8 @@ import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect, Path } from
 
 import { FrostedGlass } from './FrostedGlass';
 import { InputListeningGlow } from './InputListeningGlow';
+import { CommandPalette } from './CommandPalette';
+import type { SlashCommand } from '../utils/slashCommands';
 import { useTheme } from '../context/ThemeContext';
 import {
   createStyles,
@@ -185,6 +187,7 @@ export type ChatComposerProps = {
   onTakePhoto: () => void;
   onChoosePhoto: () => void;
   onChooseDocument: () => void;
+  onSelectSlashCommand?: (command: SlashCommand) => void;
 };
 
 function ChatComposerView({
@@ -225,6 +228,7 @@ function ChatComposerView({
   onTakePhoto,
   onChoosePhoto,
   onChooseDocument,
+  onSelectSlashCommand,
 }: ChatComposerProps) {
   const { theme } = useTheme();
   const styles = React.useMemo(() => createStyles(theme.colors), [theme.colors]);
@@ -316,6 +320,17 @@ function ChatComposerView({
   const handleClearAll = React.useCallback(() => {
     onChangeText('');
   }, [onChangeText]);
+
+  const handleSelectCommand = React.useCallback(
+    (cmd: SlashCommand) => {
+      if (onSelectSlashCommand) {
+        onSelectSlashCommand(cmd);
+      } else {
+        onChangeText(cmd.hasArgs ? `${cmd.label} ` : cmd.label);
+      }
+    },
+    [onSelectSlashCommand, onChangeText],
+  );
 
   const handleComposerLayout = React.useCallback(
     (e: { nativeEvent: { layout: { height: number } } }) => {
@@ -497,10 +512,13 @@ function ChatComposerView({
           {jumpPillMounted && (
             <Animated.View
               pointerEvents={showJumpToLatest ? 'box-none' : 'none'}
-              style={{
-                opacity: jumpPillOpacity,
-                transform: [{ scale: jumpPillScale }],
-              }}
+              style={[
+                styles.jumpToLatestWrapper,
+                {
+                  opacity: jumpPillOpacity,
+                  transform: [{ scale: jumpPillScale }],
+                },
+              ]}
             >
               <TouchableOpacity
                 style={styles.jumpToLatestPill}
@@ -585,6 +603,12 @@ function ChatComposerView({
             </View>
           )}
           <View style={styles.inputRowWrapper}>
+            {!isGenerating && !isLoading && (
+              <CommandPalette
+                userInput={userInput}
+                onSelectCommand={handleSelectCommand}
+              />
+            )}
             <View ref={addButtonRef} collapsable={false}>
               <TouchableOpacity
                 style={styles.addButtonOutside}

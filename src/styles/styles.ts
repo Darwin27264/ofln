@@ -319,6 +319,14 @@ export const createStyles = (colors: ThemeColors) => StyleSheet.create({
     justifyContent: "center",
   },
   /** Frosted “New ↓” control when scrolled away from latest messages. */
+  jumpToLatestWrapper: {
+    position: "absolute",
+    top: 24,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 15,
+  },
   jumpToLatestPill: {
     alignSelf: "center",
     flexDirection: "row",

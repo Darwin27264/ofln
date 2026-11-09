@@ -4,6 +4,8 @@
 
 export {
   HueLoadingIndicator,
+  DEFAULT_HUE_LOADER_WIDTH,
+  DEFAULT_HUE_LOADER_HEIGHT,
   type HueLoadingIndicatorProps,
   type HueMode,
 } from './HueLoadingIndicator';

@@ -22,7 +22,12 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import { MessageMarkdown } from './MessageMarkdown';
 import { StreamingMessageText } from './StreamingMessageText';
-import { HueLoadingIndicator, type HueMode } from './loading-ui/HueLoadingIndicator';
+import {
+  HueLoadingIndicator,
+  DEFAULT_HUE_LOADER_WIDTH,
+  DEFAULT_HUE_LOADER_HEIGHT,
+  type HueMode,
+} from './loading-ui/HueLoadingIndicator';
 import { TextBlink } from './loading-ui/TextBlink';
 import { lineHeightForChatFont, bubbleMetricsForChatFont } from '../utils/chatFontSize';
 import { FrostedGlass } from './FrostedGlass';
@@ -72,40 +77,57 @@ export type MessageListItem = {
   attachments?: MessageListAttachment[];
 } & MessagePersonaFields;
 
+/** Unified pill bubble dimensions for both waiting and thinking states. */
+const LOADING_PILL_WIDTH = DEFAULT_HUE_LOADER_WIDTH;
+const LOADING_PILL_HEIGHT = DEFAULT_HUE_LOADER_HEIGHT;
+
 /** Waiting for first tokens — customized ambient hue moving & breathing animation. */
 const ChatLoadingIndicator: React.FC<{
   mode?: HueMode;
   color?: string;
 }> = React.memo(({ mode, color }) => (
   <View style={{ paddingVertical: 4, paddingHorizontal: 2, justifyContent: 'center' }}>
-    <HueLoadingIndicator mode={mode} color={color} />
+    <HueLoadingIndicator
+      mode={mode}
+      color={color}
+      width={LOADING_PILL_WIDTH}
+      height={LOADING_PILL_HEIGHT}
+    />
   </View>
 ));
 ChatLoadingIndicator.displayName = 'ChatLoadingIndicator';
 
-/** Model is in a thinking / CoT phase — subtle hue pulse beside TextBlink. */
+/** Model is in a thinking / CoT phase — "Thinking" text placed comfortably inside the loading pill. */
 const ThinkingIndicator: React.FC<{
-  color: string;
+  color?: string;
   mode?: HueMode;
-}> = React.memo(({ color, mode }) => (
-  <View
-    style={{
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      paddingVertical: 4,
-      paddingHorizontal: 2,
-    }}
-  >
-    <HueLoadingIndicator mode={mode} width={36} height={20} />
-    <TextBlink
-      accessibilityLabel="Thinking"
-      style={{ fontSize: 14, color }}
-    >
-      Thinking
-    </TextBlink>
-  </View>
-));
+}> = React.memo(({ color, mode }) => {
+  const { theme } = useTheme();
+  const textColor = color || theme.colors.textSecondary;
+
+  return (
+    <View style={{ paddingVertical: 4, paddingHorizontal: 2, justifyContent: 'center' }}>
+      <HueLoadingIndicator
+        mode={mode}
+        width={LOADING_PILL_WIDTH}
+        height={LOADING_PILL_HEIGHT}
+        accessibilityLabel="Thinking"
+      >
+        <TextBlink
+          accessibilityLabel="Thinking"
+          minOpacity={0.55}
+          style={{
+            fontSize: 12,
+            color: textColor,
+            letterSpacing: 0.3,
+          }}
+        >
+          Thinking
+        </TextBlink>
+      </HueLoadingIndicator>
+    </View>
+  );
+});
 ThinkingIndicator.displayName = 'ThinkingIndicator';
 
 const PulsingPersonaAvatar: React.FC<{
@@ -493,6 +515,12 @@ export function MessageList({
     };
   }, [chatSwitchTrigger]);
 
+  const handleScrollBeginDrag = useCallback(() => {
+    // User began dragging manually — disarm thread stick-to-newest so
+    // content size changes and reflows never snap the scroll offset.
+    stickToNewestRef.current = false;
+  }, []);
+
   const handleListScroll = useCallback(
     (event: any) => {
       const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -501,7 +529,7 @@ export function MessageList({
       const distanceFromBottom =
         contentSize.height - layoutMeasurement.height - contentOffset.y;
       // User left the newest edge — stop force-sticking this thread open.
-      if (distanceFromBottom > 80) {
+      if (distanceFromBottom > 30) {
         stickToNewestRef.current = false;
       }
       onScroll(event);
@@ -809,6 +837,7 @@ export function MessageList({
         ref={scrollViewRef}
         onLayout={handleScrollViewLayout}
         onScroll={handleListScroll}
+        onScrollBeginDrag={handleScrollBeginDrag}
         scrollEventThrottle={16}
         onContentSizeChange={handleContentSizeChange}
       >

@@ -78,7 +78,15 @@ import {
   estimateContextFullness,
   shouldShowContextFullnessBanner,
 } from "../utils/contextFullness";
-import { getModelSettings, DEFAULT_SETTINGS } from "../services/modelSettingsService";
+import { getModelSettings, saveModelSettings, DEFAULT_SETTINGS } from "../services/modelSettingsService";
+import {
+  parseSlashCommand,
+  buildHelpMarkdown,
+  buildStatsMarkdown,
+  buildContextMarkdown,
+  buildExportMarkdown,
+  type SlashCommand,
+} from "../utils/slashCommands";
 import { showAlert } from "../components/CustomAlert";
 import { BottomSheet } from "../components/BottomSheet";
 import { SegmentedTabBar } from "../components/SegmentedTabBar";
@@ -519,8 +527,22 @@ const ConversationScreen = React.memo(function ConversationScreen({
   });
 
   // Single source of truth for rendering — never mirror into parent on every token.
-  const conversation = aiChat.messages as Message[];
-  const isGenerating = aiChat.isGenerating;
+  const [demoState, setDemoState] = useState<{
+    messages: Message[];
+    isGenerating: boolean;
+  } | null>(null);
+  const demoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const demoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
+      if (demoIntervalRef.current) clearInterval(demoIntervalRef.current);
+    };
+  }, []);
+
+  const conversation = (demoState?.messages ?? aiChat.messages) as Message[];
+  const isGenerating = demoState ? demoState.isGenerating : aiChat.isGenerating;
   const isLoading = aiChat.isLoading;
   const tokensPerSecond = aiChat.tokensPerSecond;
   const hasStartedChat = conversation.some((m) => m.role === 'user');
@@ -1710,6 +1732,270 @@ const ConversationScreen = React.memo(function ConversationScreen({
    */
   const scaleAnim = useRef(new Animated.Value(1)).current;
   
+  const runThinkingDemo = useCallback(() => {
+    setUserInput('');
+    setPendingAttachment(null);
+    void stopListening();
+
+    if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
+    if (demoIntervalRef.current) clearInterval(demoIntervalRef.current);
+
+    const baseMsgs = (demoState?.messages ?? aiChat.messages) as Message[];
+    const userMsg: Message = {
+      role: 'user',
+      content: '/thinking',
+      createdAt: new Date(),
+    };
+    const assistantMsg: Message = {
+      role: 'assistant',
+      content: '',
+      thought: 'Analyzing reasoning pathways and demonstrating thinking pill UI...',
+      createdAt: new Date(),
+    };
+
+    setDemoState({
+      messages: [...baseMsgs, userMsg, assistantMsg],
+      isGenerating: true,
+    });
+    scrollChatToEnd(true);
+
+    // After 3.5 seconds of thinking, stream the response text
+    demoTimerRef.current = setTimeout(() => {
+      const responseText =
+        'Here is an example of the thinking pill bubble! When a reasoning model (such as DeepSeek-R1 or Qwen 3.5) generates internal reasoning, the loading pill displays "Thinking" until the response starts streaming.';
+
+      let charIndex = 0;
+      demoIntervalRef.current = setInterval(() => {
+        charIndex += 4;
+        const currentSlice = responseText.slice(0, charIndex);
+        setDemoState({
+          messages: [
+            ...baseMsgs,
+            userMsg,
+            {
+              ...assistantMsg,
+              content: currentSlice,
+            },
+          ],
+          isGenerating: true,
+        });
+        scrollChatToEnd(false);
+
+        if (charIndex >= responseText.length) {
+          if (demoIntervalRef.current) clearInterval(demoIntervalRef.current);
+          setDemoState({
+            messages: [
+              ...baseMsgs,
+              userMsg,
+              {
+                ...assistantMsg,
+                content: responseText,
+                showThought: false,
+              },
+            ],
+            isGenerating: false,
+          });
+        }
+      }, 30);
+    }, 3500);
+  }, [demoState, aiChat.messages, scrollChatToEnd, stopListening]);
+
+  const runStreamDemo = useCallback(() => {
+    setUserInput('');
+    setPendingAttachment(null);
+    void stopListening();
+
+    if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
+    if (demoIntervalRef.current) clearInterval(demoIntervalRef.current);
+
+    const baseMsgs = (demoState?.messages ?? aiChat.messages) as Message[];
+    const userMsg: Message = {
+      role: 'user',
+      content: '/demo stream',
+      createdAt: new Date(),
+    };
+    const assistantMsg: Message = {
+      role: 'assistant',
+      content: '',
+      createdAt: new Date(),
+    };
+
+    setDemoState({
+      messages: [...baseMsgs, userMsg, assistantMsg],
+      isGenerating: true,
+    });
+    scrollChatToEnd(true);
+
+    const fullDemoText =
+      'This is a demonstration of real-time token streaming in OFLN! All inference runs 100% locally on your device with no telemetry, cloud servers, or network calls. Speed and latency depend on your phone\'s GPU and NPU.';
+
+    let charIdx = 0;
+    demoIntervalRef.current = setInterval(() => {
+      charIdx += 3;
+      const slice = fullDemoText.slice(0, charIdx);
+      setDemoState({
+        messages: [
+          ...baseMsgs,
+          userMsg,
+          {
+            ...assistantMsg,
+            content: slice,
+          },
+        ],
+        isGenerating: true,
+      });
+      scrollChatToEnd(false);
+
+      if (charIdx >= fullDemoText.length) {
+        if (demoIntervalRef.current) clearInterval(demoIntervalRef.current);
+        setDemoState({
+          messages: [
+            ...baseMsgs,
+            userMsg,
+            {
+              ...assistantMsg,
+              content: fullDemoText,
+            },
+          ],
+          isGenerating: false,
+        });
+      }
+    }, 28);
+  }, [demoState, aiChat.messages, scrollChatToEnd, stopListening]);
+
+  const handleExecuteSlashCommand = useCallback(
+    async (rawInput: string): Promise<boolean> => {
+      const parsed = parseSlashCommand(rawInput);
+      if (!parsed) return false;
+
+      const { command, args } = parsed;
+      setUserInput('');
+      setPendingAttachment(null);
+      void stopListening();
+
+      if (command.name === 'clear') {
+        handleNewChatPress();
+        showToast('Started a fresh conversation');
+        return true;
+      }
+
+      if (command.name === 'compact') {
+        void handleSummarizeContext();
+        return true;
+      }
+
+      if (command.name === 'demo') {
+        if (args.toLowerCase() === 'stream') {
+          runStreamDemo();
+        } else {
+          runThinkingDemo();
+        }
+        return true;
+      }
+
+      if (command.name === 'export') {
+        const { markdown, turnsCount } = buildExportMarkdown({
+          messages: conversation,
+          chatTitle: currentChatId ? `Chat ${currentChatId.slice(0, 8)}` : 'OFLN Conversation',
+        });
+        Clipboard.setString(markdown);
+        showToast(`Copied ${turnsCount} messages as Markdown to clipboard`);
+        return true;
+      }
+
+      const userMsg: Message = {
+        role: 'user',
+        content: rawInput.trim(),
+        createdAt: new Date(),
+      };
+
+      let replyContent = '';
+      if (command.name === 'help') {
+        replyContent = buildHelpMarkdown();
+      } else if (command.name === 'stats') {
+        replyContent = await buildStatsMarkdown({
+          selectedModelName: selectedGGUF,
+          accelLabel: selectedAccelLabel,
+          accelDetail: selectedAccelDetail,
+        });
+      } else if (command.name === 'context') {
+        let n_ctx = 2048;
+        if (selectedGGUF) {
+          try {
+            const settings = await getModelSettings(selectedGGUF);
+            if (settings?.n_ctx) n_ctx = settings.n_ctx;
+          } catch {}
+        }
+        replyContent = buildContextMarkdown({
+          messages: conversation,
+          n_ctx,
+        });
+      } else if (command.name === 'temp') {
+        if (!args) {
+          let curTemp = DEFAULT_SETTINGS.temperature;
+          if (selectedGGUF) {
+            try {
+              const settings = await getModelSettings(selectedGGUF);
+              if (settings?.temperature !== undefined) curTemp = settings.temperature;
+            } catch {}
+          }
+          replyContent = `🌡️ **Current Sampling Temperature:** \`${curTemp}\`\n\n*To adjust, type \`/temp <value>\` (e.g. \`/temp 0.2\` for strict coding, or \`/temp 0.8\` for creative writing).*\n`;
+        } else {
+          const val = parseFloat(args);
+          if (isNaN(val) || val < 0.0 || val > 2.0) {
+            replyContent = `⚠️ Invalid temperature \`${args}\`. Please provide a number between \`0.0\` and \`2.0\` (e.g. \`/temp 0.7\`).\n`;
+          } else if (!selectedGGUF) {
+            replyContent = `⚠️ No model is currently loaded. Temperature will default to \`${val.toFixed(2)}\` when a model is selected.\n`;
+          } else {
+            try {
+              const settings = await getModelSettings(selectedGGUF);
+              await saveModelSettings(selectedGGUF, { ...settings, temperature: val });
+              replyContent = `✅ **Temperature Updated:** Model sampling temperature set to \`${val.toFixed(2)}\` for \`${selectedGGUF}\`.\n`;
+            } catch (err: any) {
+              replyContent = `⚠️ Failed to save temperature setting: ${err?.message || 'Unknown error'}\n`;
+            }
+          }
+        }
+      }
+
+      const assistantMsg: Message = {
+        role: 'assistant',
+        content: replyContent,
+        createdAt: new Date(),
+      };
+
+      aiChat.setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      scrollChatToEnd(true);
+      return true;
+    },
+    [
+      conversation,
+      selectedGGUF,
+      selectedAccelLabel,
+      selectedAccelDetail,
+      currentChatId,
+      handleNewChatPress,
+      handleSummarizeContext,
+      runThinkingDemo,
+      runStreamDemo,
+      showToast,
+      stopListening,
+      aiChat.setMessages,
+      scrollChatToEnd,
+    ],
+  );
+
+  const handleSelectSlashCommand = useCallback(
+    (cmd: SlashCommand) => {
+      if (cmd.hasArgs) {
+        setUserInput(`${cmd.label} `);
+      } else {
+        void handleExecuteSlashCommand(cmd.label);
+      }
+    },
+    [handleExecuteSlashCommand],
+  );
+
   /**
    * Handle sending a message
    * 
@@ -1725,6 +2011,13 @@ const ConversationScreen = React.memo(function ConversationScreen({
     if (sendPrepareRef.current || isOcrRunning || isGenerating || isLoading) {
       return;
     }
+
+    const displayContent = userInput.trim();
+    if (displayContent.startsWith('/')) {
+      const handled = await handleExecuteSlashCommand(displayContent);
+      if (handled) return;
+    }
+
     if (!llamaProvider.isReady() || !selectedGGUF) {
       warnModelNotLoaded();
       return;
@@ -1733,7 +2026,6 @@ const ConversationScreen = React.memo(function ConversationScreen({
     // Freeze dictation before snapshoting / clearing the composer.
     void stopListening();
 
-    const displayContent = userInput.trim();
     // Snapshot — UI may clear while the send animation runs.
     const attachment = pendingAttachment;
     if (!displayContent && !attachment) {
@@ -2950,8 +3242,12 @@ const ConversationScreen = React.memo(function ConversationScreen({
 
   // Keep the latest turn visible above the rising composer when the keyboard opens.
   // Skip while editing a user bubble — MessageList keeps that bubble in view instead.
+  const prevKeyboardPaddingRef = useRef(keyboardPadding);
   useEffect(() => {
-    if (keyboardPadding <= 0 || !autoScrollEnabled || isEditingMessage) return;
+    const keyboardOpened =
+      keyboardPadding > 0 && prevKeyboardPaddingRef.current !== keyboardPadding;
+    prevKeyboardPaddingRef.current = keyboardPadding;
+    if (!keyboardOpened || !autoScrollEnabled || isEditingMessage) return;
     scrollChatToEnd(false);
     const t = setTimeout(() => scrollChatToEnd(false), 280);
     return () => clearTimeout(t);
@@ -3359,7 +3655,18 @@ const ConversationScreen = React.memo(function ConversationScreen({
           isLoading={isLoading}
           sendDisabled={sendButtonDisabled}
           onSend={handleSendMessage}
-          onStop={aiChat.stop}
+          onSelectSlashCommand={handleSelectSlashCommand}
+          onStop={
+            demoState?.isGenerating
+              ? () => {
+                  if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
+                  if (demoIntervalRef.current) clearInterval(demoIntervalRef.current);
+                  setDemoState((prev) =>
+                    prev ? { ...prev, isGenerating: false } : null,
+                  );
+                }
+              : aiChat.stop
+          }
           isListening={isListening}
           onMicPress={handleMicPress}
           addButtonRef={addButtonRef}
