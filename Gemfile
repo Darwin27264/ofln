@@ -6,6 +6,8 @@ ruby ">= 2.6.10"
 # Exclude problematic versions of cocoapods and activesupport that causes build failures.
 # Pin json < 2.8.0 because json >= 2.8.0 removed the quirks_mode parameter used by cocoapods-core
 gem 'json', '< 2.8.0'
+# Ruby 3.4 removed kconv from the default gems. CFPropertyList (CocoaPods) still requires it.
+gem 'nkf'
 gem 'cocoapods', '>= 1.13', '!= 1.15.0', '!= 1.15.1'
 gem 'activesupport', '>= 6.1.7.5', '!= 7.1.0'
 gem 'xcodeproj', '< 1.26.0'

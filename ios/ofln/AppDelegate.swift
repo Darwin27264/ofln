@@ -20,8 +20,8 @@ class AppDelegate: RCTAppDelegate {
       }
       return .white
     }
-    self.window?.backgroundColor = shell
-    self.window?.rootViewController?.view.backgroundColor = shell
+    self.window.backgroundColor = shell
+    self.window.rootViewController?.view.backgroundColor = shell
     return ok
   }
 

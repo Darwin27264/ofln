@@ -32,6 +32,17 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>ofln connects to the Metro bundler on your local network while you are developing.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_http._tcp</string>
+	</array>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Ionicons.ttf</string>
+		<string>MaterialIcons.ttf</string>
+	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a photo or screenshot to read text from in the chat.</string>
 	<key>NSCameraUsageDescription</key>

@@ -133,10 +133,10 @@ Here is what sets ofln apart:
 
 | Requirement | Notes |
 |-------------|--------|
-| **Node.js** | ≥ 18 |
-| **JDK** | JDK 17+ (prefer 21) for Android builds (Gradle 8.12). Set `JAVA_HOME`. |
+| **Node.js** | ≥ 18, on `PATH` (`node -v`) before `npm` or CocoaPods. If `node` is missing, install Node 20 and open a new shell |
+| **JDK** | JDK 17+ (prefer 21) for Android builds (Gradle 8.12). Prefer Android Studio’s bundled JBR and set `JAVA_HOME` |
 | **Android Studio / SDK** | Android NDK `27.1.12297006` and CMake 3.22.1+ |
-| **Xcode & CocoaPods** | iOS builds (macOS only) |
+| **Xcode & CocoaPods** | iOS builds (macOS only). Minimum iOS 15.5. Use Ruby 3.2+; system Ruby 2.6 cannot build native gems under recent Xcode |
 | **New Architecture** | Enabled in project configs (required by `llama.rn`) |
 
 ---
@@ -147,19 +147,21 @@ Here is what sets ofln apart:
 git clone https://github.com/Darwin27264/ofln.git
 cd ofln
 cp android/gradle.properties.example android/gradle.properties
-npm install
+npm ci          # or: npm install
 ```
 
-**iOS (macOS):**
+**iOS (macOS)** — from the repo root, with Node ≥ 18 on `PATH`:
 
 ```bash
-cd ios
-bundle install
-bundle exec pod install
+cd ios && bundle install && bundle exec pod install
 cd ..
 ```
 
-**Run Development Build:**
+Open `ios/ofln.xcworkspace` in Xcode (not `ofln.xcodeproj`). Bundle id is `com.ofln`.
+
+If `pod install` fails: system Ruby 2.6 cannot build native gems under current Xcode (use Ruby 3.2+). The Gemfile includes `nkf` because Ruby 3.4 removed `kconv` and CocoaPods / CFPropertyList still needs it. The Podfile patches `module ::JSON` because Podfiles are `instance_eval`'d inside `Pod::Podfile` on Ruby 3.2+. Minimum iOS is 15.5 because ML Kit text recognition requires it.
+
+**Run Development Build** — Metro in one terminal, the app in another:
 
 ```bash
 npm start          # Start Metro bundler
